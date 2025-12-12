@@ -1,14 +1,15 @@
-import FullPageLoader from "./components/loaders/fullpageloader"
-import { Navbar } from "./components/navigation/Navbar"
+// App.tsx
+import { BrowserRouter } from "react-router-dom";
+
+import AppRoutes from "./routes/publicRoutes";
 
 
 const App = () => {
   return (
-    <>
-    {/* <FullPageLoader/> */}
-      <Navbar />
-    </>
-  )
-}
+    <BrowserRouter>
+      <AppRoutes />
+    </BrowserRouter>
+  );
+};
 
-export default App
+export default App;

@@ -24,7 +24,7 @@ export const TopBar: React.FC = () => {
   };
 
   return (
-    <div className="w-full bg-secondary dark:bg-background text-white py-2 px-4 text-xs md:text-sm">
+    <div className="w-full bg-secondary dark:bg-background/90 text-white py-2 px-4 text-xs md:text-sm">
       <div className="max-w-11/12 mx-auto flex justify-end items-center gap-6 relative">
 
         {/* LANGUAGE DROPDOWN */}

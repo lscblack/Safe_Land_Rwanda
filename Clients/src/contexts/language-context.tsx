@@ -1,6 +1,6 @@
 // src/contexts/language-context.tsx
 import React, { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
-import { translations } from '../components/langs/alllangs';
+import { translations } from '../langs/alllangs';
 
 export type Language = 'EN' | 'FR' | 'KIN';
 

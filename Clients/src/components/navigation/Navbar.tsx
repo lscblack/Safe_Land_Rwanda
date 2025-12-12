@@ -24,7 +24,7 @@ export const Navbar = () => {
                     "w-full transition-all duration-300 border-b text-primary dark:text-white",
                     scrolled
                         ? "bg-white/95 dark:bg-secondary backdrop-blur-md py-2 shadow-md border-gray-200 dark:border-gray-700"
-                        : "bg-secondary/5 dark:bg-background py-4 border-transparent"
+                        : "bg-slate-50 dark:bg-background py-4 border-transparent"
                 )}
             >
                 <div className="max-w-11/12 mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center">
