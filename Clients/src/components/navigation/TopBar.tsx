@@ -24,7 +24,7 @@ export const TopBar: React.FC = () => {
   };
 
   return (
-    <div className="w-full bg-secondary dark:bg-background/90 text-white py-2 px-4 text-xs md:text-sm">
+    <div className="w-full bg-secondary dark:bg-slate-800 text-white py-2 px-4 text-xs md:text-sm">
       <div className="max-w-11/12 mx-auto flex justify-end items-center gap-6 relative">
 
         {/* LANGUAGE DROPDOWN */}
@@ -41,7 +41,7 @@ export const TopBar: React.FC = () => {
 
           {/* DROPDOWN MENU */}
           {langOpen && (
-            <div className="absolute right-0 mt-2 w-36 bg-white dark:bg-secondary shadow-lg rounded-md border border-gray-200 dark:border-gray-700 z-50">
+            <div className="absolute right-0 mt-2 w-36 bg-white dark:bg-background shadow-lg rounded-md border border-gray-200 dark:border-gray-700 z-50">
               {languages.map((lang) => (
                 <div
                   key={lang.code}
@@ -49,7 +49,7 @@ export const TopBar: React.FC = () => {
                   className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition"
                 >
                   <span className="text-lg">{lang.flag}</span>
-                  <span className="text-sm text-gray-900 dark:text-white">
+                  <span className="text-sm text-gray-900 dark:text-secondary hover:text-white">
                     {lang.label}
                   </span>
                 </div>
@@ -83,7 +83,7 @@ export const TopBar: React.FC = () => {
 
           <a
             href="/register"
-            className="bg-primary hover:bg-blue-600 text-white px-3 py-1 rounded-sm font-semibold transition-colors"
+            className="bg-primary hover:bg-primary/70 text-white px-3 py-1 rounded-sm font-semibold transition-colors"
           >
             {t('topbar.register')}
           </a>

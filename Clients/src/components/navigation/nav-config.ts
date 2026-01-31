@@ -7,76 +7,95 @@ export interface NavItemType {
   href: string;
   icon?: React.ElementType;
   isHot?: boolean;
-  children?: { 
-    label: string; 
+  children?: {
+    label: string;
     translationKey: string; // Add for child translations
-    href: string 
+    href: string
   }[];
 }
 
 export const NAV_ITEMS: NavItemType[] = [
-  { 
-    label: "Home", 
+  {
+    label: "Home",
     translationKey: "nav.home",
-    href: "/", 
-    icon: Home 
+    href: "/",
+    icon: Home
   },
-  { 
-    label: "About", 
+  {
+    label: "About",
     translationKey: "nav.about",
-    href: "/about", 
-    icon: Info 
+    href: "/about",
+    icon: Info
   },
-  { 
-    label: "Services", 
+  {
+    label: "Services",
     translationKey: "nav.services",
-    href: "/services", 
-    icon: Briefcase 
+    href: "/services",
+    icon: Briefcase
   },
-  { 
-    label: "Properties", 
+  {
+    label: "Properties",
     translationKey: "nav.properties",
-    href: "/properties", 
+    href: "/properties",
     icon: Building2,
     children: [
-      { 
-        label: "Buy Property", 
+      {
+        label: "Buy Property",
         translationKey: "nav.properties.buy",
-        href: "/properties/buy" 
+        href: "/properties/buy"
       },
-      { 
-        label: "Sell Property", 
+      {
+        label: "Sell Property",
         translationKey: "nav.properties.sell",
-        href: "/properties/sell" 
+        href: "/properties/sell"
       },
-      { 
-        label: "Commercial Buildings", 
+      {
+        label: "Commercial Buildings",
         translationKey: "nav.properties.commercial",
-        href: "/properties/commercial" 
+        href: "/properties/commercial"
       },
-      { 
-        label: "Houses & Apartments", 
+      {
+        label: "Houses & Apartments",
         translationKey: "nav.properties.houses",
-        href: "/properties/houses" 
+        href: "/properties/houses"
       },
-      { 
-        label: "Land & Plots", 
+      {
+        label: "Land & Plots",
         translationKey: "nav.properties.land",
-        href: "/properties/land" 
+        href: "/properties/land"
       },
     ]
   },
-  { 
-    label: "Blockers", 
+  {
+    label: "Blockers",
     translationKey: "nav.blockers",
-    href: "/blockers", 
-    icon: ShieldAlert 
+    href: "/blockers",
+    icon: ShieldAlert,
+    children: [
+      {
+        label: "Buy Property",
+        translationKey: "nav.properties.buy",
+        href: "/properties/buy"
+      },
+      {
+        label: "Sell Property",
+        translationKey: "nav.properties.sell",
+        href: "/properties/sell"
+      }
+    ]
   },
-  { 
-    label: "Hot Deals", 
+  {
+    label: "Hot Deals",
     translationKey: "nav.hotDeals",
-    href: "/deals", 
-    icon: Flame, 
-    isHot: true 
+    href: "/deals",
+    icon: Flame,
+    isHot: true
+  },
+  {
+    label: "Market Trends",
+    translationKey: "nav.marketTrends",
+    href: "/market-trends",
+    icon: Flame,
+    isHot: true
   },
 ];

@@ -5,7 +5,10 @@ import { MobileMenu } from "./MobileMenu";
 import { Menu, X } from "lucide-react";
 import { clsx } from "clsx";
 
-export const Navbar = () => {
+interface NavBarProps{
+isFixed?:boolean
+}
+export const Navbar = ({ isFixed = false}: NavBarProps) => {
     const [isOpen, setIsOpen] = useState(false);
     const [scrolled, setScrolled] = useState(false);
 
@@ -16,14 +19,14 @@ export const Navbar = () => {
     }, []);
 
     return (
-        <header className="fixed w-full top-0 z-50 font-sans">
+        <header className={`${isFixed && !scrolled ? "" : "fixed"} w-full top-0 z-50 font-sans`}>
             <TopBar />
 
             <nav
                 className={clsx(
                     "w-full transition-all duration-300 border-b text-primary dark:text-white",
                     scrolled
-                        ? "bg-white/95 dark:bg-secondary backdrop-blur-md py-2 shadow-md border-gray-200 dark:border-gray-700"
+                        ? "bg-white/95 dark:bg-background backdrop-blur-md py-2 shadow-md border-gray-200 dark:border-gray-700"
                         : "bg-slate-50 dark:bg-background py-4 border-transparent"
                 )}
             >
