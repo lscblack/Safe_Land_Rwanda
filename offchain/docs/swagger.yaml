@@ -1,0 +1,577 @@
+basePath: /
+definitions:
+  handlers.CreateAdminRequest:
+    properties:
+      roles:
+        items:
+          type: string
+        type: array
+      user_id:
+        type: integer
+    type: object
+  handlers.EmailRequest:
+    properties:
+      message:
+        type: string
+      subject:
+        type: string
+      title:
+        type: string
+      to:
+        type: string
+    type: object
+  handlers.FrontendLoginRequest:
+    properties:
+      password:
+        type: string
+      username:
+        type: string
+    type: object
+  handlers.LIIPLoginRequest:
+    properties:
+      id_or_email:
+        type: string
+      password:
+        type: string
+    type: object
+  handlers.LIIPTokenRequest:
+    properties:
+      token:
+        type: string
+    type: object
+  handlers.LoginRequest:
+    properties:
+      password:
+        type: string
+      username:
+        type: string
+    type: object
+  handlers.OTPRequest:
+    properties:
+      email:
+        type: string
+      phone:
+        type: string
+      type:
+        description: '"email" or "phone"'
+        type: string
+    type: object
+  handlers.ParcelRequest:
+    properties:
+      owner_id:
+        example: "1200480002578150"
+        type: string
+      upi:
+        example: 1/02/04/01/2795
+        type: string
+    type: object
+  handlers.RegisterRequest:
+    properties:
+      avatar:
+        type: string
+      country:
+        type: string
+      email:
+        type: string
+      first_name:
+        type: string
+      id_type:
+        type: string
+      last_name:
+        type: string
+      middle_name:
+        type: string
+      n_id_number:
+        type: string
+      password:
+        type: string
+      phone:
+        type: string
+      username:
+        type: string
+    type: object
+  handlers.ResetEmailRequest:
+    properties:
+      email:
+        type: string
+      name:
+        type: string
+    type: object
+  handlers.UPIsRequest:
+    properties:
+      id_type:
+        example: NID
+        type: string
+      owner_id:
+        example: "1200480002578150"
+        type: string
+    type: object
+  handlers.UpdateUserRoleRequest:
+    properties:
+      roles:
+        items:
+          type: string
+        type: array
+      user_id:
+        type: integer
+    type: object
+host: localhost:3000
+info:
+  contact:
+    email: fiber@swagger.io
+    name: API Support
+  description: This is the API for the SafeLand project. All endpoints (except /api/frontend/login)
+    require Bearer token authentication.
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+  termsOfService: http://swagger.io/terms/
+  title: SafeLand API
+  version: "1.0"
+paths:
+  /api/admin/create:
+    post:
+      consumes:
+      - application/json
+      description: Create a new admin (only superAdmin can access)
+      parameters:
+      - description: Admin
+        in: body
+        name: user
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.CreateAdminRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      security:
+      - Bearer: []
+      summary: Create admin
+      tags:
+      - Admin
+  /api/external/gis-extract:
+    get:
+      consumes:
+      - application/json
+      description: Get plot shape GIS data by UPI
+      parameters:
+      - description: Unique Parcel Identifier
+        in: query
+        name: upi
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get plot shape by UPI
+      tags:
+      - External Services
+  /api/external/parcel:
+    post:
+      consumes:
+      - application/json
+      description: Get parcel information by providing UPI
+      parameters:
+      - description: Parcel Request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.ParcelRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get parcel by UPI
+      tags:
+      - External Services
+  /api/external/phoneuser/{phone}:
+    get:
+      consumes:
+      - application/json
+      description: Get NID information by phone number
+      parameters:
+      - description: Phone Number
+        in: path
+        name: phone
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get NID by phone number
+      tags:
+      - External Services
+  /api/external/tax-arrears:
+    get:
+      consumes:
+      - application/json
+      description: Get tax arrears information for a parcel by UPI
+      parameters:
+      - description: Unique Parcel Identifier
+        in: query
+        name: upi
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get tax arrears by UPI
+      tags:
+      - External Services
+  /api/external/title:
+    get:
+      consumes:
+      - application/json
+      description: Get e-title document by UPI and language (returns PDF file)
+      parameters:
+      - description: Unique Parcel Identifier
+        in: query
+        name: upi
+        required: true
+        type: string
+      - description: Language (english, french,kinyarwanda etc)
+        in: query
+        name: language
+        required: true
+        type: string
+      produces:
+      - application/pdf
+      responses:
+        "200":
+          description: PDF file
+          schema:
+            type: file
+      security:
+      - BearerAuth: []
+      summary: Get title by UPI
+      tags:
+      - External Services
+  /api/external/upis:
+    post:
+      consumes:
+      - application/json
+      description: Get all UPIs for an owner. Authenticates with external service
+        and retrieves UPIs
+      parameters:
+      - description: UPIs Request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.UPIsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get UPIs by owner ID
+      tags:
+      - External Services
+  /api/frontend/login:
+    post:
+      consumes:
+      - application/json
+      description: Frontend application login
+      parameters:
+      - description: Frontend Login Request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.FrontendLoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      summary: Authenticate frontend application
+      tags:
+      - Frontend Auth
+  /api/liip/login:
+    post:
+      consumes:
+      - application/json
+      description: Login user from LIIP database with SHA-256 password verification
+      parameters:
+      - description: User
+        in: body
+        name: user
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.LIIPLoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Login LIIP user
+      tags:
+      - LIIP Authentication
+  /api/liip/user-from-token:
+    post:
+      consumes:
+      - application/json
+      description: Get user information from LIIP token
+      parameters:
+      - description: Token
+        in: body
+        name: token
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.LIIPTokenRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get LIIP user from token
+      tags:
+      - LIIP Authentication
+  /api/notifications/password-reset:
+    post:
+      consumes:
+      - application/x-www-form-urlencoded
+      description: Reset password (validates token and passwords)
+      parameters:
+      - description: Reset Token
+        in: formData
+        name: token
+        required: true
+        type: string
+      - description: New Password
+        in: formData
+        name: password
+        required: true
+        type: string
+      - description: Confirm Password
+        in: formData
+        name: confirm_password
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Reset password
+      tags:
+      - Notifications
+  /api/notifications/password-reset-form:
+    get:
+      description: Serve password reset form
+      parameters:
+      - description: Reset Token
+        in: query
+        name: token
+        required: true
+        type: string
+      produces:
+      - text/html
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Password reset form
+      tags:
+      - Notifications
+  /api/notifications/send-email:
+    post:
+      consumes:
+      - application/json
+      description: Send email notification
+      parameters:
+      - description: Email Request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.EmailRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Send email
+      tags:
+      - Notifications
+  /api/notifications/send-otp:
+    post:
+      consumes:
+      - application/json
+      description: Send the same OTP code via both SMS (to phone) and Email. The email
+        uses a professional template.
+      parameters:
+      - description: OTP Request (phone, email, type)
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.OTPRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Send OTP via SMS and Email
+      tags:
+      - Notifications
+  /api/notifications/send-reset-email:
+    post:
+      consumes:
+      - application/json
+      description: Send password reset email with a professional template
+      parameters:
+      - description: Reset Email Request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.ResetEmailRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Send password reset email
+      tags:
+      - Notifications
+  /api/user/login:
+    post:
+      consumes:
+      - application/json
+      description: Login a user
+      parameters:
+      - description: User
+        in: body
+        name: user
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.LoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Login a user
+      tags:
+      - User
+  /api/user/register:
+    post:
+      consumes:
+      - application/json
+      description: Register a new user
+      parameters:
+      - description: User
+        in: body
+        name: user
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.RegisterRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Register a new user
+      tags:
+      - User
+  /api/user/role:
+    put:
+      consumes:
+      - application/json
+      description: Update user role (role hierarchy enforcement)
+      parameters:
+      - description: User
+        in: body
+        name: user
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.UpdateUserRoleRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      security:
+      - Bearer: []
+      summary: Update user role
+      tags:
+      - User
+securityDefinitions:
+  BearerAuth:
+    description: Type "Bearer" followed by a space and JWT token.
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
