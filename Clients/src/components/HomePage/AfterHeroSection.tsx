@@ -1,19 +1,20 @@
-import React, { useState, useEffect } from 'react';
+import  { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  ShieldCheck, AlertTriangle, XCircle,
+  ShieldCheck, AlertTriangle,
   Link, Lock, BrainCircuit, UserCheck, CheckCircle2,
   Ban, Gavel
 } from 'lucide-react';
 import { clsx } from 'clsx';
-import { useLanguage } from '../../contexts/language-context';
+// import { useLanguage } from '../../contexts/language-context';
 
 const FeaturesSection = () => {
-  const { t } = useLanguage();
+  // const { t } = useLanguage();
   const [activeTab, setActiveTab] = useState(0);
 
   // --- NLA SIMULATION STATE ---
   const [nlaState, setNlaState] = useState(0);
+  console.log( nlaState);
   useEffect(() => {
     if (activeTab === 0) {
       const interval = setInterval(() => {

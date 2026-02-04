@@ -83,7 +83,7 @@ export const CommunitySection = () => {
            </div>
            
            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-              {TOP_AGENTS.map((agent, idx) => (
+              {TOP_AGENTS.map((agent) => (
                  <motion.div 
                    key={agent.id}
                    whileHover={{ y: -5 }}
