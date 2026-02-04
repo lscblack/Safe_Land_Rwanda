@@ -2,7 +2,7 @@
 LIIP (Land Information Improvement Project) authentication routes
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_
 from pydantic import BaseModel, EmailStr
@@ -14,11 +14,13 @@ from jose import jwt, JWTError
 
 from data.database.database import get_db, get_liip_db
 from data.models.models import User, LIIPUser
+from data.services.notification_service import NotificationService
 from pkg.auth.auth import hash_password, generate_access_token, generate_refresh_token
 from pkg.roles import roles
 from pkg.utils.utils import generate_user_code
 from config.config import settings
 from api.middlewares.auth import verify_token
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +88,7 @@ def split_full_name(full_name: str) -> tuple:
 @router.post("/login", response_model=LIIPLoginResponse)
 async def login_liip_user(
     request: LIIPLoginRequest,
+    http_request: Request,
     db: AsyncSession = Depends(get_db),
     liip_db: AsyncSession = Depends(get_liip_db)
 ):
@@ -142,6 +145,19 @@ async def login_liip_user(
             refresh_token = generate_refresh_token(existing_user.id)
             
             logger.info(f"LIIP user login (existing account): {existing_user.username}")
+
+            ip_addr = http_request.client.host if http_request.client else "unknown"
+            user_agent = http_request.headers.get("user-agent", "unknown")
+            login_time = datetime.utcnow().isoformat() + "Z"
+            await NotificationService.send_login_alert_email(
+                db=db,
+                recipient=existing_user.email,
+                account_type="LIIP account",
+                ip_addr=ip_addr,
+                user_agent=user_agent,
+                login_time=login_time,
+                user_id=existing_user.id,
+            )
             
             return LIIPLoginResponse(
                 error=False,
@@ -218,6 +234,19 @@ async def login_liip_user(
         refresh_token = generate_refresh_token(new_user.id)
         
         logger.info(f"LIIP user login (new account created): {new_user.username}")
+
+        ip_addr = http_request.client.host if http_request.client else "unknown"
+        user_agent = http_request.headers.get("user-agent", "unknown")
+        login_time = datetime.utcnow().isoformat() + "Z"
+        await NotificationService.send_login_alert_email(
+            db=db,
+            recipient=new_user.email,
+            account_type="LIIP account (newly provisioned)",
+            ip_addr=ip_addr,
+            user_agent=user_agent,
+            login_time=login_time,
+            user_id=new_user.id,
+        )
         
         return LIIPLoginResponse(
             error=False,

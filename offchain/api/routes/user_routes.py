@@ -2,15 +2,17 @@
 User routes and handlers
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel, EmailStr, Field
 from typing import List, Optional
+from datetime import datetime
 import logging
 
 from data.database.database import get_db
 from data.models.models import User
+from data.services.notification_service import NotificationService
 from pkg.auth.auth import hash_password, verify_password, generate_access_token, generate_refresh_token, decode_refresh_token
 from pkg.roles import roles
 from pkg.utils.utils import generate_user_code
@@ -37,7 +39,7 @@ class RegisterRequest(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    username: str
+    identifier: str  # email, phone, or national ID
     password: str
 
 
@@ -183,6 +185,7 @@ async def register(
 @router.post("/login", response_model=LoginResponse)
 async def login(
     request: LoginRequest,
+    http_request: Request,
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -191,10 +194,15 @@ async def login(
     Authenticate user and return access and refresh tokens.
     """
     try:
-        # Find user by username
-        result = await db.execute(
-            select(User).where(User.username == request.username)
+        # Find user by email, phone, NID, or legacy username
+        identifier = request.identifier.strip()
+        query = select(User).where(
+            (User.email == identifier)
+            | (User.phone == identifier)
+            | (User.n_id_number == identifier)
+            | (User.username == identifier)
         )
+        result = await db.execute(query)
         user = result.scalar_one_or_none()
         
         if not user:
@@ -230,7 +238,21 @@ async def login(
         access_token = generate_access_token(user.id, user_roles)
         refresh_token = generate_refresh_token(user.id)
         
-        logger.info(f"User logged in: {user.username}")
+        logger.info(f"User logged in: {user.email}")
+
+        # Send login alert email
+        ip_addr = http_request.client.host if http_request.client else "unknown"
+        user_agent = http_request.headers.get("user-agent", "unknown")
+        login_time = datetime.utcnow().isoformat() + "Z"
+        await NotificationService.send_login_alert_email(
+            db=db,
+            recipient=user.email,
+            account_type="SafeLand main account",
+            ip_addr=ip_addr,
+            user_agent=user_agent,
+            login_time=login_time,
+            user_id=user.id,
+        )
         
         return LoginResponse(
             error=False,

@@ -342,6 +342,92 @@ class NotificationService:
     </table>
 </body>
 </html>"""
+
+    @staticmethod
+    def _render_login_alert_template(account_type: str, ip_addr: str, user_agent: str, login_time: str) -> str:
+        """Render login alert email using the same visual style as reset emails."""
+        return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SafeLand Login Alert</title>
+    <style>
+        body {{ margin: 0; padding: 0; background-color: #f5f7fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; color: #0a162e; }}
+        table {{ border-collapse: collapse; }}
+        .container {{ width: 100%; background-color: #f5f7fb; padding: 24px 0; }}
+        .card {{ width: 100%; max-width: 620px; margin: 0 auto; background: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08); }}
+        .header {{ background: linear-gradient(135deg, #395d91 0%, #2b4b7f 100%); padding: 28px 32px; color: #ffffff; }}
+        .header-title {{ font-size: 22px; font-weight: 700; margin: 0; letter-spacing: 0.3px; }}
+        .header-subtitle {{ font-size: 13px; opacity: 0.9; margin: 6px 0 0; }}
+        .badge {{ display: inline-block; background: #eaf0fb; color: #395d91; font-weight: 600; font-size: 12px; padding: 6px 10px; border-radius: 999px; letter-spacing: 0.3px; margin-bottom: 12px; }}
+        .content {{ padding: 32px; }}
+        .content h2 {{ margin: 0 0 12px; font-size: 22px; color: #0a162e; }}
+        .content p {{ margin: 0 0 18px; font-size: 15px; line-height: 1.7; color: #42526b; }}
+        .info-box {{ background: #f0f5ff; border: 1px solid #d7e3ff; border-radius: 12px; padding: 16px 18px; font-size: 14px; color: #1f3b73; }}
+        .info-box ul {{ padding-left: 18px; margin: 10px 0 0; color: #1f3b73; }}
+        .divider {{ height: 1px; background: #e6edf7; margin: 24px 0; }}
+        .security {{ background: #fff5f5; border-left: 4px solid #e11d48; padding: 12px 14px; border-radius: 8px; font-size: 12px; color: #7a1f3d; }}
+        .footer {{ padding: 24px 32px 30px; background: #f8fafc; text-align: center; }}
+        .footer p {{ margin: 6px 0; font-size: 12px; color: #667085; }}
+        .footer a {{ color: #395d91; text-decoration: none; }}
+        @media (max-width: 620px) {{ .content, .footer {{ padding: 24px; }} .header {{ padding: 24px; }} .header-title {{ font-size: 20px; }} }}
+    </style>
+</head>
+<body>
+    <table role="presentation" class="container" width="100%">
+        <tr>
+            <td align="center">
+                <table role="presentation" class="card" width="620">
+                    <tr>
+                        <td class="header">
+                            <div class="badge">SafeLand Rwanda</div>
+                            <h1 class="header-title">Account Login Alert</h1>
+                            <p class="header-subtitle">We detected a sign-in to your account</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="content">
+                            <h2>Login Details</h2>
+                            <p>We noticed a login to your account. If this wasn't you, please reset your password immediately.</p>
+                            <div class="info-box">
+                                <strong>Login type:</strong> {account_type}<br>
+                                <strong>IP address:</strong> {ip_addr}<br>
+                                <strong>Device/User-Agent:</strong> {user_agent}<br>
+                                <strong>Time (UTC):</strong> {login_time}
+                            </div>
+                            <div class="divider"></div>
+                            <div class="security">
+                                <strong>Security Notice:</strong> If this wasn't you, reset your password and contact support immediately.
+                            </div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="footer">
+                            <p>&copy; 2024 SafeLand Rwanda. All rights reserved.</p>
+                            <p>Empowering Rwanda's Land Management</p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>"""
+
+    @staticmethod
+    async def send_login_alert_email(
+        db: AsyncSession,
+        recipient: str,
+        account_type: str,
+        ip_addr: str,
+        user_agent: str,
+        login_time: str,
+        user_id: Optional[int] = None,
+    ) -> bool:
+        subject = "SafeLand login alert"
+        message = NotificationService._render_login_alert_template(account_type, ip_addr, user_agent, login_time)
+        return await NotificationService.send_email(db, recipient, subject, message, user_id=user_id, html=True)
     
     @staticmethod
     async def send_otp_email(
