@@ -1,0 +1,39 @@
+.PHONY: help install run dev test clean migrate
+
+help:
+	@echo "SafeLand API - FastAPI Version"
+	@echo ""
+	@echo "Available commands:"
+	@echo "  make install    - Install dependencies"
+	@echo "  make run        - Run the server"
+	@echo "  make dev        - Run in development mode with auto-reload"
+	@echo "  make test       - Run tests"
+	@echo "  make clean      - Clean cache files"
+	@echo "  make migrate    - Run database migrations"
+
+install:
+	@echo "📦 Installing dependencies..."
+	@eval "$$(conda shell.bash hook)" && conda activate fastapi_setup && pip install -r requirements.txt
+
+run:
+	@echo "🚀 Starting SafeLand API..."
+	@./run.sh
+
+dev:
+	@echo "🔧 Starting in development mode..."
+	@eval "$$(conda shell.bash hook)" && conda activate fastapi_setup && uvicorn main:app --reload --port 3000 --log-level debug
+
+test:
+	@echo "🧪 Running tests..."
+	@eval "$$(conda shell.bash hook)" && conda activate fastapi_setup && pytest
+
+clean:
+	@echo "🧹 Cleaning cache files..."
+	@find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+	@find . -type f -name "*.pyc" -delete 2>/dev/null || true
+	@find . -type d -name ".pytest_cache" -exec rm -rf {} + 2>/dev/null || true
+	@echo "✅ Clean complete"
+
+migrate:
+	@echo "📊 Running database migrations..."
+	@eval "$$(conda shell.bash hook)" && conda activate fastapi_setup && alembic upgrade head
