@@ -1,4 +1,4 @@
-import React from 'react';
+
 import { motion } from 'framer-motion';
 import { ShieldCheck, Fingerprint, Zap, ArrowRight, FileCheck, CheckCircle2 } from 'lucide-react';
 import { useLanguage } from '../../contexts/language-context';

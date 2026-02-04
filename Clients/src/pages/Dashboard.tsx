@@ -1,10 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import  { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     LayoutDashboard, Building2, Users, BarChart3, Settings,
-    Bell, Search, Menu, X, LogOut, ChevronDown,
-    TrendingUp, Wallet, ShieldCheck, MapPin,
-    MoreVertical, Globe, Sun, Moon, Home, Briefcase
+    Bell, Search, Menu, X, LogOut, Globe, Sun, Moon, Home, Briefcase
 } from 'lucide-react';
 import { clsx } from 'clsx';
 // --- YOUR CONTEXTS ---
@@ -24,8 +22,8 @@ export const DashboardLayout = () => {
     const [isProfileOpen, setProfileOpen] = useState(false);
     const [isNotifOpen, setNotifOpen] = useState(false);
     const [isLangMenuOpen, setLangMenuOpen] = useState(false);
-
-    // -- Refs --
+    console.log("Current Language:", isProfileOpen);
+    // -- Refs --   
     const profileRef = useRef<HTMLDivElement>(null);
     const notifRef = useRef<HTMLDivElement>(null);
     const langRef = useRef<HTMLDivElement>(null);

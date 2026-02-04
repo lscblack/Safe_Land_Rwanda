@@ -1,10 +1,7 @@
-import React from 'react';
-import { clsx } from 'clsx';
+
 
 export const SafeLandLoader = ({ fullScreen = true }: { fullScreen?: boolean }) => {
-  // Brand Colors
-  const PRIMARY = "#395d91";
-  const SECONDARY = "#0a162e";
+
 
   const containerClass = fullScreen
     ? "fixed inset-0 z-[100] flex flex-col items-center justify-center bg-gray-50 dark:bg-[#050c1a] transition-colors duration-300"

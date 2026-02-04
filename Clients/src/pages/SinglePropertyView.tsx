@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
-import { motion } from 'framer-motion';
+import  { useState } from 'react';
+
 import { 
   MapPin, Bed, Bath, Maximize, ShieldCheck, Share2, Heart, 
-  CheckCircle, Phone, Mail, Calendar, ArrowRight, User
+  CheckCircle, Mail, Calendar, ArrowRight
 } from 'lucide-react';
 import { clsx } from 'clsx';
 // --- YOUR CONTEXTS ---

@@ -1,12 +1,12 @@
-import React, { useState, useEffect, useRef } from 'react';
+import  { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-    Search, MapPin, Filter, ArrowRight, Home,
+    Search, MapPin, ArrowRight, Home,
     Building2, Trees, Briefcase, ShieldCheck, Heart,
     Zap, Star, ChevronLeft, ChevronRight, LayoutGrid
 } from 'lucide-react';
 import { clsx } from 'clsx';
-import { useLanguage } from '../contexts/language-context';
+// import { useLanguage } from '../contexts/language-context';
 import { Navbar } from '../components/navigation/Navbar';
 import { Footer } from '../components/navigation/FooterAll';
 
@@ -24,7 +24,7 @@ const PROPERTIES = {
 };
 
 export const MarketplaceIndex = () => {
-    const { t } = useLanguage();
+    // const { t } = useLanguage();
     const [activeCategory, setActiveCategory] = useState('All');
 
     return (

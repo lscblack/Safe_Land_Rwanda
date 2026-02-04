@@ -1,9 +1,9 @@
-import React from 'react';
+
 import { 
   Facebook, Twitter, Instagram, Linkedin, 
-  MapPin, Phone, Mail, ArrowRight, Send, ShieldCheck 
+  MapPin, Phone, Mail, Send, ShieldCheck 
 } from 'lucide-react';
-import { clsx } from 'clsx';
+
 import { useLanguage } from '../../contexts/language-context';
 // --- YOUR CONTEXTS ---
 
