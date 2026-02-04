@@ -9,7 +9,7 @@ import logging
 from config.config import settings
 import httpx
 
-from api.middlewares.auth import verify_frontend_token
+from api.middlewares.auth import verify_token
 
 
 logger = logging.getLogger(__name__)
@@ -68,7 +68,7 @@ class TaxArrearsResponse(BaseModel):
 @router.get("/citizen/{nid}", response_model=CitizenInfoResponse)
 async def get_citizen_information(
     nid: str,
-    token_payload: dict = Depends(verify_frontend_token)
+    token_payload: dict = Depends(verify_token)
 ):
     """
     Get citizen information by NID using CITIZEN_INFORMATION_ENDPOINT/person/{nid}
@@ -94,7 +94,7 @@ async def get_citizen_information(
 @router.get("/nid/{nid}/phonenumbers", response_model=PhoneNumbersResponse)
 async def get_phone_numbers_by_nid(
     nid: str,
-    token_payload: dict = Depends(verify_frontend_token)
+    token_payload: dict = Depends(verify_token)
 ):
     """
     Get phone numbers by NID using PHONE_NUMBERS_BY_NID_ENDPOINT (or PHONE_NUMBERS_BY_NID fallback).
@@ -117,7 +117,7 @@ async def get_phone_numbers_by_nid(
 @router.get("/phoneuser/{phone}", response_model=NIDResponse)
 async def get_nid_by_phone_number(
     phone: str,
-    token_payload: dict = Depends(verify_frontend_token)
+    token_payload: dict = Depends(verify_token)
 ):
     """
     Get NID by phone number using NID_BY_PHONE_NUMBER_ENDPOINT/phoneuser/{phone}
@@ -140,7 +140,7 @@ async def get_nid_by_phone_number(
 @router.post("/parcel", response_model=None)
 async def get_parcel_information(
     request: ParcelRequest,
-    token_payload: dict = Depends(verify_frontend_token)
+    token_payload: dict = Depends(verify_token)
 ):
     """
     Get parcel information by UPI using PARCEL_INFORMATION_IP_ADDRESS?upi={upi}
@@ -164,7 +164,7 @@ async def get_parcel_information(
 @router.post("/upis", response_model=None)
 async def get_upis_by_owner_id(
     request: UPIsRequest,
-    token_payload: dict = Depends(verify_frontend_token)
+    token_payload: dict = Depends(verify_token)
 ):
     """
     Get all UPIs by owner ID
@@ -199,7 +199,7 @@ async def get_upis_by_owner_id(
 @router.get("/tax-arrears", response_model=None)
 async def get_tax_arrears(
     upi: str = None,
-    token_payload: dict = Depends(verify_frontend_token)
+    token_payload: dict = Depends(verify_token)
 ):
     """
     Get tax arrears by UPI
@@ -226,7 +226,7 @@ async def get_tax_arrears(
 async def get_title_by_upi(
     upi: str = None,
     language: str = "english",
-    token_payload: dict = Depends(verify_frontend_token)
+    token_payload: dict = Depends(verify_token)
 ):
     """
     Get e-title document by UPI
@@ -258,7 +258,7 @@ async def get_title_by_upi(
 @router.get("/gis-extract", response_model=None)
 async def get_gis_extract(
     upi: str = None,
-    token_payload: dict = Depends(verify_frontend_token)
+    token_payload: dict = Depends(verify_token)
 ):
     """
     Get GIS plot shape data by UPI

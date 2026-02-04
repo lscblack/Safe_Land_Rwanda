@@ -14,7 +14,7 @@ import logging
 from data.database.database import get_db
 from data.models.models import User, PasswordReset
 from data.services.notification_service import NotificationService
-from api.middlewares.auth import verify_frontend_token
+from api.middlewares.auth import verify_token
 from pkg.auth.auth import hash_password
 from pkg.utils.utils import sanitize_phone, validate_email, validate_nid, generate_token, get_expiration_time, is_expired
 from config.config import settings
@@ -80,7 +80,7 @@ async def resolve_user_id(db: AsyncSession, email: Optional[str] = None, phone: 
 async def send_email_notification(
     request: EmailRequest,
     db: AsyncSession = Depends(get_db),
-    token_payload: dict = Depends(verify_frontend_token)
+    token_payload: dict = Depends(verify_token)
 ):
     """Send an email notification using SMTP."""
     try:
@@ -121,7 +121,7 @@ async def send_email_notification(
 async def send_sms_notification(
     request: SMSRequest,
     db: AsyncSession = Depends(get_db),
-    token_payload: dict = Depends(verify_frontend_token)
+    token_payload: dict = Depends(verify_token)
 ):
     """Send an SMS notification using the configured provider."""
     try:
@@ -158,7 +158,7 @@ async def send_sms_notification(
 async def send_otp_notification(
     request: SendOTPCombinedRequest,
     db: AsyncSession = Depends(get_db),
-    token_payload: dict = Depends(verify_frontend_token)
+    token_payload: dict = Depends(verify_token)
 ):
     """
     Send OTP via SMS or Email (exclusive)
@@ -231,7 +231,7 @@ async def send_otp_notification(
 async def send_password_reset_email_notification(
     request: PasswordResetEmailRequest,
     db: AsyncSession = Depends(get_db),
-    token_payload: dict = Depends(verify_frontend_token)
+    token_payload: dict = Depends(verify_token)
 ):
     """
     Send password reset email

@@ -11,7 +11,7 @@ import logging
 
 from data.database.database import get_db
 from data.models.models import User
-from pkg.auth.auth import hash_password, verify_password, generate_access_token, generate_refresh_token
+from pkg.auth.auth import hash_password, verify_password, generate_access_token, generate_refresh_token, decode_refresh_token
 from pkg.roles import roles
 from pkg.utils.utils import generate_user_code
 from api.middlewares.auth import get_current_user, require_admin
@@ -47,6 +47,17 @@ class LoginResponse(BaseModel):
     access_token: str
     refresh_token: str
     user: dict
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
+class RefreshResponse(BaseModel):
+    error: bool = False
+    message: str
+    access_token: str
+    refresh_token: str
 
 
 class CreateAdminRequest(BaseModel):
@@ -281,6 +292,42 @@ async def get_profile(
         is_active=current_user.is_active,
         is_verified=current_user.is_verified
     )
+
+
+@router.post("/refresh", response_model=RefreshResponse)
+async def refresh_tokens(
+    request: RefreshRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """Refresh access/refresh tokens using a valid refresh token."""
+    try:
+        payload = decode_refresh_token(request.refresh_token)
+        user_id = payload.get("id")
+        if not user_id:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
+
+        # Load user to ensure still active and not deleted
+        result = await db.execute(select(User).where(User.id == int(user_id)))
+        user = result.scalar_one_or_none()
+        if not user or not user.is_active or user.is_deleted:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User inactive or deleted")
+
+        user_roles = user.role if isinstance(user.role, list) else []
+        new_access = generate_access_token(user.id, user_roles)
+        new_refresh = generate_refresh_token(user.id)
+
+        return RefreshResponse(
+            error=False,
+            message="Token refreshed",
+            access_token=new_access,
+            refresh_token=new_refresh
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Refresh token error: {e}")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token")
 
 
 @router.post("/admin/create", dependencies=[Depends(require_admin())])
