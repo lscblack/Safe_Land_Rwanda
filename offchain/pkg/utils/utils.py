@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 
 def generate_otp(length: int = 6) -> str:
     """Generate a random OTP code"""
-    return ''.join(random.choices(string.digits, k=length))
+    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
 
 
 def generate_token(length: int = 32) -> str:

@@ -2,7 +2,7 @@
 OTP authentication routes
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
@@ -11,7 +11,8 @@ import logging
 from data.database.database import get_db
 from data.models.models import User, OTP
 from data.services.otp_service import OTPService
-from api.middlewares.auth import verify_token
+from data.services.notification_service import NotificationService
+from pkg.auth.auth import decode_token, extract_token_from_header
 from pkg.utils.utils import sanitize_phone, validate_email, validate_nid
 
 logger = logging.getLogger(__name__)
@@ -51,7 +52,7 @@ class VerifyOTPResponse(BaseModel):
 async def send_otp(
     request: SendOTPRequest,
     db: AsyncSession = Depends(get_db),
-    token_payload: dict = Depends(verify_token)
+    authorization: Optional[str] = Header(None)
 ):
     """
     Send OTP via email or SMS
@@ -90,8 +91,21 @@ async def send_otp(
                 detail="Invalid OTP type. Use 'email' or 'sms'"
             )
         
-        # Get user ID from token
-        user_id = token_payload.get("id") if token_payload.get("id") != 0 else None
+        # Get user ID from token if provided (normalize to int, treat 0 as None)
+        user_id = None
+        token = extract_token_from_header(authorization)
+        if token:
+            try:
+                payload = decode_token(token)
+                raw_user_id = payload.get("id")
+                try:
+                    user_id = int(raw_user_id) if raw_user_id is not None else None
+                except (TypeError, ValueError):
+                    user_id = None
+                if user_id == 0:
+                    user_id = None
+            except Exception:
+                user_id = None
         
         # Create OTP
         otp = await OTPService.create_otp(
@@ -103,6 +117,28 @@ async def send_otp(
             purpose=request.purpose,
             expiration_minutes=10
         )
+
+        # Send OTP
+        if request.otp_type == "email":
+            sent = await NotificationService.send_otp_email(
+                db=db,
+                recipient=delivery_email,
+                otp_code=otp.otp_code,
+                user_id=user_id
+            )
+        else:
+            sent = await NotificationService.send_otp_sms(
+                db=db,
+                phone=delivery_phone,
+                otp_code=otp.otp_code,
+                user_id=user_id
+            )
+
+        if not sent:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="OTP delivery failed. Please try again."
+            )
         
         logger.info(f"OTP sent via {request.otp_type} to {delivery_email or delivery_phone}")
         
@@ -139,7 +175,7 @@ async def verify_otp_endpoint(
         if not request.otp_code or len(request.otp_code) != 6:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="OTP code must be 6 digits"
+                detail="OTP code must be 6 characters"
             )
         
         # Determine which identifier is used

@@ -5,11 +5,19 @@ import {
     Bell, Search, Menu, X, LogOut, Globe, Sun, Moon, Home, Briefcase
 } from 'lucide-react';
 import { clsx } from 'clsx';
+import axios from 'axios';
 // --- YOUR CONTEXTS ---
 import { useLanguage } from '../contexts/language-context';
 import { useTheme } from '../contexts/theme-context';
 
 type ViewState = 'overview' | 'properties' | 'users' | 'analytics' | 'settings';
+
+type LoggedUser = {
+    first_name?: string;
+    last_name?: string;
+    email?: string;
+    avatar?: string | null;
+};
 
 export const DashboardLayout = () => {
     // -- Global State --
@@ -22,6 +30,7 @@ export const DashboardLayout = () => {
     const [isProfileOpen, setProfileOpen] = useState(false);
     const [isNotifOpen, setNotifOpen] = useState(false);
     const [isLangMenuOpen, setLangMenuOpen] = useState(false);
+    const [loggedUser, setLoggedUser] = useState<LoggedUser | null>(null);
     console.log("Current Language:", isProfileOpen);
     // -- Refs --   
     const profileRef = useRef<HTMLDivElement>(null);
@@ -38,6 +47,32 @@ export const DashboardLayout = () => {
         document.addEventListener("mousedown", handleClickOutside);
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, []);
+
+    useEffect(() => {
+        const fetchProfile = async () => {
+            const userToken = localStorage.getItem('user_access_token');
+            if (!userToken) {
+                window.location.href = '/login';
+                return;
+            }
+            try {
+                const response = await axios.get(`${import.meta.env.VITE_BASE_URL}/api/user/profile`, {
+                    headers: { Authorization: `Bearer ${userToken}` },
+                });
+                console.log("Fetched User Profile:", response.data);
+                setLoggedUser(response.data);
+            } catch {
+                window.location.href = '/login';
+            }
+        };
+        fetchProfile();
+    }, []);
+
+    const handleLogout = () => {
+        localStorage.removeItem('user_access_token');
+        localStorage.removeItem('user_refresh_token');
+        window.location.href = '/login';
+    };
 
     // --- SUB-COMPONENTS ---
 
@@ -113,12 +148,20 @@ export const DashboardLayout = () => {
                 {/* User Mini Profile */}
                 <div className="p-4 border-t border-white/10 bg-[#081226]">
                     <div className="flex items-center gap-3">
-                        <img src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?ixlib=rb-1.2.1&auto=format&fit=facearea&facepad=2&w=256&h=256&q=80" alt="Admin" className="w-9 h-9 rounded-full border border-white/20" />
+                        {loggedUser?.avatar ? (
+                            <img src={loggedUser.avatar} alt="User" className="w-9 h-9 rounded-full border border-white/20 object-cover" />
+                        ) : (
+                            <div className="w-9 h-9 rounded-full border border-white/20 bg-white/10 flex items-center justify-center text-xs font-bold text-white">
+                                {(loggedUser?.first_name?.[0] || 'U').toUpperCase()}
+                            </div>
+                        )}
                         <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold truncate text-white">Admin User</p>
-                            <p className="text-xs text-gray-400 truncate">admin@safeland.rw</p>
+                            <p className="text-sm font-semibold truncate text-white">
+                                {loggedUser ? `${loggedUser.first_name || ''} ${loggedUser.last_name || ''}`.trim() || 'User' : 'User'}
+                            </p>
+                            <p className="text-xs text-gray-400 truncate">{loggedUser?.email || ''}</p>
                         </div>
-                        <button className="text-gray-400 hover:text-white transition-colors">
+                        <button onClick={handleLogout} className="text-gray-400 hover:text-white transition-colors">
                             <LogOut size={16} />
                         </button>
                     </div>

@@ -24,7 +24,7 @@ class User(Base):
     n_id_number = Column(String, nullable=False)
     id_type = Column(String, default="NID")
     phone = Column(String, nullable=False)
-    username = Column(String, unique=True, index=True, nullable=False)
+    sex = Column(String, nullable=True)
     user_code = Column(String, unique=True, index=True, nullable=False)
     country = Column(String, nullable=False)
     is_active = Column(Boolean, default=True)

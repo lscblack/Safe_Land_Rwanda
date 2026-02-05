@@ -8,6 +8,7 @@ import { clsx } from 'clsx';
 import { translations } from '../langs/alllangs';
 import { useLanguage } from '../contexts/language-context';
 import { useTheme } from '../contexts/theme-context';
+import api from '../instance/mainAxios';
 
 type LangKey = keyof typeof translations;
 
@@ -30,6 +31,7 @@ export const ForgotPasswordPage = () => {
     const [email, setEmail] = useState("");
     const [isLoading, setIsLoading] = useState(false);
     const [isSuccess, setIsSuccess] = useState(false);
+    const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
     // -- Refs --
     const langMenuRef = useRef<HTMLDivElement>(null);
@@ -55,14 +57,22 @@ export const ForgotPasswordPage = () => {
     }, []);
 
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setIsLoading(true);
-        // Simulate API Call
-        setTimeout(() => {
-            setIsLoading(false);
+        setErrorMessage(null);
+        try {
+            await api.post('/api/notifications/send-reset-email', { email });
             setIsSuccess(true);
-        }, 2000);
+            setTimeout(() => {
+                window.location.href = '/login';
+            }, 1500);
+        } catch (err: any) {
+            const msg = err.response?.data?.detail || err.message || 'Failed to send reset email.';
+            setErrorMessage(msg);
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     return (
@@ -187,6 +197,11 @@ export const ForgotPasswordPage = () => {
 
                             {/* Form */}
                             <form onSubmit={handleSubmit} className="space-y-6">
+                                {errorMessage && (
+                                    <div className="rounded-xl px-4 py-3 text-sm bg-red-50 text-red-700 border border-red-200">
+                                        {errorMessage}
+                                    </div>
+                                )}
                                 <div className="space-y-1.5">
                                     <label className="text-sm font-semibold text-gray-700 dark:text-gray-300 ml-1">
                                         {t('auth.forgot.emailLabel')}

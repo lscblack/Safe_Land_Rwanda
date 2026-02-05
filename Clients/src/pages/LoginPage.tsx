@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Eye, EyeOff, Lock, Mail, ArrowRight, ShieldCheck, Globe, Moon, Sun, CheckCircle, ArrowLeft } from 'lucide-react';
+import { Eye, EyeOff, Lock, Mail, ArrowRight, ShieldCheck, Globe, Moon, Sun, CheckCircle, ArrowLeft, Phone } from 'lucide-react';
 import { clsx } from 'clsx';
 import { translations } from '../langs/alllangs';
 import { useLanguage } from '../contexts/language-context';
 import { useTheme } from '../contexts/theme-context';
+import api from '../instance/mainAxios';
 
 // ==========================================
 // 1. TRANSLATION DATA (Your Format)
@@ -31,8 +32,22 @@ export const LoginPage = () => {
     const [isLangMenuOpen, setIsLangMenuOpen] = useState(false);
     const { theme, toggleTheme } = useTheme();
     const [isLoading, setIsLoading] = useState(false);
+    const [loginStep, setLoginStep] = useState<'credentials' | 'otp-method' | 'otp-verify'>('credentials');
+    const [identifier, setIdentifier] = useState('');
+    const [password, setPassword] = useState('');
+    const [otpMethod, setOtpMethod] = useState<'email' | 'sms' | null>(null);
+    const [otpCode, setOtpCode] = useState('');
+    const [otpDigits, setOtpDigits] = useState<string[]>(Array(6).fill(''));
+    const [otpPhone, setOtpPhone] = useState('');
+    const [otpEmail, setOtpEmail] = useState('');
+    const [loginError, setLoginError] = useState<string | null>(null);
+    const [loginSuccess, setLoginSuccess] = useState<string | null>(null);
+    const [liipError, setLiipError] = useState<string | null>(null);
+    const [useLiip, setUseLiip] = useState(false);
+    const [loginIdType, setLoginIdType] = useState<string | null>(null);
     const [showPassword, setShowPassword] = useState(false);
     const [currentImageIndex, setCurrentImageIndex] = useState(0);
+    const otpInputRefs = useRef<Array<HTMLInputElement | null>>([]);
 
     // -- Refs for Click Outside --
     const langMenuRef = useRef<HTMLDivElement>(null);
@@ -56,11 +71,154 @@ export const LoginPage = () => {
         return () => clearInterval(timer);
     }, []);
 
-    const handleLogin = (e: React.FormEvent) => {
-        e.preventDefault();
-        setIsLoading(true);
-        setTimeout(() => setIsLoading(false), 2000);
+    const maskEmail = (email: string) => {
+        const [user, domain] = email.split('@');
+        if (!domain) return email;
+        const maskedUser = user.length <= 2 ? `${user[0] || ''}***` : `${user.slice(0, 2)}***`;
+        return `${maskedUser}@${domain}`;
     };
+
+    const isEmail = (value: string) => /\S+@\S+\.\S+/.test(value);
+    const isEmailLocked = isEmail(identifier) && otpEmail === identifier;
+
+    const handleLogin = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setLoginError(null);
+        setLiipError(null);
+        setLoginSuccess(null);
+
+        if (!identifier || !password) {
+            setLoginError('Please enter your identifier and password.');
+            return;
+        }
+
+        if (isEmail(identifier)) {
+            setOtpEmail(identifier);
+        }
+
+        setIsLoading(true);
+        try {
+            if (useLiip) {
+                const validateResponse = await api.post('/api/liip/validate-login', {
+                    id_or_email: identifier,
+                    password,
+                });
+                const { valid, message, id_type } = validateResponse.data || {};
+                if (!valid) {
+                    setLoginError(message || 'Invalid credentials.');
+                    return;
+                }
+                setLoginIdType(id_type || null);
+                if (id_type === 'PASSPORT' && otpMethod === 'sms') {
+                    setOtpMethod('email');
+                }
+            } else {
+                const validateResponse = await api.post('/api/user/validate-login', {
+                    identifier,
+                    password,
+                });
+                const { valid, message, id_type } = validateResponse.data || {};
+                if (!valid) {
+                    setLoginError(message || 'Invalid credentials.');
+                    return;
+                }
+                setLoginIdType(id_type || null);
+                if (id_type === 'PASSPORT' && otpMethod === 'sms') {
+                    setOtpMethod('email');
+                }
+            }
+
+            setLoginStep('otp-method');
+        } catch (err: any) {
+            const msg = err.response?.data?.detail || err.message || 'Failed to verify account.';
+            setLoginError(msg);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleSendOtp = async (validateLiip = true) => {
+        setLoginError(null);
+        if (!otpMethod) {
+            setLoginError('Please choose how to receive your OTP.');
+            return;
+        }
+
+        if (otpMethod === 'email') {
+            if (!otpEmail || !isEmail(otpEmail)) {
+                setLoginError('Please provide a valid email for OTP.');
+                return;
+            }
+        }
+
+        if (otpMethod === 'sms') {
+            if (!otpPhone) {
+                setLoginError('Please provide a phone number for OTP.');
+                return;
+            }
+        }
+
+        setIsLoading(true);
+        try {
+            if (useLiip && validateLiip) {
+                await api.post('/api/liip/login', {
+                    id_or_email: identifier,
+                    password,
+                });
+            }
+            await api.post('/otp/send', {
+                otp_type: otpMethod === 'email' ? 'email' : 'sms',
+                purpose: 'login',
+                email: otpMethod === 'email' ? otpEmail : undefined,
+                phone: otpMethod === 'sms' ? otpPhone : undefined,
+            });
+            setLoginSuccess(useLiip && validateLiip ? 'LIIP account verified. OTP sent. Enter the code to continue.' : 'OTP sent. Enter the code to continue.');
+            setLoginStep('otp-verify');
+        } catch (err: any) {
+            const msg = err.response?.data?.detail || err.message || 'Failed to send OTP.';
+            setLoginError(msg);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleVerifyOtpAndLogin = async () => {
+        setLoginError(null);
+        if (!otpCode || otpCode.length !== 6) {
+            setLoginError('Please enter the 6-character OTP code.');
+            return;
+        }
+
+        setIsLoading(true);
+        try {
+            await api.post('/otp/verify', {
+                otp_code: otpCode,
+                purpose: 'login',
+                email: otpMethod === 'email' ? otpEmail : undefined,
+                phone: otpMethod === 'sms' ? otpPhone : undefined,
+            });
+
+            const response = useLiip
+                ? await api.post('/api/liip/login', { id_or_email: identifier, password })
+                : await api.post('/api/user/login', { identifier, password });
+
+            const { access_token, refresh_token } = response.data;
+            localStorage.setItem('user_access_token', access_token);
+            localStorage.setItem('user_refresh_token', refresh_token);
+
+            setLoginSuccess(useLiip ? 'LIIP login successful. Redirecting...' : 'Login successful. Redirecting...');
+            setTimeout(() => {
+                window.location.href = '/dashboard';
+            }, 1000);
+        } catch (err: any) {
+            const msg = err.response?.data?.detail || err.message || 'Login failed.';
+            setLoginError(msg);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    
 
     return (
         <div className="min-h-screen w-full flex bg-gray-50 dark:bg-[#0a162e] text-slate-900 dark:text-white transition-colors duration-300 font-sans overflow-hidden">
@@ -240,54 +398,237 @@ export const LoginPage = () => {
 
                     {/* Form */}
                     <form onSubmit={handleLogin} className="space-y-5">
-
-                        {/* Email Field */}
-                        <div className="space-y-1.5">
-                            <label className="text-sm font-semibold text-gray-700 dark:text-gray-300 ml-1">
-                                {t('auth.login.emailLabel')}
-                            </label>
-                            <div className="relative group">
-                                <div className="absolute left-0 top-0 bottom-0 w-12 flex items-center justify-center text-gray-400 group-focus-within:text-primary transition-colors pointer-events-none">
-                                    <Mail size={20} />
-                                </div>
-                                <input
-                                    type="email"
-                                    placeholder="admin@safeland.rw"
-                                    className="w-full bg-white dark:bg-[#112240] border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white pl-12 pr-4 py-5 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all group-hover:border-gray-300 dark:group-hover:border-gray-600"
-                                    required
-                                />
+                        {(loginError || loginSuccess || liipError) && (
+                            <div className={clsx(
+                                "rounded-xl px-4 py-3 text-sm",
+                                (loginError || liipError) ? "bg-red-50 text-red-700 border border-red-200" : "bg-green-50 text-green-700 border border-green-200"
+                            )}>
+                                {loginError || liipError || loginSuccess}
+                                {liipError && (
+                                    <div className="mt-2 text-xs">
+                                        <a href="https://amakuru.lands.rw/" className="text-primary font-semibold hover:underline">Open LIIP</a>
+                                    </div>
+                                )}
                             </div>
-                        </div>
+                        )}
 
-                        {/* Password Field */}
-                        <div className="space-y-1.5">
-                            <div className="flex justify-between items-center ml-1">
-                                <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-                                    {t('auth.login.passwordLabel')}
-                                </label>
-                                <a href="/forgot-password" className="text-xs font-semibold text-primary hover:text-blue-500 transition-colors">
-                                    {t('auth.login.forgotPassword')}
-                                </a>
-                            </div>
-                            <div className="relative group">
-                                <div className="absolute left-0 top-0 bottom-0 w-12 flex items-center justify-center text-gray-400 group-focus-within:text-primary transition-colors pointer-events-none">
-                                    <Lock size={20} />
+                        {loginStep === 'credentials' && (
+                            <>
+                                <div className="flex items-center justify-between rounded-xl border border-gray-200 dark:border-gray-700 px-4 py-3">
+                                    <div>
+                                        <p className="text-sm font-semibold text-gray-700 dark:text-gray-300">Use LIIP Login</p>
+                                        <p className="text-xs text-gray-500 dark:text-gray-400">LIIP login uses OTP</p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setUseLiip((prev) => !prev);
+                                            setLoginError(null);
+                                            setLiipError(null);
+                                            setLoginSuccess(null);
+                                            setLoginStep('credentials');
+                                            setOtpMethod(null);
+                                            setOtpCode('');
+                                        }}
+                                        className={clsx(
+                                            "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                                            useLiip ? "bg-primary" : "bg-gray-300 dark:bg-gray-600"
+                                        )}
+                                        aria-pressed={useLiip}
+                                        aria-label="Toggle LIIP login"
+                                    >
+                                        <span
+                                            className={clsx(
+                                                "inline-block h-5 w-5 transform rounded-full bg-white transition-transform",
+                                                useLiip ? "translate-x-5" : "translate-x-1"
+                                            )}
+                                        />
+                                    </button>
                                 </div>
-                                <input
-                                    type={showPassword ? "text" : "password"}
-                                    placeholder="••••••••"
-                                    className="w-full bg-white dark:bg-[#112240] border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white pl-12 pr-12 py-5 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all group-hover:border-gray-300 dark:group-hover:border-gray-600"
-                                    required
-                                />
+                                <div className="space-y-1.5">
+                                    <label className="text-sm font-semibold text-gray-700 dark:text-gray-300 ml-1">
+                                        Email / Phone / NID
+                                    </label>
+                                    <div className="relative group">
+                                        <div className="absolute left-0 top-0 bottom-0 w-12 flex items-center justify-center text-gray-400 group-focus-within:text-primary transition-colors pointer-events-none">
+                                            <Mail size={20} />
+                                        </div>
+                                        <input
+                                            type="text"
+                                            placeholder="user@example.com"
+                                            value={identifier}
+                                            onChange={(e) => setIdentifier(e.target.value)}
+                                            className="w-full bg-white dark:bg-[#112240] border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white pl-12 pr-4 py-5 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all group-hover:border-gray-300 dark:group-hover:border-gray-600"
+                                            required
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="space-y-1.5">
+                                    <div className="flex justify-between items-center ml-1">
+                                        <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                                            {t('auth.login.passwordLabel')}
+                                        </label>
+                                        <a href="/forgot-password" className="text-xs font-semibold text-primary hover:text-blue-500 transition-colors">
+                                            {t('auth.login.forgotPassword')}
+                                        </a>
+                                    </div>
+                                    <div className="relative group">
+                                        <div className="absolute left-0 top-0 bottom-0 w-12 flex items-center justify-center text-gray-400 group-focus-within:text-primary transition-colors pointer-events-none">
+                                            <Lock size={20} />
+                                        </div>
+                                        <input
+                                            type={showPassword ? "text" : "password"}
+                                            placeholder="••••••••"
+                                            value={password}
+                                            onChange={(e) => setPassword(e.target.value)}
+                                            className="w-full bg-white dark:bg-[#112240] border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white pl-12 pr-12 py-5 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all group-hover:border-gray-300 dark:group-hover:border-gray-600"
+                                            required
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowPassword(!showPassword)}
+                                            className="absolute right-0 top-0 bottom-0 w-12 flex items-center justify-center text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 cursor-pointer transition-colors"
+                                        >
+                                            {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                                        </button>
+                                    </div>
+                                </div>
+                            </>
+                        )}
+
+                        {loginStep === 'otp-method' && (
+                            <>
                                 <button
                                     type="button"
-                                    onClick={() => setShowPassword(!showPassword)}
-                                    className="absolute right-0 top-0 bottom-0 w-12 flex items-center justify-center text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 cursor-pointer transition-colors"
+                                    onClick={() => setLoginStep('credentials')}
+                                    className="text-xs text-gray-500 hover:text-primary"
                                 >
-                                    {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                                    Back to login
                                 </button>
-                            </div>
-                        </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-sm font-semibold text-gray-700 dark:text-gray-300 ml-1">Choose OTP Delivery</label>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <button
+                                            type="button"
+                                            onClick={() => setOtpMethod('email')}
+                                            className={clsx(
+                                                "px-4 py-3 rounded-xl border text-sm font-semibold",
+                                                otpMethod === 'email' ? "border-primary text-primary bg-primary/5" : "border-gray-200 dark:border-gray-700"
+                                            )}
+                                        >
+                                            Email
+                                        </button>
+                                        {loginIdType !== 'PASSPORT' && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setOtpMethod('sms')}
+                                                className={clsx(
+                                                    "px-4 py-3 rounded-xl border text-sm font-semibold",
+                                                    otpMethod === 'sms' ? "border-primary text-primary bg-primary/5" : "border-gray-200 dark:border-gray-700"
+                                                )}
+                                            >
+                                                Phone
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {otpMethod === 'email' && (
+                                    <div className="space-y-1.5">
+                                        <label className="text-sm font-semibold text-gray-700 dark:text-gray-300 ml-1">Email</label>
+                                        <div className="relative group">
+                                            <div className="absolute left-0 top-0 bottom-0 w-12 flex items-center justify-center text-gray-400"><Mail size={20} /></div>
+                                            <input
+                                                type="email"
+                                                value={isEmailLocked ? maskEmail(otpEmail) : otpEmail}
+                                                onChange={(e) => setOtpEmail(e.target.value)}
+                                                placeholder="name@example.com"
+                                                className="w-full bg-white dark:bg-[#112240] border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white pl-12 pr-4 py-5 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
+                                                disabled={isEmailLocked}
+                                                required
+                                            />
+                                        </div>
+                                        {isEmail(otpEmail) && (
+                                            <p className="text-xs text-gray-500">We will send to {maskEmail(otpEmail)}</p>
+                                        )}
+                                    </div>
+                                )}
+
+                                {otpMethod === 'sms' && loginIdType !== 'PASSPORT' && (
+                                    <div className="space-y-1.5">
+                                        <label className="text-sm font-semibold text-gray-700 dark:text-gray-300 ml-1">Phone</label>
+                                        <div className="relative group">
+                                            <div className="absolute left-0 top-0 bottom-0 w-12 flex items-center justify-center text-gray-400"><Phone size={20} /></div>
+                                            <input
+                                                type="tel"
+                                                value={otpPhone}
+                                                onChange={(e) => setOtpPhone(e.target.value)}
+                                                placeholder="07..."
+                                                className="w-full bg-white dark:bg-[#112240] border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white pl-12 pr-4 py-5 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
+                                                required
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+                            </>
+                        )}
+
+                        {loginStep === 'otp-verify' && (
+                            <>
+                                <button
+                                    type="button"
+                                    onClick={() => setLoginStep('otp-method')}
+                                    className="text-xs text-gray-500 hover:text-primary"
+                                >
+                                    Back to OTP method
+                                </button>
+                                <div className="space-y-1.5">
+                                    <label className="text-sm font-semibold text-gray-700 dark:text-gray-300 ml-1">OTP Code</label>
+                                    <div className="flex items-center justify-between gap-2">
+                                        {otpDigits.map((digit, idx) => (
+                                            <input
+                                                key={idx}
+                                                ref={(el) => { otpInputRefs.current[idx] = el; }}
+                                                type="text"
+                                                inputMode="text"
+                                                maxLength={1}
+                                                value={digit}
+                                                onChange={(e) => {
+                                                    const value = e.target.value.toUpperCase();
+                                                    const next = [...otpDigits];
+                                                    next[idx] = value.slice(-1);
+                                                    setOtpDigits(next);
+                                                    setOtpCode(next.join(''));
+                                                    if (value && idx < 5) {
+                                                        otpInputRefs.current[idx + 1]?.focus();
+                                                    }
+                                                }}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Backspace' && !otpDigits[idx] && idx > 0) {
+                                                        otpInputRefs.current[idx - 1]?.focus();
+                                                    }
+                                                }}
+                                                onPaste={(e) => {
+                                                    e.preventDefault();
+                                                    const paste = e.clipboardData.getData('text').replace(/\s/g, '').toUpperCase();
+                                                    if (!paste) return;
+                                                    const chars = paste.slice(0, 6).split('');
+                                                    const next = Array(6).fill('');
+                                                    for (let i = 0; i < chars.length; i += 1) next[i] = chars[i];
+                                                    setOtpDigits(next);
+                                                    setOtpCode(next.join(''));
+                                                    const focusIndex = Math.min(chars.length, 5);
+                                                    otpInputRefs.current[focusIndex]?.focus();
+                                                }}
+                                                className="w-12 h-12 text-center text-lg font-semibold bg-white dark:bg-[#112240] border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
+                                                required
+                                            />
+                                        ))}
+                                    </div>
+                                </div>
+                            </>
+                        )}
 
                         {/* Remember Me */}
                         <div className="flex items-center pt-1">
@@ -309,23 +650,83 @@ export const LoginPage = () => {
                         </div>
 
                         {/* Submit Button */}
-                        <button
-                            type="submit"
-                            disabled={isLoading}
-                            className={clsx(
-                                "w-full bg-primary cursor-pointer hover:bg-[#2d4a75] text-white font-bold py-5 rounded-xl shadow-lg shadow-primary/25 hover:shadow-primary/40 active:scale-[0.98] transition-all flex justify-center items-center gap-2 mt-4",
-                                isLoading && "opacity-80 cursor-wait"
-                            )}
-                        >
-                            {isLoading ? (
-                                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                            ) : (
-                                <>
-                                    <span>{t('auth.login.submitButton')}</span>
-                                    <ArrowRight size={20} />
-                                </>
-                            )}
-                        </button>
+                        {loginStep === 'credentials' && (
+                            <button
+                                type="submit"
+                                disabled={isLoading}
+                                className={clsx(
+                                    "w-full bg-primary cursor-pointer hover:bg-[#2d4a75] text-white font-bold py-5 rounded-xl shadow-lg shadow-primary/25 hover:shadow-primary/40 active:scale-[0.98] transition-all flex justify-center items-center gap-2 mt-4",
+                                    isLoading && "opacity-80 cursor-wait"
+                                )}
+                            >
+                                {isLoading ? (
+                                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                ) : (
+                                    <>
+                                        <span>{useLiip ? 'Continue with LIIP' : t('auth.login.submitButton')}</span>
+                                        <ArrowRight size={20} />
+                                    </>
+                                )}
+                            </button>
+                        )}
+
+                        {loginStep === 'otp-method' && (
+                            <button
+                                type="button"
+                                onClick={() => handleSendOtp(true)}
+                                disabled={isLoading}
+                                className={clsx(
+                                    "w-full bg-primary cursor-pointer hover:bg-[#2d4a75] text-white font-bold py-5 rounded-xl shadow-lg shadow-primary/25 hover:shadow-primary/40 active:scale-[0.98] transition-all flex justify-center items-center gap-2 mt-4",
+                                    isLoading && "opacity-80 cursor-wait"
+                                )}
+                            >
+                                {isLoading ? (
+                                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                ) : (
+                                    <>
+                                        <span>Send OTP</span>
+                                        <ArrowRight size={20} />
+                                    </>
+                                )}
+                            </button>
+                        )}
+
+                        {loginStep === 'otp-verify' && (
+                            <button
+                                type="button"
+                                onClick={handleVerifyOtpAndLogin}
+                                disabled={isLoading}
+                                className={clsx(
+                                    "w-full bg-primary cursor-pointer hover:bg-[#2d4a75] text-white font-bold py-5 rounded-xl shadow-lg shadow-primary/25 hover:shadow-primary/40 active:scale-[0.98] transition-all flex justify-center items-center gap-2 mt-4",
+                                    isLoading && "opacity-80 cursor-wait"
+                                )}
+                            >
+                                {isLoading ? (
+                                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                ) : (
+                                    <>
+                                        <span>Verify & Login</span>
+                                        <ArrowRight size={20} />
+                                    </>
+                                )}
+                            </button>
+                        )}
+
+                        {loginStep === 'otp-verify' && (
+                            <button
+                                type="button"
+                                onClick={() => handleSendOtp(false)}
+                                disabled={isLoading}
+                                className={clsx(
+                                    "w-full border border-primary text-primary font-semibold py-4 rounded-xl transition-all flex justify-center items-center gap-2",
+                                    isLoading && "opacity-80 cursor-wait"
+                                )}
+                            >
+                                Resend OTP
+                            </button>
+                        )}
+
+                        
                     </form>
 
                     {/* Footer Register Link */}

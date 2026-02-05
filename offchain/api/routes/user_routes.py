@@ -5,7 +5,8 @@ User routes and handlers
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from pydantic import BaseModel, EmailStr, Field
+from sqlalchemy.exc import IntegrityError
+from pydantic import BaseModel, EmailStr, Field, validator
 from typing import List, Optional
 from datetime import datetime
 import logging
@@ -30,12 +31,24 @@ class RegisterRequest(BaseModel):
     last_name: str = Field(..., min_length=2)
     email: EmailStr
     avatar: Optional[str] = "offchain/assets/logo_white.png"
-    n_id_number: str = Field(..., min_length=16, max_length=16)
+    n_id_number: str = Field(..., min_length=1)
     id_type: str = "NID"
     phone: str = Field(..., min_length=10)
-    username: str = Field(..., min_length=3)
+    sex: Optional[str] = None
     country: str = Field(..., min_length=2)
     password: str = Field(..., min_length=6)
+
+    @validator("id_type")
+    def validate_id_type(cls, value: str) -> str:
+        if value not in {"NID", "PASSPORT"}:
+            raise ValueError("id_type must be NID or PASSPORT")
+        return value
+
+    @validator("n_id_number")
+    def validate_id_number(cls, value: str) -> str:
+        if not value or not value.strip():
+            raise ValueError("n_id_number is required")
+        return value
 
 
 class LoginRequest(BaseModel):
@@ -49,6 +62,28 @@ class LoginResponse(BaseModel):
     access_token: str
     refresh_token: str
     user: dict
+
+
+class UserExistsRequest(BaseModel):
+    identifier: str
+
+
+class UserExistsResponse(BaseModel):
+    exists: bool
+    is_active: Optional[bool] = None
+    is_deleted: Optional[bool] = None
+    message: Optional[str] = None
+
+
+class ValidateLoginRequest(BaseModel):
+    identifier: str
+    password: str
+
+
+class ValidateLoginResponse(BaseModel):
+    valid: bool
+    message: Optional[str] = None
+    id_type: Optional[str] = None
 
 
 class RefreshRequest(BaseModel):
@@ -78,11 +113,19 @@ class UserResponse(BaseModel):
     middle_name: Optional[str]
     last_name: str
     email: str
-    username: str
+    phone: Optional[str]
+    sex: Optional[str]
+    avatar: Optional[str]
+    country: Optional[str]
+    n_id_number: Optional[str]
+    id_type: Optional[str]
     user_code: str
     role: List[str]
     is_active: bool
     is_verified: bool
+    is_deleted: Optional[bool] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
     
     class Config:
         from_attributes = True
@@ -106,18 +149,28 @@ async def register(
         )
         if result.scalar_one_or_none():
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=status.HTTP_409_CONFLICT,
                 detail="Email already registered"
             )
-        
-        # Check if username already exists
+
+        # Check if phone already exists
         result = await db.execute(
-            select(User).where(User.username == request.username)
+            select(User).where(User.phone == request.phone)
         )
         if result.scalar_one_or_none():
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Username already taken"
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Phone number already registered"
+            )
+
+        # Check if national ID already exists
+        result = await db.execute(
+            select(User).where(User.n_id_number == request.n_id_number)
+        )
+        if result.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="National ID already registered"
             )
         
         # Hash password
@@ -146,7 +199,7 @@ async def register(
             n_id_number=request.n_id_number,
             id_type=request.id_type,
             phone=request.phone,
-            username=request.username,
+            sex=request.sex,
             user_code=user_code,
             country=request.country,
             password=hashed_password,
@@ -158,14 +211,13 @@ async def register(
         await db.commit()
         await db.refresh(new_user)
         
-        logger.info(f"New user registered: {new_user.username} ({new_user.email})")
+        logger.info(f"New user registered: {new_user.email}")
         
         return {
             "error": False,
             "message": "User registered successfully",
             "user": {
                 "id": new_user.id,
-                "username": new_user.username,
                 "email": new_user.email,
                 "user_code": new_user.user_code
             }
@@ -173,6 +225,12 @@ async def register(
         
     except HTTPException:
         raise
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Duplicate record"
+        )
     except Exception as e:
         logger.error(f"Registration error: {e}")
         await db.rollback()
@@ -194,13 +252,12 @@ async def login(
     Authenticate user and return access and refresh tokens.
     """
     try:
-        # Find user by email, phone, NID, or legacy username
+        # Find user by email, phone, or NID
         identifier = request.identifier.strip()
         query = select(User).where(
             (User.email == identifier)
             | (User.phone == identifier)
             | (User.n_id_number == identifier)
-            | (User.username == identifier)
         )
         result = await db.execute(query)
         user = result.scalar_one_or_none()
@@ -208,14 +265,14 @@ async def login(
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid username or password"
+                detail="Invalid credentials"
             )
         
         # Verify password
         if not verify_password(request.password, user.password):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid username or password"
+                detail="Invalid credentials"
             )
         
         # Check if user is active
@@ -261,7 +318,6 @@ async def login(
             refresh_token=refresh_token,
             user={
                 "id": user.id,
-                "username": user.username,
                 "email": user.email,
                 "user_code": user.user_code,
                 "role": user_roles,
@@ -269,6 +325,7 @@ async def login(
                 "middle_name": user.middle_name,
                 "last_name": user.last_name,
                 "phone": user.phone,
+                "sex": user.sex,
                 "avatar": user.avatar,
                 "country": user.country,
                 "n_id_number": user.n_id_number,
@@ -291,6 +348,83 @@ async def login(
         )
 
 
+@router.post("/exists", response_model=UserExistsResponse)
+async def user_exists(
+    request: UserExistsRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Check if a user exists by identifier (email, phone, or NID).
+    """
+    try:
+        identifier = request.identifier.strip()
+        query = select(User).where(
+            (User.email == identifier)
+            | (User.phone == identifier)
+            | (User.n_id_number == identifier)
+        )
+        result = await db.execute(query)
+        user = result.scalar_one_or_none()
+
+        if not user:
+            return UserExistsResponse(exists=False, message="User not found")
+
+        if not user.is_active:
+            return UserExistsResponse(exists=True, is_active=False, is_deleted=user.is_deleted, message="Account is inactive")
+
+        if user.is_deleted:
+            return UserExistsResponse(exists=True, is_active=user.is_active, is_deleted=True, message="Account has been deleted")
+
+        return UserExistsResponse(exists=True, is_active=True, is_deleted=False, message="User exists")
+
+    except Exception as e:
+        logger.error(f"User exists check error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="User exists check failed"
+        )
+
+
+@router.post("/validate-login", response_model=ValidateLoginResponse)
+async def validate_login(
+    request: ValidateLoginRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Validate login credentials without issuing tokens.
+    """
+    try:
+        identifier = request.identifier.strip()
+        query = select(User).where(
+            (User.email == identifier)
+            | (User.phone == identifier)
+            | (User.n_id_number == identifier)
+        )
+        result = await db.execute(query)
+        user = result.scalar_one_or_none()
+
+        if not user:
+            return ValidateLoginResponse(valid=False, message="Invalid credentials")
+
+        if not verify_password(request.password, user.password):
+            return ValidateLoginResponse(valid=False, message="Invalid credentials")
+
+        if not user.is_active:
+            return ValidateLoginResponse(valid=False, message="Account is inactive", id_type=user.id_type)
+
+        if user.is_deleted:
+            return ValidateLoginResponse(valid=False, message="Account has been deleted", id_type=user.id_type)
+
+        return ValidateLoginResponse(valid=True, message="Valid credentials", id_type=user.id_type)
+
+    except Exception as e:
+        logger.error(f"Validate login error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Validate login failed"
+        )
+
+
 @router.get("/profile", response_model=UserResponse)
 async def get_profile(
     current_user: User = Depends(get_current_user)
@@ -308,11 +442,19 @@ async def get_profile(
         middle_name=current_user.middle_name,
         last_name=current_user.last_name,
         email=current_user.email,
-        username=current_user.username,
+        phone=current_user.phone,
+        sex=current_user.sex,
+        avatar=current_user.avatar,
+        country=current_user.country,
+        n_id_number=current_user.n_id_number,
+        id_type=current_user.id_type,
         user_code=current_user.user_code,
         role=user_roles,
         is_active=current_user.is_active,
-        is_verified=current_user.is_verified
+        is_verified=current_user.is_verified,
+        is_deleted=current_user.is_deleted,
+        created_at=current_user.created_at,
+        updated_at=current_user.updated_at
     )
 
 
@@ -391,14 +533,14 @@ async def create_admin(
         await db.commit()
         await db.refresh(user)
         
-        logger.info(f"Admin created: {user.username} by {current_user.username}")
+        logger.info(f"Admin created: {user.email} by {current_user.email}")
         
         return {
             "error": False,
             "message": "Admin created successfully",
             "user": {
                 "id": user.id,
-                "username": user.username,
+                "email": user.email,
                 "roles": new_roles
             }
         }
@@ -451,14 +593,14 @@ async def update_user_role(
         await db.commit()
         await db.refresh(user)
         
-        logger.info(f"User role updated: {user.username} by {current_user.username}")
+        logger.info(f"User role updated: {user.email} by {current_user.email}")
         
         return {
             "error": False,
             "message": "User role updated successfully",
             "user": {
                 "id": user.id,
-                "username": user.username,
+                "email": user.email,
                 "roles": request.roles
             }
         }

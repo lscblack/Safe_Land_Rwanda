@@ -45,9 +45,14 @@ class LIIPLoginResponse(BaseModel):
     user: Optional[dict] = None
 
 
+class LIIPValidateResponse(BaseModel):
+    valid: bool
+    message: Optional[str] = None
+    id_type: Optional[str] = None
+
+
 class LIIPUserResponse(BaseModel):
     id: int
-    username: str
     email: EmailStr
     full_name: str
     organization: Optional[str] = None
@@ -144,7 +149,7 @@ async def login_liip_user(
             access_token = generate_access_token(existing_user.id, user_roles)
             refresh_token = generate_refresh_token(existing_user.id)
             
-            logger.info(f"LIIP user login (existing account): {existing_user.username}")
+            logger.info(f"LIIP user login (existing account): {existing_user.email}")
 
             ip_addr = http_request.client.host if http_request.client else "unknown"
             user_agent = http_request.headers.get("user-agent", "unknown")
@@ -166,12 +171,12 @@ async def login_liip_user(
                 refresh_token=refresh_token,
                 user={
                     "id": existing_user.id,
-                    "username": existing_user.username,
                     "email": existing_user.email,
                     "first_name": existing_user.first_name,
                     "last_name": existing_user.last_name,
                     "role": user_roles,
                     "phone": existing_user.phone,
+                    "sex": existing_user.sex,
                     "n_id_number": existing_user.n_id_number,
                     "id_type": existing_user.id_type,
                     "country": existing_user.country,
@@ -192,10 +197,10 @@ async def login_liip_user(
             last_name = "user"
 
         email = liip_user.email or f"from_liip_{liip_user.id}@placeholder.com"
-        username = getattr(liip_user, "username", None) or liip_user.email or f"liip_{liip_user.id}"
         phone = getattr(liip_user, 'phone_number', None) or f"from_liip_{liip_user.id}_phone"
         id_type = getattr(liip_user, 'id_type', None) or "NID"
         nid = getattr(liip_user, 'id_number', None) or f"from_liip_{liip_user.id}_nid"
+        sex = getattr(liip_user, 'gender', None)
         
         # Generate user code
         user_code = generate_user_code(roles.BUYER, "RW")
@@ -213,11 +218,11 @@ async def login_liip_user(
             last_name=last_name,
             email=email,
             phone=phone,
-            username=username,
             user_code=user_code,
             role=[roles.BUYER],
             n_id_number=nid,
             id_type=id_type,
+            sex=sex,
             country="RW",
             password=hash_password(request.password),
             is_active=True,
@@ -233,7 +238,7 @@ async def login_liip_user(
         access_token = generate_access_token(new_user.id, [roles.BUYER])
         refresh_token = generate_refresh_token(new_user.id)
         
-        logger.info(f"LIIP user login (new account created): {new_user.username}")
+        logger.info(f"LIIP user login (new account created): {new_user.email}")
 
         ip_addr = http_request.client.host if http_request.client else "unknown"
         user_agent = http_request.headers.get("user-agent", "unknown")
@@ -255,12 +260,12 @@ async def login_liip_user(
             refresh_token=refresh_token,
             user={
                 "id": new_user.id,
-                "username": new_user.username,
                 "email": new_user.email,
                 "first_name": new_user.first_name,
                 "last_name": new_user.last_name,
                 "role": [roles.BUYER],
                 "phone": new_user.phone,
+                "sex": new_user.sex,
                 "n_id_number": new_user.n_id_number,
                 "id_type": new_user.id_type,
                 "country": new_user.country,
@@ -288,6 +293,52 @@ async def login_liip_user(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="LIIP login failed"
+        )
+
+
+@router.post("/validate-login", response_model=LIIPValidateResponse)
+async def validate_liip_login(
+    request: LIIPLoginRequest,
+    liip_db: AsyncSession = Depends(get_liip_db)
+):
+    """
+    Validate LIIP credentials without issuing tokens.
+    """
+    try:
+        if not liip_db:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="LIIP database connection not configured"
+            )
+
+        if request.id_or_email.isnumeric():
+            result = await liip_db.execute(
+                select(LIIPUser).where(
+                    or_(LIIPUser.email == request.id_or_email, LIIPUser.id_number == request.id_or_email)
+                )
+            )
+        else:
+            result = await liip_db.execute(
+                select(LIIPUser).where(LIIPUser.email == request.id_or_email)
+            )
+
+        liip_user = result.scalar_one_or_none()
+        if not liip_user:
+            return LIIPValidateResponse(valid=False, message="Invalid credentials")
+
+        if not verify_sha256_password(request.password, getattr(liip_user, "password", "")):
+            return LIIPValidateResponse(valid=False, message="Invalid credentials")
+
+        id_type = getattr(liip_user, "id_type", None) or "NID"
+        return LIIPValidateResponse(valid=True, message="Valid credentials", id_type=id_type)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"LIIP validate login error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="LIIP validate login failed"
         )
 
 
@@ -366,12 +417,12 @@ async def get_liip_user_from_token(
                 refresh_token=refresh_token,
                 user={
                     "id": existing_user.id,
-                    "username": existing_user.username,
                     "email": existing_user.email,
                     "first_name": existing_user.first_name,
                     "last_name": existing_user.last_name,
                     "role": user_roles,
                     "phone": existing_user.phone,
+                    "sex": existing_user.sex,
                     "n_id_number": existing_user.n_id_number,
                     "id_type": existing_user.id_type,
                     "country": existing_user.country,
@@ -387,10 +438,10 @@ async def get_liip_user_from_token(
         # Create new user
         first_name, last_name = split_full_name(liip_user.full_name or "LIIP User")
         
-        username = liip_user.username or f"liip_{liip_user.id}"
         phone = getattr(liip_user, 'phone_number', None) or f"from_liip_{liip_user.id}_phone"
         id_type = getattr(liip_user, 'id_type', None) or "NID"
         nid = getattr(liip_user, 'id_number', None) or f"from_liip_{liip_user.id}_nid"
+        sex = getattr(liip_user, 'gender', None)
         
         user_code = generate_user_code(roles.BUYER, "RW")
         while True:
@@ -406,11 +457,11 @@ async def get_liip_user_from_token(
             last_name=last_name,
             email=liip_user.email,
             phone=phone,
-            username=username,
             user_code=user_code,
             role=[roles.BUYER],
             n_id_number=nid,
             id_type=id_type,
+            sex=sex,
             country="RW",
             password=hash_password(f"liip_{liip_user.id}_{datetime.utcnow().timestamp()}"),
             is_active=True,
@@ -425,7 +476,7 @@ async def get_liip_user_from_token(
         access_token = generate_access_token(new_user.id, [roles.BUYER])
         refresh_token = generate_refresh_token(new_user.id)
         
-        logger.info(f"LIIP user from token (new account created): {new_user.username}")
+        logger.info(f"LIIP user from token (new account created): {new_user.email}")
         
         return LIIPLoginResponse(
             error=False,
@@ -434,12 +485,12 @@ async def get_liip_user_from_token(
             refresh_token=refresh_token,
             user={
                 "id": new_user.id,
-                "username": new_user.username,
                 "email": new_user.email,
                 "first_name": new_user.first_name,
                 "last_name": new_user.last_name,
                 "role": [roles.BUYER],
                 "phone": new_user.phone,
+                "sex": new_user.sex,
                 "n_id_number": new_user.n_id_number,
                 "id_type": new_user.id_type,
                 "country": new_user.country,
