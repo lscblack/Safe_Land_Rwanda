@@ -1,0 +1,6 @@
+{
+  "contract_address": "0x14B4Aee7a26ce30F5F9E20b335bBFA8330a37D19",
+  "tx_hash": "0xd4f9cba80157198ea0e210763bd5c2f3ffe18075daa96d3b91ae7f0484cc65c7",
+  "chain_id": 1337,
+  "rpc_url": "http://127.0.0.1:7545"
+}
