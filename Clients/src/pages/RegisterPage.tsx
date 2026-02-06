@@ -34,6 +34,23 @@ export const RegisterPage = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [passportPreview, setPassportPreview] = useState<string | null>(null);
 
+    // -- Terms & Conditions Modal State --
+    const [localAccepted, setLocalAccepted] = useState<boolean>(() => {
+        try {
+            return localStorage.getItem('register_terms_accepted') === 'true';
+        } catch (e) {
+            return false;
+        }
+    });
+    const [sessionAccepted, setSessionAccepted] = useState(false);
+    const [termsOpen, setTermsOpen] = useState<boolean>(!localAccepted);
+    const [agreeChecked, setAgreeChecked] = useState(false);
+    const [rememberChoice, setRememberChoice] = useState(true);
+
+    useEffect(() => {
+        setTermsOpen(!localAccepted && !sessionAccepted);
+    }, [localAccepted, sessionAccepted]);
+
     // --- CRITICAL CHANGE: INDEPENDENT NID STATE ---
     // This exists outside of formData so updates don't reset it
     const [nid, setNid] = useState('');
@@ -182,6 +199,24 @@ export const RegisterPage = () => {
         }
     };
 
+    const handleAcceptTerms = () => {
+        if (rememberChoice) {
+            try {
+                localStorage.setItem('register_terms_accepted', 'true');
+                setLocalAccepted(true);
+            } catch (e) {
+                // ignore storage errors
+            }
+        }
+        setSessionAccepted(true);
+        setTermsOpen(false);
+    };
+
+    const handleDeclineTerms = () => {
+        // If user declines, navigate back to home
+        window.location.href = '/';
+    };
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
@@ -291,7 +326,7 @@ export const RegisterPage = () => {
 
     return (
         <>
-            <div className="min-h-screen w-full flex bg-gray-50 dark:bg-[#0a162e] text-slate-900 dark:text-white transition-colors duration-300 font-sans overflow-hidden">
+            <div aria-hidden={termsOpen} className="min-h-screen w-full flex bg-gray-50 dark:bg-[#0a162e] text-slate-900 dark:text-white transition-colors duration-300 font-sans overflow-hidden">
                 {/* LEFT SIDE VISUALS */}
                 <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-foreground/90 dark:bg-background">
                     <AnimatePresence mode="popLayout">
@@ -708,6 +743,40 @@ export const RegisterPage = () => {
                         </a>
                     </div>
                 </div>
+                {/* Terms & Conditions Modal (blocks page until accepted) */}
+                {termsOpen && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
+                        <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+                        <div className="relative z-60 max-w-3xl w-full bg-white dark:bg-[#071023] text-slate-900 dark:text-white rounded-2xl shadow-xl p-6 sm:p-10 mx-4">
+                            <h3 className="text-xl font-bold">SafeLand — Terms & Consent</h3>
+                            <p className="mt-3 text-sm text-gray-600 dark:text-gray-300">Before you register, SafeLand requests your permission to access official parcel and identity information to verify ownership and securely complete your registration. We will only use this information for verification, identity validation, and account setup.</p>
+
+                            <div className="mt-4 max-h-72 overflow-auto text-xs text-gray-700 dark:text-gray-200 space-y-3 border-t border-gray-100 dark:border-gray-800 pt-3">
+                                <p><strong>Purpose</strong><br />SafeLand uses parcel and identity data solely to confirm property details and your identity during onboarding. Data will not be used for marketing or sold to third parties without your explicit consent, except where required by law.</p>
+                                <p><strong>Restrictions</strong><br />Automated scraping or systematic retrieval of data to build external databases, directories, or compilations is prohibited. Data accessed through our verification process must not be republished or redistributed.</p>
+                                <p><strong>User Responsibilities</strong><br />You represent that all registration information you submit will be true, accurate, current, and complete. If you provide false or misleading information, SafeLand may suspend or terminate your account.</p>
+                                <p><strong>Updates</strong><br />These terms may be updated from time to time. Continued use of the service after changes are posted constitutes acceptance of the revised terms.</p>
+                            </div>
+
+                            <div className="mt-4 flex items-start gap-3">
+                                <input id="agree" type="checkbox" checked={agreeChecked} onChange={(e) => setAgreeChecked(e.target.checked)} className="h-4 w-4 mt-1" />
+                                <label htmlFor="agree" className="text-sm">I have read and agree to SafeLand's terms above, and I grant permission to access my parcel and identity information for verification. I understand SafeLand will keep my information confidential and will not share it without my consent, except as required by law.</label>
+                            </div>
+
+                            <div className="mt-4 flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    <input id="remember" type="checkbox" checked={rememberChoice} onChange={(e) => setRememberChoice(e.target.checked)} className="h-4 w-4" />
+                                    <label htmlFor="remember" className="text-sm text-gray-500">Remember my choice on this device</label>
+                                </div>
+
+                                <div className="flex gap-2">
+                                    <button onClick={handleDeclineTerms} className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-sm">Decline</button>
+                                    <button onClick={handleAcceptTerms} disabled={!agreeChecked} className="px-4 py-2 rounded-lg bg-primary text-white text-sm disabled:opacity-60">Accept</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
         </>
 
