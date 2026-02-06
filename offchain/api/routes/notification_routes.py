@@ -434,7 +434,7 @@ async def password_reset_form(
             <p class=\"subtitle\">Choose a strong password you haven't used before.</p>
             <form id=\"resetForm\" method=\"POST\" action=\"/api/notifications/password-reset\">\n        <input type=\"hidden\" name=\"token\" value=\"{token}\">\n        <div class=\"form-group\">\n          <label for=\"password\">New Password</label>\n          <div class=\"input-wrapper\">\n            <input type=\"password\" id=\"password\" name=\"password\" required minlength=\"8\" placeholder=\"Enter new password\">\n          </div>\n          <div class=\"strength-bar\"><div class=\"strength-fill\" id=\"strengthFill\"></div></div>\n          <div class=\"error\" id=\"strengthError\"></div>\n        </div>\n        <div class=\"form-group\">\n          <label for=\"confirm_password\">Confirm Password</label>\n          <div class=\"input-wrapper\">\n            <input type=\"password\" id=\"confirm_password\" name=\"confirm_password\" required minlength=\"8\" placeholder=\"Confirm new password\">\n          </div>\n          <div class=\"error\" id=\"matchError\">Passwords do not match</div>\n        </div>\n        <div class=\"actions\">\n          <button type=\"submit\" id=\"submitBtn\">Reset Password</button>\n        </div>\n      </form>\n      <div class=\"security\"><strong>Security Tip:</strong> Never reuse passwords across services. Avoid dictionary words; mix letters, numbers, and symbols.</div>
         </div>
-        <div class=\"footer\">&copy; 2024 SafeLand Rwanda. All rights reserved.</div>
+        <div class=\"footer\">&copy; 2026 SafeLand Rwanda. All rights reserved.</div>
     </div>
     <script>
         const password = document.getElementById('password');

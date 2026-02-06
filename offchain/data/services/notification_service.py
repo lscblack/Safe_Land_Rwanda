@@ -266,7 +266,7 @@ class NotificationService:
                     </tr>
                     <tr>
                         <td class="footer">
-                            <p>&copy; 2024 SafeLand Rwanda. All rights reserved.</p>
+                            <p>&copy; 2026 SafeLand Rwanda. All rights reserved.</p>
                             <p>Empowering Rwanda's Land Management</p>
                         </td>
                     </tr>
@@ -332,7 +332,7 @@ class NotificationService:
                     </tr>
                     <tr>
                         <td class="footer">
-                            <p>&copy; 2024 SafeLand Rwanda. All rights reserved.</p>
+                            <p>&copy; 2026 SafeLand Rwanda. All rights reserved.</p>
                             <p>Empowering Rwanda's Land Management</p>
                         </td>
                     </tr>
@@ -404,7 +404,7 @@ class NotificationService:
                     </tr>
                     <tr>
                         <td class="footer">
-                            <p>&copy; 2024 SafeLand Rwanda. All rights reserved.</p>
+                            <p>&copy; 2026 SafeLand Rwanda. All rights reserved.</p>
                             <p>Empowering Rwanda's Land Management</p>
                         </td>
                     </tr>

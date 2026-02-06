@@ -21,7 +21,7 @@ type LangKey = keyof typeof translations;
 // Images for the left slider
 const SLIDER_IMAGES = [
     "https://www.karmod.com/media/blog/98/prefab-house-in-rwanda-cover.jpg",
-    "https://questforwonder.com/wp-content/uploads/2024/03/top-tourist-spots-in-rwanda-africa.jpg",
+    "https://www.arcadiasafaris.com/wp-content/uploads/2023/12/25-Top-Attractions-in-Rwanda-2.jpg",
     "https://visitrwanda.com/wp-content/uploads/fly-images/1210/Visit-Rwanda-Kigali-Centre-Roads-1920x1281.jpg",
 ];
 
