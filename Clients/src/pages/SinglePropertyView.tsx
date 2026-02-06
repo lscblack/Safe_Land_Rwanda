@@ -8,6 +8,7 @@ import { clsx } from 'clsx';
 // --- YOUR CONTEXTS ---
 import { useLanguage } from '../contexts/language-context';
 import { Navbar } from '../components/navigation/Navbar';
+import { Footer } from '../components/navigation/FooterAll';
 // import { Navbar } from '../components/Navbar'; // Assuming you have a navbar
 
 export const PropertyListingPage = () => {
@@ -29,8 +30,9 @@ export const PropertyListingPage = () => {
       zoning: "R1A"
     },
     images: [
-      "https://images.unsplash.com/photo-1600596542815-2a429b08b6b9?q=80&w=2069&auto=format&fit=crop",
       "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?q=80&w=2070&auto=format&fit=crop",
+      "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?q=80&w=2070&auto=format&fit=crop",
+      // "https://images.unsplash.com/photo-1600596542815-2a429b08b6b9?q=80&w=2069&auto=format&fit=crop",
       "https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?q=80&w=2053&auto=format&fit=crop",
       "https://images.unsplash.com/photo-1600566753376-12c8ab7fb75b?q=80&w=2070&auto=format&fit=crop",
       "https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?q=80&w=1974&auto=format&fit=crop",
@@ -45,7 +47,7 @@ export const PropertyListingPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#050c1a] text-slate-900 dark:text-white font-sans">
+    <div className="min-h-screen bg-slate-100 dark:bg-[#050c1a] text-slate-900 dark:text-white font-sans">
       <Navbar isFixed={true} />
       <main className="max-w-11/12 mx-auto px-4  sm:px-6 lg:px-8 py-8">
         
@@ -252,6 +254,7 @@ export const PropertyListingPage = () => {
         </div>
 
       </main>
+      <Footer/>
     </div>
   );
 };
