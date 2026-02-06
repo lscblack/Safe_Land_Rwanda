@@ -9,6 +9,8 @@ import axios from 'axios';
 // --- YOUR CONTEXTS ---
 import { useLanguage } from '../contexts/language-context';
 import { useTheme } from '../contexts/theme-context';
+import RecordPropertyPage from '../components/dashboard/Forms/RecordPropertyPage';
+import Sidebar from '../components/dashboard/Sidebar';
 
 type ViewState = 'overview' | 'properties' | 'users' | 'analytics' | 'settings';
 
@@ -31,6 +33,7 @@ export const DashboardLayout = () => {
     const [isNotifOpen, setNotifOpen] = useState(false);
     const [isLangMenuOpen, setLangMenuOpen] = useState(false);
     const [loggedUser, setLoggedUser] = useState<LoggedUser | null>(null);
+    const [propertiesView, setPropertiesView] = useState<'record' | 'manage'>('record');
     console.log("Current Language:", isProfileOpen);
     // -- Refs --   
     const profileRef = useRef<HTMLDivElement>(null);
@@ -76,97 +79,20 @@ export const DashboardLayout = () => {
 
     // --- SUB-COMPONENTS ---
 
-    const NavItem = ({ id, icon: Icon, label }: { id: ViewState, icon: any, label: string }) => {
-        const isActive = activeView === id;
-        return (
-            <button
-                onClick={() => { setActiveView(id); setSidebarOpen(false); }}
-                className={clsx(
-                    "w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 group font-medium text-sm relative",
-                    isActive
-                        ? "text-white bg-primary"
-                        : "text-gray-400 hover:bg-white/5 hover:text-white"
-                )}
-            >
-                <Icon size={18} className={clsx(isActive ? "text-white" : "text-gray-400 group-hover:text-white")} />
-                <span>{label}</span>
-                {isActive && (
-                    <motion.div layoutId="active-border" className="absolute left-0 top-2 bottom-2 w-1 rounded-r-full bg-white" />
-                )}
-            </button>
-        );
-    };
-
     return (
         <div className="flex h-screen bg-[#F3F4F6] dark:bg-[#050c1a] font-sans overflow-hidden transition-colors duration-300">
 
-            {/* ==================== 1. SIDEBAR (Dark Professional Theme) ==================== */}
-
-            {/* Mobile Backdrop */}
-            <AnimatePresence>
-                {isSidebarOpen && (
-                    <motion.div
-                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                        onClick={() => setSidebarOpen(false)}
-                        className="fixed inset-0 bg-black/60 z-40 lg:hidden backdrop-blur-sm"
-                    />
-                )}
-            </AnimatePresence>
-
-            {/* Sidebar Container */}
-            <aside
-                className={clsx(
-                    "fixed lg:static inset-y-0 left-0 z-50 w-64 bg-[#0a162e] text-white flex flex-col transition-transform duration-300 ease-in-out lg:translate-x-0 border-r border-gray-800",
-                    isSidebarOpen ? "translate-x-0" : "-translate-x-full"
-                )}
-            >
-                {/* Brand Header */}
-                <div className="h-16 flex items-center px-6 border-b border-white/10">
-                    <div className="flex items-center gap-2.5 justify-start w-full">
-                        <div className="w-full h-13 py-1 rounded-lg flex items-start justify-start">
-                            <img src="/logo_words.png" alt="" className="h-full object-contain brightness-0 invert" />
-                        </div>
-                        {/* <span className="text-lg font-bold tracking-tight">SafeLand</span> */}
-                    </div>
-                    <button onClick={() => setSidebarOpen(false)} className="ml-auto lg:hidden text-gray-400">
-                        <X size={20} />
-                    </button>
-                </div>
-
-                {/* Navigation Links */}
-                <div className="flex-1 py-6 px-3 space-y-1 overflow-y-auto custom-scrollbar">
-                    <div className="px-3 mb-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">Main Menu</div>
-                    <NavItem id="overview" icon={LayoutDashboard} label={t('dash.nav.overview')} />
-                    <NavItem id="properties" icon={Building2} label={t('dash.nav.properties')} />
-                    <NavItem id="users" icon={Users} label={t('dash.nav.users')} />
-
-                    <div className="px-3 mt-6 mb-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">Management</div>
-                    <NavItem id="analytics" icon={BarChart3} label={t('dash.nav.analytics')} />
-                    <NavItem id="settings" icon={Settings} label={t('dash.nav.settings')} />
-                </div>
-
-                {/* User Mini Profile */}
-                <div className="p-4 border-t border-white/10 bg-[#081226]">
-                    <div className="flex items-center gap-3">
-                        {loggedUser?.avatar ? (
-                            <img src={loggedUser.avatar} alt="User" className="w-9 h-9 rounded-full border border-white/20 object-cover" />
-                        ) : (
-                            <div className="w-9 h-9 rounded-full border border-white/20 bg-white/10 flex items-center justify-center text-xs font-bold text-white">
-                                {(loggedUser?.first_name?.[0] || 'U').toUpperCase()}
-                            </div>
-                        )}
-                        <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold truncate text-white">
-                                {loggedUser ? `${loggedUser.first_name || ''} ${loggedUser.last_name || ''}`.trim() || 'User' : 'User'}
-                            </p>
-                            <p className="text-xs text-gray-400 truncate">{loggedUser?.email || ''}</p>
-                        </div>
-                        <button onClick={handleLogout} className="text-gray-400 hover:text-white transition-colors">
-                            <LogOut size={16} />
-                        </button>
-                    </div>
-                </div>
-            </aside>
+            <Sidebar
+                activeView={activeView}
+                setActiveView={setActiveView}
+                isSidebarOpen={isSidebarOpen}
+                setSidebarOpen={setSidebarOpen}
+                loggedUser={loggedUser}
+                handleLogout={handleLogout}
+                t={t}
+                propertiesView={propertiesView}
+                setPropertiesView={setPropertiesView}
+            />
 
 
             {/* ==================== 2. MAIN CONTENT AREA ==================== */}
@@ -267,7 +193,8 @@ export const DashboardLayout = () => {
                                 className="flex-1"
                             >
                                 {activeView === 'overview' && <EmptyWidget title="Overview Management" />}
-                                {activeView === 'properties' && <EmptyWidget title="Properties Management" />}
+                                {activeView === 'properties' && propertiesView === 'record' && <RecordPropertyPage />}
+                                {activeView === 'properties' && propertiesView === 'manage' && <EmptyWidget title="Manage Properties" />}
                                 {activeView === 'users' && <EmptyWidget title="User Management" />}
                                 {activeView === 'analytics' && <EmptyWidget title="Analytics Center" />}
                                 {activeView === 'settings' && <EmptyWidget title="System Settings" />}
