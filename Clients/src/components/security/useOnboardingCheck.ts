@@ -77,6 +77,7 @@ export const useOnboardingCheck = () => {
     if (navEntries.length > 0) {
         const navType = (navEntries[0] as PerformanceNavigationTiming).type;
         // If user is trying to "Back" into the app without a valid token, this catches it.
+        console.log("Navigation Type:", navType);
     }
 
     // 2. Verify Storage

@@ -35,7 +35,7 @@ export const MarketplaceIndex = () => {
                 <Navbar isFixed={true} />
 
                 {/* ================= 2. HERO SLIDER SECTION ================= */}
-                <section className="w-full mx-auto  overflow-hidden relative h-[500px] group">
+                <section className="w-full mx-auto overflow-hidden relative h-[500px] group">
                     <HeroCarousel slides={HERO_SLIDES} />
                 </section>
 

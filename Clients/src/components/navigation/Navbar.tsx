@@ -19,7 +19,7 @@ export const Navbar = ({ isFixed = false}: NavBarProps) => {
     }, []);
 
     return (
-        <header className={`${isFixed && !scrolled ? "" : "fixed"} w-full top-0 z-50 font-sans`}>
+        <header className={`${isFixed && !scrolled ? "relative" : "fixed"} w-full top-0 z-50 font-sans`}>
             <TopBar />
 
             <nav

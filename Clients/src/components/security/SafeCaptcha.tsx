@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence, useAnimation } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { ShieldCheck, CheckCircle2, Fingerprint, Lock, Cpu, Scan } from 'lucide-react';
 import { clsx } from 'clsx';
 
@@ -11,7 +11,7 @@ interface SafeCaptchaProps {
 export const SafeCaptcha: React.FC<SafeCaptchaProps> = ({ onVerify, className }) => {
   const [status, setStatus] = useState<'idle' | 'scanning' | 'analyzing' | 'verified'>('idle');
   const [progress, setProgress] = useState(0);
-  const controls = useAnimation();
+  // const controls = useAnimation();
   const intervalRef = useRef<number | null>(null);
 
   // --- INTERACTION HANDLERS ---

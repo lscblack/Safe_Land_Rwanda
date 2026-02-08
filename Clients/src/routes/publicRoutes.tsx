@@ -14,7 +14,10 @@ const DashboardLayout = lazy(() => import("../pages/Dashboard").then(module => (
 const PropertyListingPage = lazy(() => import("../pages/SinglePropertyView").then(module => ({ default: module.PropertyListingPage })));
 const MarketplaceIndex = lazy(() => import("../pages/MarketPlace").then(module => ({ default: module.MarketplaceIndex })));
 const OnboardingPage = lazy(() => import("../pages/OnboardingPage").then(module => ({ default: module.OnboardingPage })));
+const AboutPage = lazy(() => import("../pages/About").then(module => ({ default: module.AboutPage })));
+const PartnersPage = lazy(() => import("../pages/OurAgents").then(module => ({ default: module.AgenciesPage })));
 const RouteManager = () => {
+
   useOnboardingCheck(); // Runs the 1-day reset check
   return null; // Renders nothing visible
 };
@@ -37,6 +40,8 @@ const AppRoutes = () => {
         <Route path="/dashboard" element={<DashboardLayout />} />
         <Route path="/properties" element={<MarketplaceIndex />} />
         <Route path="/properties/single" element={<PropertyListingPage />} />
+        <Route path="/about" element={<AboutPage />} />
+        <Route path="/our-agents" element={<PartnersPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </Suspense>

@@ -1,8 +1,8 @@
 import  { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-    LayoutDashboard, Building2, Users, BarChart3, Settings,
-    Bell, Search, Menu, X, LogOut, Globe, Sun, Moon, Home, Briefcase
+ 
+    Bell, Search, Menu,  Globe, Sun, Moon, Home, Briefcase
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import axios from 'axios';

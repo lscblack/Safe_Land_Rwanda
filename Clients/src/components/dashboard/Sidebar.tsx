@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { LayoutDashboard, Building2, Users, BarChart3, Settings, LogOut, Briefcase } from 'lucide-react';
+import { LayoutDashboard, Building2, Users, BarChart3, Settings, LogOut } from 'lucide-react';
 import { clsx } from 'clsx';
 
 type ViewState = 'overview' | 'properties' | 'users' | 'analytics' | 'settings';
@@ -17,7 +17,7 @@ type Props = {
     setPropertiesView: (v: 'record' | 'manage') => void;
 };
 
-const NavItem = ({ id, icon: Icon, label, onClick, isActive }: { id?: ViewState, icon: any, label: string, onClick?: () => void, isActive?: boolean }) => {
+const NavItem = ({ icon: Icon, label, onClick, isActive }: { id?: ViewState, icon: any, label: string, onClick?: () => void, isActive?: boolean }) => {
     const active = !!isActive;
     return (
         <button
@@ -37,16 +37,18 @@ const NavItem = ({ id, icon: Icon, label, onClick, isActive }: { id?: ViewState,
 };
 
 export default function Sidebar({ activeView, setActiveView, isSidebarOpen, setSidebarOpen, loggedUser, handleLogout, t, propertiesView, setPropertiesView }: Props) {
-    const [propertiesOpen, setPropertiesOpen] = useState(true);
+    const [propertiesOpen, setPropertiesOpen] = useState(false);
 
-    const roleName = (loggedUser && (loggedUser.role || loggedUser.usertype || loggedUser.user_type) ? String(loggedUser.role || loggedUser.usertype || loggedUser.user_type).toLowerCase() : 'guest');
-    const isAdmin = roleName === 'admin';
-    const isSeller = roleName === 'seller';
-    const isBuyer = roleName === 'buyer';
-    const isBlocker = roleName === 'blocker';
+    // Normalize role(s) to array
+    const userRolesRaw = loggedUser && (loggedUser.role || loggedUser.usertype || loggedUser.user_type);
+    const userRoles: string[] = Array.isArray(userRolesRaw)
+        ? userRolesRaw.map(r => String(r).toLowerCase())
+        : userRolesRaw
+            ? [String(userRolesRaw).toLowerCase()]
+            : ['guest'];
 
-    // Role-based menu arrays. Adjust which top-level items each role sees here.
-    const menusByRole: Record<string, Array<'overview' | 'properties' | 'users' | 'analytics' | 'settings'>> = {
+    // Role-based menu arrays
+    const menusByRole: any = {
         admin: ['overview', 'properties', 'users', 'analytics', 'settings'],
         seller: ['overview', 'properties', 'analytics', 'settings'],
         buyer: ['overview', 'properties', 'analytics'],
@@ -54,7 +56,17 @@ export default function Sidebar({ activeView, setActiveView, isSidebarOpen, setS
         guest: ['overview', 'properties']
     };
 
-    const allowedMenus = menusByRole[roleName] || menusByRole['guest'];
+    // Combine allowed menus for all user roles
+    const allowedMenus = Array.from(new Set(
+        userRoles.flatMap(role => menusByRole[role] || menusByRole['guest'])
+    ));
+
+    // Helper booleans for role checks
+    const isAdmin = userRoles.includes('admin');
+    const isSeller = userRoles.includes('seller');
+    const isBuyer = userRoles.includes('buyer');
+    const isBlocker = userRoles.includes('blocker');
+    console.log(isAdmin, isSeller, isBuyer, isBlocker);
 
     return (
         <>

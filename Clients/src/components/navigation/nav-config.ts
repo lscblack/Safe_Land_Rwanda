@@ -1,5 +1,5 @@
 // src/components/navigation/nav-config.ts
-import { Flame, Home, Info, Briefcase, ShieldAlert, Building2 } from "lucide-react";
+import { Flame, Home, Info, ShieldAlert, Building2 } from "lucide-react";
 
 export interface NavItemType {
   label: string; // Keep as string for translation key
@@ -27,12 +27,12 @@ export const NAV_ITEMS: NavItemType[] = [
     href: "/about",
     icon: Info
   },
-  {
-    label: "Services",
-    translationKey: "nav.services",
-    href: "/services",
-    icon: Briefcase
-  },
+  // {
+  //   label: "Services",
+  //   translationKey: "nav.services",
+  //   href: "/services",
+  //   icon: Briefcase
+  // },
   {
     label: "Properties",
     translationKey: "nav.properties",
@@ -67,20 +67,20 @@ export const NAV_ITEMS: NavItemType[] = [
     ]
   },
   {
-    label: "Blockers",
+    label: "Our Agents",
     translationKey: "nav.blockers",
-    href: "/blockers",
+    href: "/our-agents",
     icon: ShieldAlert,
     children: [
       {
-        label: "Buy Property",
+        label: "Blockers",
         translationKey: "nav.properties.buy",
-        href: "/properties/buy"
+        href: "/our-agents/blockers"
       },
       {
-        label: "Sell Property",
+        label: "Agencies",
         translationKey: "nav.properties.sell",
-        href: "/properties/sell"
+        href: "/our-agents/agencies"
       }
     ]
   },

@@ -93,12 +93,12 @@ export const translations = {
     'nav.about': 'About',
     'nav.services': 'Services',
     'nav.properties': 'Properties',
-    'nav.properties.buy': 'Buy Property',
-    'nav.properties.sell': 'Sell Property',
+    'nav.properties.buy': 'Blockers',
+    'nav.properties.sell': 'Agencies',
     'nav.properties.commercial': 'Commercial Buildings',
     'nav.properties.houses': 'Houses & Apartments',
     'nav.properties.land': 'Land & Plots',
-    'nav.blockers': 'Blockers',
+    'nav.blockers': 'Our Agents',
     'nav.hotDeals': 'Hot Deals',
 
     // TopBar
