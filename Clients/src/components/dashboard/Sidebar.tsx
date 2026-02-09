@@ -1,10 +1,13 @@
+
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { LayoutDashboard, Building2, Users, BarChart3, Settings, LogOut } from 'lucide-react';
+import { LayoutDashboard, Building2, Users, BarChart3, Settings, LogOut, Timer, Building } from 'lucide-react';
 import { clsx } from 'clsx';
 
+// Define all possible views
 type ViewState = 'overview' | 'properties' | 'users' | 'analytics' | 'settings';
 
+// Sidebar props
 type Props = {
     activeView: ViewState;
     setActiveView: (v: ViewState) => void;
@@ -17,59 +20,107 @@ type Props = {
     setPropertiesView: (v: 'record' | 'manage') => void;
 };
 
-const NavItem = ({ icon: Icon, label, onClick, isActive }: { id?: ViewState, icon: any, label: string, onClick?: () => void, isActive?: boolean }) => {
-    const active = !!isActive;
-    return (
-        <button
-            onClick={onClick}
-            className={clsx(
-                "w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 group font-medium text-sm relative",
-                active ? "text-white bg-primary" : "text-gray-400 hover:bg-white/5 hover:text-white"
-            )}
-        >
-            <Icon size={18} className={clsx(active ? "text-white" : "text-gray-400 group-hover:text-white")} />
-            <span>{label}</span>
-            {active && (
-                <motion.div layoutId="active-border" className="absolute left-0 top-2 bottom-2 w-1 rounded-r-full bg-white" />
-            )}
-        </button>
-    );
-};
+// Centralized menu config with role access
+const MENU_CONFIG = [
+    {
+        id: 'overview',
+        place: 'main',
+        icon: LayoutDashboard,
+        labelKey: 'dash.nav.overview',
+        roles: ['admin', 'seller', 'buyer', 'blocker'],
+    },
+    {
+        id: 'property-categories',
+        place: 'main',
+        icon: Building,
+        labelKey: 'Property Categories',
+        roles: ['admin', 'seller', 'blocker'],
+        isCollapsible: true,
+    },
+    {
+        id: 'my-properties',
+        place: 'main',
+        icon: LayoutDashboard,
+        labelKey: 'My Properties',
+        roles: ['admin', 'seller', 'buyer', 'blocker'],
+    },
+    {
+        id: 'properties',
+        place: 'main',
+        icon: Building2,
+        labelKey: 'Manage Properties',
+        roles: ['admin', 'seller', 'blocker'],
+        isCollapsible: true,
+    },
+    {
+        id: 'users',
+        place: 'main',
+        icon: Users,
+        labelKey: 'dash.nav.users',
+        roles: ['admin'],
+    },
+    {
+        id: 'analytics',
+        place: 'main',
+        icon: BarChart3,
+        labelKey: 'Market Analytics',
+        roles: ['admin', 'seller', 'buyer'],
+    },
+    {
+        id: 'settings',
+        place: 'management',
+        icon: Settings,
+        labelKey: 'dash.nav.settings',
+        roles: ['admin', 'seller'],
+    },
+    {
+        id: 'history',
+        icon: Timer,
+        place: 'management',
+        labelKey: 'History',
+        roles: ['admin', 'seller', 'buyer', 'blocker'],
+    },
+];
 
+// Sidebar navigation item
+const NavItem = ({ icon: Icon, label, onClick, isActive }: { icon: any, label: string, onClick?: () => void, isActive?: boolean }) => (
+    <button
+        onClick={onClick}
+        className={clsx(
+            'w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 group font-medium text-sm relative',
+            isActive ? 'text-white bg-primary' : 'text-gray-400 hover:bg-white/5 hover:text-white'
+        )}
+    >
+        <Icon size={18} className={clsx(isActive ? 'text-white' : 'text-gray-400 group-hover:text-white')} />
+        <span>{label}</span>
+        {isActive && (
+            <motion.div layoutId="active-border" className="absolute left-0 top-2 bottom-2 w-1 rounded-r-full bg-white" />
+        )}
+    </button>
+);
+
+// Main Sidebar component
 export default function Sidebar({ activeView, setActiveView, isSidebarOpen, setSidebarOpen, loggedUser, handleLogout, t, propertiesView, setPropertiesView }: Props) {
+    // State for properties submenu
     const [propertiesOpen, setPropertiesOpen] = useState(false);
 
-    // Normalize role(s) to array
+    // Extract user roles as lowercase array, fallback to guest
     const userRolesRaw = loggedUser && (loggedUser.role || loggedUser.usertype || loggedUser.user_type);
     const userRoles: string[] = Array.isArray(userRolesRaw)
-        ? userRolesRaw.map(r => String(r).toLowerCase())
+        ? userRolesRaw.map((r) => String(r).toLowerCase())
         : userRolesRaw
             ? [String(userRolesRaw).toLowerCase()]
             : ['guest'];
 
-    // Role-based menu arrays
-    const menusByRole: any = {
-        admin: ['overview', 'properties', 'users', 'analytics', 'settings'],
-        seller: ['overview', 'properties', 'analytics', 'settings'],
-        buyer: ['overview', 'properties', 'analytics'],
-        blocker: ['overview', 'properties'],
-        guest: ['overview', 'properties']
-    };
+    // Helper: check if user has access to a menu item
+    const hasAccess = (menu: any) => menu.roles.some((role: string) => userRoles.includes(role));
 
-    // Combine allowed menus for all user roles
-    const allowedMenus = Array.from(new Set(
-        userRoles.flatMap(role => menusByRole[role] || menusByRole['guest'])
-    ));
-
-    // Helper booleans for role checks
-    const isAdmin = userRoles.includes('admin');
-    const isSeller = userRoles.includes('seller');
-    const isBuyer = userRoles.includes('buyer');
-    const isBlocker = userRoles.includes('blocker');
-    console.log(isAdmin, isSeller, isBuyer, isBlocker);
+    // Get management menu items user can access
+    const managementMenus = MENU_CONFIG.filter(m => m.place === 'management' && hasAccess(m));
 
     return (
         <>
+            {/* Sidebar overlay for mobile */}
             <AnimatePresence>
                 {isSidebarOpen && (
                     <motion.div
@@ -82,10 +133,11 @@ export default function Sidebar({ activeView, setActiveView, isSidebarOpen, setS
 
             <aside
                 className={clsx(
-                    "fixed lg:static inset-y-0 left-0 z-50 w-64 bg-[#0a162e] text-white flex flex-col transition-transform duration-300 ease-in-out lg:translate-x-0 border-r border-gray-800",
-                    isSidebarOpen ? "translate-x-0" : "-translate-x-full"
+                    'fixed lg:static inset-y-0 left-0 z-50 w-64 bg-[#0a162e] text-white flex flex-col transition-transform duration-300 ease-in-out lg:translate-x-0 border-r border-gray-800',
+                    isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
                 )}
             >
+                {/* Logo and close button */}
                 <div className="h-16 flex items-center px-6 border-b border-white/10">
                     <div className="flex items-center gap-2.5 justify-start w-full">
                         <div className="w-full h-13 py-1 rounded-lg flex items-start justify-start">
@@ -97,39 +149,74 @@ export default function Sidebar({ activeView, setActiveView, isSidebarOpen, setS
                     </button>
                 </div>
 
+                {/* Main menu section */}
                 <div className="flex-1 py-6 px-3 space-y-1 overflow-y-auto custom-scrollbar">
                     <div className="px-3 mb-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">Main Menu</div>
-                    {allowedMenus.includes('overview') && (
-                        <NavItem id="overview" icon={LayoutDashboard} label={t('dash.nav.overview')} onClick={() => { setActiveView('overview'); setSidebarOpen(false); }} isActive={activeView === 'overview'} />
-                    )}
+                    {/* Render menu items based on access */}
+                    {MENU_CONFIG.filter(hasAccess).filter(menu => menu.place === 'main').map((menu) => {
+                        if (menu.id === 'properties') {
+                            // Properties menu with collapsible submenu
+                            return (
+                                <div key={menu.id}>
+                                    <button
+                                        onClick={() => setPropertiesOpen((prev) => !prev)}
+                                        className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-gray-400 hover:bg-white/5 hover:text-white text-sm"
+                                    >
+                                        <menu.icon size={18} />
+                                        <span>{t(menu.labelKey)}</span>
+                                        <span className="ml-auto text-xs text-gray-400">{propertiesOpen ? '▾' : '▸'}</span>
+                                    </button>
+                                    <AnimatePresence>
+                                        {propertiesOpen && (
+                                            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="pl-6 pr-3 py-2 space-y-1">
+                                                <button
+                                                    onClick={() => { setActiveView('properties'); setPropertiesView('record'); setSidebarOpen(false); }}
+                                                    className={clsx('w-full text-left px-3 py-2 rounded-md text-sm', propertiesView === 'record' ? 'bg-white/5 text-white' : 'text-gray-400 hover:bg-white/5 hover:text-white')}
+                                                >
+                                                    Record Property
+                                                </button>
+                                                <button
+                                                    onClick={() => { setActiveView('properties'); setPropertiesView('manage'); setSidebarOpen(false); }}
+                                                    className={clsx('w-full text-left px-3 py-2 rounded-md text-sm', propertiesView === 'manage' ? 'bg-white/5 text-white' : 'text-gray-400 hover:bg-white/5 hover:text-white')}
+                                                >
+                                                    Manage Property
+                                                </button>
+                                            </motion.div>
+                                        )}
+                                    </AnimatePresence>
+                                </div>
+                            );
+                        }
+                        // All other menu items
+                        return (
+                            <NavItem
+                                key={menu.id}
+                                icon={menu.icon}
+                                label={t(menu.labelKey)}
+                                onClick={() => { setActiveView(menu.id as ViewState); setSidebarOpen(false); }}
+                                isActive={activeView === menu.id}
+                            />
+                        );
+                    })}
 
-                    {allowedMenus.includes('properties') && (
-                        <div>
-                            <button onClick={() => setPropertiesOpen(prev => !prev)} className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-gray-400 hover:bg-white/5 hover:text-white text-sm">
-                                <Building2 size={18} />
-                                <span>{t('dash.nav.properties')}</span>
-                                <span className="ml-auto text-xs text-gray-400">{propertiesOpen ? '▾' : '▸'}</span>
-                            </button>
-                            <AnimatePresence>
-                                {propertiesOpen && (
-                                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="pl-6 pr-3 py-2 space-y-1">
-                                        <button onClick={() => { setActiveView('properties'); setPropertiesView('record'); setSidebarOpen(false); }} className={clsx("w-full text-left px-3 py-2 rounded-md text-sm", propertiesView === 'record' ? 'bg-white/5 text-white' : 'text-gray-400 hover:bg-white/5 hover:text-white')}>Record Property</button>
-                                        <button onClick={() => { setActiveView('properties'); setPropertiesView('manage'); setSidebarOpen(false); }} className={clsx("w-full text-left px-3 py-2 rounded-md text-sm", propertiesView === 'manage' ? 'bg-white/5 text-white' : 'text-gray-400 hover:bg-white/5 hover:text-white')}>Manage Property</button>
-                                    </motion.div>
-                                )}
-                            </AnimatePresence>
-                        </div>
+                    {/* Management section: only show if user has accessible management menus */}
+                    {managementMenus.length > 0 && (
+                        <>
+                            <div className="px-3 mt-6 mb-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">Management</div>
+                            {managementMenus.map(menu => (
+                                <NavItem
+                                    key={menu.id}
+                                    icon={menu.icon}
+                                    label={t(menu.labelKey)}
+                                    onClick={() => { setActiveView(menu.id as ViewState); setSidebarOpen(false); }}
+                                    isActive={activeView === menu.id}
+                                />
+                            ))}
+                        </>
                     )}
-
-                    {allowedMenus.includes('users') && (
-                        <NavItem id="users" icon={Users} label={t('dash.nav.users')} onClick={() => { setActiveView('users'); setSidebarOpen(false); }} isActive={activeView === 'users'} />
-                    )}
-
-                    <div className="px-3 mt-6 mb-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">Management</div>
-                    <NavItem id="analytics" icon={BarChart3} label={t('dash.nav.analytics')} onClick={() => { setActiveView('analytics'); setSidebarOpen(false); }} isActive={activeView === 'analytics'} />
-                    <NavItem id="settings" icon={Settings} label={t('dash.nav.settings')} onClick={() => { setActiveView('settings'); setSidebarOpen(false); }} isActive={activeView === 'settings'} />
                 </div>
 
+                {/* User info and logout */}
                 <div className="p-4 border-t border-white/10 bg-[#081226]">
                     <div className="flex items-center gap-3">
                         {loggedUser?.avatar ? (
