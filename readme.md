@@ -5,6 +5,8 @@ Safe Land Rwanda is a comprehensive platform for real estate market analysis, pr
 
 ## GitHub Repository
 [https://github.com/lscblack/Safe_Land_Rwanda](https://github.com/lscblack/Safe_Land_Rwanda)
+### Demo
+[https://youtu.be/E-LktPudyuU](https://youtu.be/E-LktPudyuU)
 
 ## Setup Instructions
 
