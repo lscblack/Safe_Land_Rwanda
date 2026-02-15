@@ -9,10 +9,25 @@ import axios from 'axios';
 // --- YOUR CONTEXTS ---
 import { useLanguage } from '../contexts/language-context';
 import { useTheme } from '../contexts/theme-context';
-import RecordPropertyPage from '../components/dashboard/Forms/RecordPropertyPage';
+import RecordPropertyPage from '../components/dashboard/Properties/RecordPropertyPage';
 import Sidebar from '../components/dashboard/Sidebar';
+import { CategoryManagement } from '../components/dashboard/Categories/Categories';
+import { PropertyManagement } from '../components/dashboard/Properties/ManageAllProperties';
+import { AgencyManagement } from '../components/dashboard/agents/AgencyManagement';
+import { UserManagement } from '../components/dashboard/agents/UsersMAnag';
 
-type ViewState = 'overview' | 'properties' | 'users' | 'analytics' | 'settings';
+
+type ViewState =
+    | 'overview'
+    | 'properties'
+    | 'category'
+    | 'users'
+    | 'analytics'
+    | 'settings'
+    | 'property-categories'
+    | 'agencies'
+    | 'agency-users'
+    | 'rdb-certificate';
 
 type LoggedUser = {
     first_name?: string;
@@ -27,13 +42,27 @@ export const DashboardLayout = () => {
     const { theme, toggleTheme } = useTheme();
 
     // -- UI State --
-    const [activeView, setActiveView] = useState<ViewState>('overview');
+    const [activeView, setActiveView] = useState<ViewState | any>(() => {
+        try {
+            const v = localStorage.getItem('activeView');
+            return v ? (v as ViewState) : 'overview';
+        } catch (e) {
+            return 'overview';
+        }
+    });
     const [isSidebarOpen, setSidebarOpen] = useState(false); // Mobile only
     const [isProfileOpen, setProfileOpen] = useState(false);
     const [isNotifOpen, setNotifOpen] = useState(false);
     const [isLangMenuOpen, setLangMenuOpen] = useState(false);
     const [loggedUser, setLoggedUser] = useState<LoggedUser | null>(null);
-    const [propertiesView, setPropertiesView] = useState<'record' | 'manage'>('record');
+    const [propertiesView, setPropertiesView] = useState<'record' | 'manage'>(() => {
+        try {
+            const p = localStorage.getItem('propertiesView');
+            return p === 'manage' ? 'manage' : 'record';
+        } catch (e) {
+            return 'record';
+        }
+    });
     console.log("Current Language:", isProfileOpen);
     // -- Refs --   
     const profileRef = useRef<HTMLDivElement>(null);
@@ -54,6 +83,7 @@ export const DashboardLayout = () => {
     useEffect(() => {
         const fetchProfile = async () => {
             const userToken = localStorage.getItem('user_access_token');
+            console.log("Fetching user profile with token:", userToken);
             if (!userToken) {
                 window.location.href = '/login';
                 return;
@@ -70,6 +100,10 @@ export const DashboardLayout = () => {
         };
         fetchProfile();
     }, []);
+
+    // Persist local dashboard settings so view doesn't reset on refresh
+    useEffect(() => { try { localStorage.setItem('activeView', activeView); } catch (e) { } }, [activeView]);
+    useEffect(() => { try { localStorage.setItem('propertiesView', propertiesView); } catch (e) { } }, [propertiesView]);
 
     const handleLogout = () => {
         localStorage.removeItem('user_access_token');
@@ -99,7 +133,7 @@ export const DashboardLayout = () => {
             <div className="flex-1 flex flex-col min-w-0 h-full relative">
 
                 {/* --- TOP NAVBAR --- */}
-                <header className="h-16 bg-white dark:bg-[#0a162e] border-b border-gray-200 dark:border-gray-800 flex items-center justify-between px-4 sm:px-6 z-30 flex-shrink-0">
+                <header className="h-16 bg-white dark:bg-[#0a162e] border-b border-gray-200 dark:border-gray-800 flex items-center justify-between px-4 sm:px-6 z-30 shrink-0">
 
                     {/* Left: Mobile Menu & Breadcrumbs */}
                     <div className="flex items-center gap-4">
@@ -160,10 +194,10 @@ export const DashboardLayout = () => {
                                             <span className="text-xs font-bold uppercase text-gray-500">Notifications</span>
                                             <span className="text-xs text-primary font-semibold cursor-pointer">Clear</span>
                                         </div>
-                                        <div className="max-h-[250px] overflow-y-auto">
+                                        <div className="max-h-62.5 overflow-y-auto">
                                             {[1, 2, 3].map(i => (
                                                 <div key={i} className="p-3 hover:bg-gray-50 dark:hover:bg-white/5 border-b border-gray-100 dark:border-gray-800 last:border-0 cursor-pointer flex gap-3">
-                                                    <div className="mt-1 w-2 h-2 rounded-full bg-primary flex-shrink-0" />
+                                                    <div className="mt-1 w-2 h-2 rounded-full bg-primary shrink-0" />
                                                     <div>
                                                         <p className="text-sm font-medium text-gray-800 dark:text-white">New Verification Request</p>
                                                         <p className="text-xs text-gray-500 mt-0.5">Plot #492 in Gasabo requires review.</p>
@@ -193,9 +227,14 @@ export const DashboardLayout = () => {
                                 className="flex-1"
                             >
                                 {activeView === 'overview' && <EmptyWidget title="Overview Management" />}
+
                                 {activeView === 'properties' && propertiesView === 'record' && <RecordPropertyPage />}
-                                {activeView === 'properties' && propertiesView === 'manage' && <EmptyWidget title="Manage Properties" />}
-                                {activeView === 'users' && <EmptyWidget title="User Management" />}
+                                {activeView === 'properties' && propertiesView === 'manage' && <PropertyManagement />}
+                                {activeView === 'category' && <CategoryManagement/>}
+                                {activeView === 'agencies' && <AgencyManagement/>}
+                                {activeView === 'apply-agency' && <AgencyManagement initialOpen initialType="agency" />}
+                                {activeView === 'apply-broker' && <AgencyManagement initialOpen initialType="broker" />}
+                                {activeView === 'users' && <UserManagement />}
                                 {activeView === 'analytics' && <EmptyWidget title="Analytics Center" />}
                                 {activeView === 'settings' && <EmptyWidget title="System Settings" />}
                             </motion.div>

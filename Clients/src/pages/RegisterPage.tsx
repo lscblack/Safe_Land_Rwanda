@@ -36,11 +36,12 @@ export const RegisterPage = () => {
 
     // -- Terms & Conditions Modal State --
     const [localAccepted, setLocalAccepted] = useState<boolean>(() => {
-        try {
-            return localStorage.getItem('register_terms_accepted') === 'true';
-        } catch (e) {
-            return false;
-        }
+        // try {
+        //     return localStorage.getItem('register_terms_accepted') === 'true';
+        // } catch (e) {
+        //     return false;
+        // }
+        return false; // Disable localStorage persistence for now due to potential issues in private browsing modes and to ensure all users see terms at least once.
     });
     const [sessionAccepted, setSessionAccepted] = useState(false);
     const [termsOpen, setTermsOpen] = useState<boolean>(!localAccepted);
@@ -716,7 +717,7 @@ export const RegisterPage = () => {
                                     )}
 
                                     {/* Submit Button */}
-                                    {(idType === 'passport' || (idType === 'nid' && canShowVerifiedForm)) && (
+                                    {(idType === 'passport' || (idType === 'nid' )) && (
                                         <motion.button
                                             variants={itemVariants}
                                             type="submit"

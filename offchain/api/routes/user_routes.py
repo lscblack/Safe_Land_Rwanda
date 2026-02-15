@@ -1,3 +1,88 @@
+from typing import List, Optional
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException, status, Body, Query
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+
+from data.database.database import get_db
+from data.models.models import User
+from api.middlewares.auth import require_admin, get_current_user
+from pydantic import BaseModel
+
+router = APIRouter()
+
+
+class UserSchema(BaseModel):
+    id: int
+    first_name: str
+    middle_name: Optional[str] = None
+    last_name: str
+    email: str
+    avatar: Optional[str] = None
+    role: Optional[List[str]] = []
+    n_id_number: Optional[str] = None
+    id_type: Optional[str] = None
+    user_code: Optional[str] = None
+    phone: Optional[str] = None
+    country: Optional[str] = None
+    is_active: bool
+    is_verified: bool
+    created_at: Optional[datetime] = None
+
+    class Config:
+        orm_mode = True
+
+
+@router.get("/users", response_model=List[UserSchema], dependencies=[Depends(require_admin())])
+async def list_users(db: AsyncSession = Depends(get_db), limit: int = Query(100, ge=1, le=1000), skip: int = Query(0, ge=0)):
+    """List all users (admin/superadmin only)."""
+    result = await db.execute(select(User).offset(skip).limit(limit))
+    users = result.scalars().all()
+    return users
+
+
+@router.patch("/users/{user_id}", response_model=UserSchema, dependencies=[Depends(require_admin())])
+async def patch_user(user_id: int, payload: dict = Body(...), db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Update allowed fields for a user. Admins can toggle `is_active` and `is_verified`.
+
+    Expected payload example: { "is_active": true }
+    """
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    updated = False
+    if 'is_active' in payload:
+        user.is_active = bool(payload.get('is_active'))
+        updated = True
+    if 'is_verified' in payload:
+        user.is_verified = bool(payload.get('is_verified'))
+        updated = True
+
+    # Prevent changing sensitive fields via this endpoint
+    if not updated:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No updatable fields provided")
+
+    try:
+        await db.commit()
+        await db.refresh(user)
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to update user: {e}")
+
+    return user
+
+
+@router.get("/users/{user_id}", response_model=UserSchema, dependencies=[Depends(require_admin())])
+async def get_user(user_id: int, db: AsyncSession = Depends(get_db)):
+    """Get a single user (admin/superadmin only)."""
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    return user
 """
 User routes and handlers
 """

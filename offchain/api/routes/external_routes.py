@@ -9,7 +9,9 @@ import logging
 from config.config import settings
 import httpx
 
-from api.middlewares.auth import verify_token
+from api.middlewares.auth import verify_token, get_optional_user
+from fastapi import Request
+from fastapi.responses import JSONResponse
 
 
 logger = logging.getLogger(__name__)
@@ -140,11 +142,14 @@ async def get_nid_by_phone_number(
 @router.post("/parcel", response_model=None)
 async def get_parcel_information(
     request: ParcelRequest,
-    token_payload: dict = Depends(verify_token)
+    request_obj: Request,
+    current_user = Depends(get_optional_user),
 ):
     """
     Get parcel information by UPI using PARCEL_INFORMATION_IP_ADDRESS?upi={upi}
-    Returns raw JSON from external service.
+    Returns the external JSON augmented with normalized keys useful to the frontend.
+    If an authenticated user is present and is a seller, checks the representative id to ensure
+    they are allowed to sell the parcel.
     """
     if not request.upi:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="UPI is required")
@@ -155,7 +160,66 @@ async def get_parcel_information(
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.get(url)
-        return Response(content=resp.content, status_code=resp.status_code, media_type=resp.headers.get("content-type", "application/json"))
+        content_type = resp.headers.get("content-type", "application/json")
+        try:
+            parcel_json = resp.json()
+        except Exception:
+            # Fallback return raw content
+            return Response(content=resp.content, status_code=resp.status_code, media_type=content_type)
+
+        # Normalize payload to dictionary 'p'
+        p = None
+        if isinstance(parcel_json, dict):
+            p = parcel_json.get('data') or parcel_json
+        else:
+            p = parcel_json
+
+        # For backwards compatibility return the original parcel object but attach some helpful keys
+        if isinstance(p, dict):
+            # attach parcel_location
+            parcel_loc = p.get('parcelLocation') or p.get('parcel_location') or p.get('location') or None
+            if not parcel_loc:
+                rep = p.get('representative') or {}
+                addr = rep.get('address') if isinstance(rep, dict) else None
+                parcel_loc = addr or parcel_loc
+            p['parcel_location'] = parcel_loc
+            # size
+            p['size'] = p.get('size') or p.get('area') or None
+            # planned land uses, owners, representative, valuation
+            p['plannedLandUses'] = p.get('plannedLandUses') or p.get('planned_land_uses') or []
+            p['owners'] = p.get('owners')
+            p['representative'] = p.get('representative')
+            p['valuationValue'] = p.get('valuationValue') or p.get('valuation')
+            p['rightType'] = p.get('rightType') or p.get('right_type')
+            p['coordinateReferenceSystem'] = p.get('coordinateReferenceSystem') or p.get('crs')
+            p['xCoordinate'] = p.get('xCoordinate')
+            p['yCoordinate'] = p.get('yCoordinate')
+            p['remainingLeaseTerm'] = p.get('remainingLeaseTerm')
+            p['coordinates'] = p.get('coordinates') or p.get('coords') or p.get('Coordinates') or []
+
+        # Access checks when an authenticated user is present
+        if current_user and isinstance(p, dict):
+            user_roles = current_user.role if isinstance(current_user.role, list) else (current_user.role or [])
+            primary_role = None
+            if isinstance(user_roles, list) and len(user_roles) > 0:
+                primary_role = str(user_roles[0]).lower()
+            elif isinstance(user_roles, str):
+                primary_role = user_roles.lower()
+
+            representative = p.get('representative') or {}
+            rep_id = None
+            if isinstance(representative, dict):
+                rep_id = representative.get('idNo') or representative.get('id_number') or representative.get('id')
+
+            if primary_role == 'seller':
+                current_nid = getattr(current_user, 'n_id_number', None) or getattr(current_user, 'n_id', None)
+                if rep_id and current_nid and str(rep_id).strip() != str(current_nid).strip():
+                    return JSONResponse(status_code=403, content={"error": True, "message": "You are not the representative/owner on record and cannot sell this land."})
+
+            allowed_buyer_roles = {'broker', 'agency', 'agencyorbroker', 'agent', 'admin', 'super_admin', 'superadmin'}
+            p['_allowed_buyer_roles'] = list(allowed_buyer_roles)
+
+        return JSONResponse(status_code=200, content=p)
     except Exception as e:
         logger.error(f"Error fetching parcel info: {e}")
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Failed to fetch parcel information: {e}")

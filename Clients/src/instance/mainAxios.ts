@@ -17,11 +17,15 @@ const api = axios.create({
   },
 });
 
-// Helper to get tokens
-const getTokens = () => ({
-  access: localStorage.getItem(ACCESS_TOKEN_KEY),
-  refresh: localStorage.getItem(REFRESH_TOKEN_KEY),
-});
+// Helper to get tokens. Prefer logged-in user tokens if present, otherwise use frontend tokens.
+const getTokens = () => {
+  const userAccess = localStorage.getItem('user_access_token');
+  const userRefresh = localStorage.getItem('user_refresh_token');
+  if (userAccess || userRefresh) {
+    return { access: userAccess, refresh: userRefresh, type: 'user' };
+  }
+  return { access: localStorage.getItem(ACCESS_TOKEN_KEY), refresh: localStorage.getItem(REFRESH_TOKEN_KEY), type: 'frontend' };
+};
 
 // Helper to set tokens
 const setTokens = (access: string, refresh: string) => {
@@ -48,9 +52,10 @@ const frontendLogin = async () => {
 // Request Interceptor: Attach Token
 api.interceptors.request.use(
   async (config) => {
-    let { access } = getTokens();
+    const tokens = getTokens();
+    let access = tokens.access;
 
-    // If no token exists, try to log in first
+    // If no token exists, try to log in with frontend service token
     if (!access) {
       access = await frontendLogin();
     }
@@ -72,36 +77,56 @@ api.interceptors.response.use(
     // If 401 (Unauthorized) and we haven't retried yet
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
-      const { refresh } = getTokens();
+      const tokens = getTokens();
+      const { refresh, type } = tokens;
 
       if (refresh) {
         try {
-          const response = await axios.post(`${API_URL}/api/frontend/refresh`, {
+          // Use the correct refresh endpoint depending on token type
+          const refreshEndpoint = type === 'user' ? '/api/user/refresh' : '/api/frontend/refresh';
+          const response = await axios.post(`${API_URL}${refreshEndpoint}`, {
             refresh_token: refresh,
           });
-          
+
           const { access_token, refresh_token } = response.data;
-          setTokens(access_token, refresh_token);
+          // Persist refreshed tokens in the same storage they came from
+          if (type === 'user') {
+            localStorage.setItem('user_access_token', access_token);
+            localStorage.setItem('user_refresh_token', refresh_token);
+          } else {
+            setTokens(access_token, refresh_token);
+          }
 
           // Update header and retry
           api.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
           originalRequest.headers['Authorization'] = `Bearer ${access_token}`;
           return api(originalRequest);
         } catch (refreshError) {
-          // Refresh failed, try full login again
-          try {
-             const newAccess = await frontendLogin();
-             originalRequest.headers['Authorization'] = `Bearer ${newAccess}`;
-             return api(originalRequest);
-          } catch (loginError) {
-             return Promise.reject(loginError);
+          // If token was a frontend token, try full frontend login
+          if (type !== 'user') {
+            try {
+              const newAccess = await frontendLogin();
+              originalRequest.headers['Authorization'] = `Bearer ${newAccess}`;
+              return api(originalRequest);
+            } catch (loginError) {
+              return Promise.reject(loginError);
+            }
           }
+          // For user tokens, fall through to reject (client should re-login)
+          return Promise.reject(refreshError);
         }
       } else {
-         // No refresh token, try login
-         const newAccess = await frontendLogin();
-         originalRequest.headers['Authorization'] = `Bearer ${newAccess}`;
-         return api(originalRequest);
+        // No refresh token: if frontend, try login; if user, reject so client can re-authenticate
+        if (localStorage.getItem('user_refresh_token')) {
+          return Promise.reject(error);
+        }
+        try {
+          const newAccess = await frontendLogin();
+          originalRequest.headers['Authorization'] = `Bearer ${newAccess}`;
+          return api(originalRequest);
+        } catch (loginError) {
+          return Promise.reject(loginError);
+        }
       }
     }
     return Promise.reject(error);

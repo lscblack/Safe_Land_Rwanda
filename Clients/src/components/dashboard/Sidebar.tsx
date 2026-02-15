@@ -1,11 +1,23 @@
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { LayoutDashboard, Building2, Users, BarChart3, Settings, LogOut, Timer, Building } from 'lucide-react';
 import { clsx } from 'clsx';
 
-// Define all possible views
-type ViewState = 'overview' | 'properties' | 'users' | 'analytics' | 'settings';
+// Define all possible views (sync with Dashboard)
+type ViewState =
+    | 'overview'
+    | 'properties'
+    | 'users'
+    | 'analytics'
+    | 'settings'
+    | 'property-categories'
+    | 'agencies'
+    | 'apply-agency'
+    | 'apply-broker'
+    | 'my-agency'
+    | 'agency-users'
+    | 'rdb-certificate';
 
 // Sidebar props
 type Props = {
@@ -30,11 +42,11 @@ const MENU_CONFIG = [
         roles: ['admin', 'seller', 'buyer', 'blocker'],
     },
     {
-        id: 'property-categories',
+        id: 'category',
         place: 'main',
         icon: Building,
         labelKey: 'Property Categories',
-        roles: ['admin', 'seller', 'blocker'],
+        roles: ['admin'],
         isCollapsible: true,
     },
     {
@@ -42,7 +54,7 @@ const MENU_CONFIG = [
         place: 'main',
         icon: LayoutDashboard,
         labelKey: 'My Properties',
-        roles: ['admin', 'seller', 'buyer', 'blocker'],
+        roles: ['seller', 'buyer', 'blocker'],
     },
     {
         id: 'properties',
@@ -60,12 +72,20 @@ const MENU_CONFIG = [
         roles: ['admin'],
     },
     {
+        id: 'agencies',
+        place: 'main',
+        icon: Building2,
+        labelKey: 'Agencies&Brokers',
+        roles: ['admin',"buyer"],
+    },
+    {
         id: 'analytics',
         place: 'main',
         icon: BarChart3,
         labelKey: 'Market Analytics',
         roles: ['admin', 'seller', 'buyer'],
     },
+
     {
         id: 'settings',
         place: 'management',
@@ -103,17 +123,50 @@ const NavItem = ({ icon: Icon, label, onClick, isActive }: { icon: any, label: s
 export default function Sidebar({ activeView, setActiveView, isSidebarOpen, setSidebarOpen, loggedUser, handleLogout, t, propertiesView, setPropertiesView }: Props) {
     // State for properties submenu
     const [propertiesOpen, setPropertiesOpen] = useState(false);
+    // const [activeRole, setActiveRole] = useState<string | null>(null);
+    const [selectedRole, setActiveRole] = useState<string | null>(null);
+
+    // Restore persisted UI state from sessionStorage on mount
+    React.useEffect(() => {
+        try {
+            const av = localStorage.getItem('activeView');
+            if (av) setActiveView(av as ViewState);
+            const pv = localStorage.getItem('propertiesView');
+            if (pv && (pv === 'record' || pv === 'manage')) setPropertiesView(pv as 'record' | 'manage');
+            const role = localStorage.getItem('activeRole');
+            if (role) setActiveRole(role);
+        } catch (e) {
+            // ignore storage errors
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // Persist changes to localStorage
+    React.useEffect(() => { try { localStorage.setItem('activeView', activeView); } catch (e) { } }, [activeView]);
+    React.useEffect(() => { try { localStorage.setItem('propertiesView', propertiesView); } catch (e) { } }, [propertiesView]);
+    React.useEffect(() => { try { if (selectedRole) localStorage.setItem('activeRole', selectedRole); } catch (e) { } }, [selectedRole]);
+
 
     // Extract user roles as lowercase array, fallback to guest
-    const userRolesRaw = loggedUser && (loggedUser.role || loggedUser.usertype || loggedUser.user_type);
+    const userRolesRaw = loggedUser && (loggedUser.roles || loggedUser.role || loggedUser.usertype || loggedUser.user_type);
     const userRoles: string[] = Array.isArray(userRolesRaw)
         ? userRolesRaw.map((r) => String(r).toLowerCase())
         : userRolesRaw
             ? [String(userRolesRaw).toLowerCase()]
-            : ['guest'];
+            : ['buyer'];
+    const activeRole = selectedRole ?? userRoles[0]; // always resolved
+
+    const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
+
+    // // Set default active role if not set
+    // React.useEffect(() => {
+    //     if (!activeRole && userRoles.length > 0) {
+    //         setActiveRole(userRoles[0]);
+    //     }
+    // }, [userRoles, activeRole]);
 
     // Helper: check if user has access to a menu item
-    const hasAccess = (menu: any) => menu.roles.some((role: string) => userRoles.includes(role));
+    const hasAccess = (menu: any) => menu.roles.some((role: string) => (activeRole ? activeRole === role : userRoles.includes(role)));
 
     // Get management menu items user can access
     const managementMenus = MENU_CONFIG.filter(m => m.place === 'management' && hasAccess(m));
@@ -187,6 +240,50 @@ export default function Sidebar({ activeView, setActiveView, isSidebarOpen, setS
                                 </div>
                             );
                         }
+                        // Agencies special handling: buyers should see apply options;
+                        // non-admin users should see only their agency/broker item.
+                        if (menu.id === 'agencies') {
+                            // activeRole is resolved selected role or user's primary role
+                            const isBuyer = activeRole === 'buyer';
+                            const isAdminUser = userRoles.includes('admin') || userRoles.includes('superadmin') || activeRole === 'admin' || activeRole === 'superadmin';
+
+                            if (isBuyer) {
+                                return (
+                                    <NavItem
+                                        key={menu.id}
+                                        icon={menu.icon}
+                                        label={t('Apply for Agency/Broker')}
+                                        onClick={() => { setActiveView('apply-agency'); setSidebarOpen(false); }}
+                                        isActive={activeView === 'apply-agency' || activeView === 'apply-broker'}
+                                    />
+                                );
+                            }
+
+                            // Non-admin users only see their agency/broker account link
+                            if (!isAdminUser) {
+                                return (
+                                    <NavItem
+                                        key={menu.id}
+                                        icon={menu.icon}
+                                        label={t('My Agency/Broker')}
+                                        onClick={() => { setActiveView('agencies'); setSidebarOpen(false); }}
+                                        isActive={activeView === 'agencies'}
+                                    />
+                                );
+                            }
+
+                            // Admin and superadmin: show normal agencies item
+                            return (
+                                <NavItem
+                                    key={menu.id}
+                                    icon={menu.icon}
+                                    label={t(menu.labelKey)}
+                                    onClick={() => { setActiveView(menu.id as ViewState); setSidebarOpen(false); }}
+                                    isActive={activeView === menu.id}
+                                />
+                            );
+                        }
+
                         // All other menu items
                         return (
                             <NavItem
@@ -216,7 +313,7 @@ export default function Sidebar({ activeView, setActiveView, isSidebarOpen, setS
                     )}
                 </div>
 
-                {/* User info and logout */}
+                {/* User info, role switch, and logout */}
                 <div className="p-4 border-t border-white/10 bg-[#081226]">
                     <div className="flex items-center gap-3">
                         {loggedUser?.avatar ? (
@@ -231,6 +328,39 @@ export default function Sidebar({ activeView, setActiveView, isSidebarOpen, setS
                                 {loggedUser ? `${loggedUser.first_name || ''} ${loggedUser.last_name || ''}`.trim() || 'User' : 'User'}
                             </p>
                             <p className="text-xs text-gray-400 truncate">{loggedUser?.email || ''}</p>
+                            {/* Role dropdown */}
+                            {userRoles.length > 1 && (
+                                <div className="relative mt-2">
+                                    <button
+                                        onClick={() => setRoleDropdownOpen((v) => !v)}
+                                        className="w-full text-xs bg-white/10 text-white rounded px-2 py-1 flex items-center gap-2 hover:bg-white/20 border border-white/20"
+                                    >
+                                        <span className="truncate">{activeRole ? activeRole.charAt(0).toUpperCase() + activeRole.slice(1) : 'Role'}</span>
+                                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
+                                    </button>
+                                    {roleDropdownOpen && (
+                                        <div className="absolute left-0 -mt-20 w-full bg-[#0a162e] border border-white/20 rounded shadow z-50">
+                                            {userRoles.map((role) => (
+                                                <button
+                                                    key={role}
+                                                    onClick={() => {
+                                                        setActiveRole(role);
+                                                        // navigate to overview when role changes
+                                                        try { setActiveView('overview'); } catch (e) { /* noop if prop not passed */ }
+                                                        // notify other components
+                                                        try { window.dispatchEvent(new CustomEvent('activeRoleChanged', { detail: { activeRole: role } })); } catch (e) {}
+                                                        setRoleDropdownOpen(false);
+                                                        setSidebarOpen(false);
+                                                    }}
+                                                    className={clsx('w-full text-left px-3 py-1 text-xs', activeRole === role ? 'bg-primary text-white' : 'text-gray-300 hover:bg-white/10')}
+                                                >
+                                                    {role.charAt(0).toUpperCase() + role.slice(1)}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                         <button onClick={handleLogout} className="text-gray-400 hover:text-white transition-colors">
                             <LogOut size={16} />

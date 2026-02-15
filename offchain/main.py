@@ -1,3 +1,13 @@
+# Serve static files for images and assets
+import os
+from fastapi.staticfiles import StaticFiles
+from fastapi import FastAPI
+
+app = FastAPI()
+
+# Ensure the assets directory exists
+os.makedirs("assets", exist_ok=True)
+app.mount("/assets", StaticFiles(directory="assets"), name="assets")
 """
 SafeLand API - FastAPI Backend
 Main application entry point
@@ -8,8 +18,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import logging
 
+from fastapi.staticfiles import StaticFiles
 from data.database.database import init_db, close_db
-from api.routes import user_routes, external_routes, frontend_auth_routes, otp_routes, liip_routes, notification_routes
+from api.routes import user_routes, external_routes, frontend_auth_routes, otp_routes, liip_routes, notification_routes, property_routes, agency_routes
 
 # Configure logging
 logging.basicConfig(
@@ -58,7 +69,7 @@ app.add_middleware(
     allow_headers=["Origin", "Content-Type", "Accept", "Authorization"],
 )
 
-
+app.mount("/assets", StaticFiles(directory="assets"), name="assets")
 # Root endpoint
 @app.get("/")
 async def root():
@@ -72,12 +83,18 @@ async def health_check():
 
 
 # Include routers
+
+# Register property endpoints
+
+# Register all routers (original and new)
 app.include_router(frontend_auth_routes.router, prefix="/api/frontend", tags=["Frontend Auth"])
 app.include_router(user_routes.router, prefix="/api/user", tags=["User"])
 app.include_router(external_routes.router, prefix="/api/external", tags=["External Services"])
 app.include_router(otp_routes.router, prefix="/otp", tags=["OTP Authentication"])
 app.include_router(liip_routes.router, prefix="/api/liip", tags=["LIIP Authentication"])
 app.include_router(notification_routes.router, prefix="/api/notifications", tags=["Notifications"])
+app.include_router(property_routes.router, prefix="/api/property", tags=["Property Management"])
+app.include_router(agency_routes.router, prefix="/api/agency", tags=["Agency & Broker Management"])
 
 
 if __name__ == "__main__":

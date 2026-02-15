@@ -16,6 +16,7 @@ const MarketplaceIndex = lazy(() => import("../pages/MarketPlace").then(module =
 const OnboardingPage = lazy(() => import("../pages/OnboardingPage").then(module => ({ default: module.OnboardingPage })));
 const AboutPage = lazy(() => import("../pages/About").then(module => ({ default: module.AboutPage })));
 const PartnersPage = lazy(() => import("../pages/OurAgents").then(module => ({ default: module.AgenciesPage })));
+const MarketTrendsPage = lazy(() => import("../pages/MarketTrendsAna").then(module => ({ default: module.MarketTrendsPage })));
 const RouteManager = () => {
 
   useOnboardingCheck(); // Runs the 1-day reset check
@@ -42,6 +43,7 @@ const AppRoutes = () => {
         <Route path="/properties/single" element={<PropertyListingPage />} />
         <Route path="/about" element={<AboutPage />} />
         <Route path="/our-agents" element={<PartnersPage />} />
+        <Route path="/market-trends" element={<MarketTrendsPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </Suspense>
