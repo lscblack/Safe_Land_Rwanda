@@ -1,12 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import  { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-    Layers, Map as MapIcon, Filter, ChevronRight, ChevronDown, 
-    Search, BarChart3, PieChart, TrendingUp, Activity, 
-    Database, FileText, X, Maximize, ScanLine, 
-    MapPin, AlertCircle, CheckCircle2, Clock, 
-    Zap, Target, Building, ArrowUpRight, Cpu, Share2,
-    DollarSign, Briefcase, List, Download, Star, Globe
+import {  Map as MapIcon, ChevronDown, 
+    Search, Activity,  FileText, X, ScanLine, 
+    MapPin, AlertCircle, CheckCircle2,
+    Zap, Target, ArrowUpRight, Cpu, Download, Globe
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { Navbar } from '../components/navigation/Navbar';
@@ -363,13 +360,11 @@ export const MarketTrendsPage = () => {
                                             </h3>
                                             <div className="space-y-2">
                                                 <FilterSelect 
-                                                    label="Province" 
                                                     value="Kigali City" 
                                                     options={["Kigali City", "Eastern", "Northern", "Western", "Southern"]}
                                                     onChange={() => {}}
                                                 />
                                                 <FilterSelect 
-                                                    label="District" 
                                                     value="Gasabo" 
                                                     options={["Gasabo", "Kicukiro", "Nyarugenge"]}
                                                     onChange={() => {}}
@@ -397,7 +392,7 @@ export const MarketTrendsPage = () => {
                                             {TOP_10_ZONES.map((zone) => (
                                                 <button
                                                     key={zone.id}
-                                                    onClick={() => setSelectedZone(zone)}
+                                                    onClick={() => setSelectedZone(zone as InvestmentZone)}
                                                     className={clsx(
                                                         "w-full p-4 text-left border-b border-gray-100 dark:border-white/5 last:border-0 transition-colors",
                                                         selectedZone.id === zone.id 
@@ -534,7 +529,7 @@ export const MarketTrendsPage = () => {
                                                             value={selectedZone.id}
                                                             onChange={(e) => {
                                                                 const zone = ALL_ZONES.find(z => z.id === parseInt(e.target.value));
-                                                                if (zone) setSelectedZone(zone);
+                                                                if (zone) setSelectedZone(zone as InvestmentZone);
                                                             }}
                                                             className="w-full bg-gray-50 dark:bg-[#0f1f3a] border border-gray-200 dark:border-white/10 rounded-lg px-3 py-2 text-sm focus:border-primary outline-none"
                                                         >
@@ -549,7 +544,7 @@ export const MarketTrendsPage = () => {
                                                         <input 
                                                             type="number"
                                                             value={valuationParams.size}
-                                                            onChange={(e) => setValidationParams({...valuationParams, size: parseInt(e.target.value) || 0})}
+                                                            onChange={(e) => setValuationParams({...valuationParams, size: parseInt(e.target.value) || 0})}
                                                             className="w-full bg-gray-50 dark:bg-[#0f1f3a] border border-gray-200 dark:border-white/10 rounded-lg px-3 py-2 text-sm focus:border-primary outline-none"
                                                         />
                                                     </div>
@@ -558,7 +553,7 @@ export const MarketTrendsPage = () => {
                                                         <label className="text-xs text-gray-500 mb-1 block">Property Type</label>
                                                         <select 
                                                             value={valuationParams.type}
-                                                            onChange={(e) => setValidationParams({...valuationParams, type: e.target.value})}
+                                                            onChange={(e) => setValuationParams({...valuationParams, type: e.target.value})}
                                                             className="w-full bg-gray-50 dark:bg-[#0f1f3a] border border-gray-200 dark:border-white/10 rounded-lg px-3 py-2 text-sm focus:border-primary outline-none"
                                                         >
                                                             <option>Residential</option>
@@ -804,28 +799,24 @@ export const MarketTrendsPage = () => {
                                     </div>
                                     
                                     <FilterSelect 
-                                        label="Risk" 
                                         value={filterRisk}
                                         options={["All", "Low", "Medium", "High"]}
                                         onChange={setFilterRisk}
                                     />
                                     
                                     <FilterSelect 
-                                        label="Type" 
                                         value={filterType}
                                         options={["All", "Residential", "Commercial", "Industrial", "Mixed", "Agricultural"]}
                                         onChange={setFilterType}
                                     />
                                     
                                     <FilterSelect 
-                                        label="Province" 
                                         value={filterProvince}
                                         options={["All", "Kigali City", "Eastern", "Northern", "Western", "Southern"]}
                                         onChange={setFilterProvince}
                                     />
                                     
                                     <FilterSelect 
-                                        label="Sort By" 
                                         value={sortBy}
                                         options={[
                                             { value: 'rank', label: 'Rank' },
@@ -895,7 +886,7 @@ export const MarketTrendsPage = () => {
                                                     <td className="p-4">
                                                         <button 
                                                             onClick={() => {
-                                                                setSelectedZone(zone);
+                                                                setSelectedZone(zone as InvestmentZone);
                                                                 setShowInvestModal(false);
                                                             }}
                                                             className="p-1 hover:bg-primary/10 text-primary rounded transition-colors"
@@ -1025,7 +1016,13 @@ export const MarketTrendsPage = () => {
 
 // ================= SUB-COMPONENTS =================
 
-const FilterSelect = ({ label, value, options, onChange }: any) => (
+interface FilterSelectProps {
+    value: string;
+    options: Array<string | { value: string; label: string }>;
+    onChange: (value: string) => void;
+}
+
+const FilterSelect = ({ value, options, onChange }: FilterSelectProps) => (
     <div className="relative">
         <select 
             value={value} 
@@ -1043,7 +1040,13 @@ const FilterSelect = ({ label, value, options, onChange }: any) => (
     </div>
 );
 
-const SentimentBar = ({ label, value, color }: any) => (
+interface SentimentBarProps {
+    label: string;
+    value: number;
+    color: string;
+}
+
+const SentimentBar = ({ label, value, color }: SentimentBarProps) => (
     <div>
         <div className="flex justify-between text-xs mb-1">
             <span className="text-gray-500">{label}</span>
@@ -1077,9 +1080,3 @@ const BrainIcon = ({ className }: { className?: string }) => (
         <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-1.98-3A2.5 2.5 0 0 0 14.5 2Z" />
     </svg>
 );
-
-// Helper function (fixes the typo in the component)
-const setValidationParams = (params: any) => {
-    // This is just a placeholder - the actual implementation would use setValuationParams
-    console.warn('setValidationParams called with:', params);
-};

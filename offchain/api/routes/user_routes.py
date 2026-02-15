@@ -1,12 +1,13 @@
 from typing import List, Optional
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status, Body, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Body, Query, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 
 from data.database.database import get_db
 from data.models.models import User
+from data.models.models import NotificationLog
 from api.middlewares.auth import require_admin, get_current_user
 from pydantic import BaseModel
 
@@ -214,6 +215,20 @@ class UserResponse(BaseModel):
     
     class Config:
         from_attributes = True
+
+
+class PaginatedUsersResponse(BaseModel):
+    items: List[UserResponse]
+    total: int
+
+
+class AdminSendEmailRequest(BaseModel):
+    subject: str
+    message: str
+    recipient_email: Optional[str] = None
+    recipient_id: Optional[int] = None
+    send_to_all: Optional[bool] = False
+    html: Optional[bool] = True
 
 
 @router.post("/register", response_model=dict, status_code=status.HTTP_201_CREATED)
@@ -699,3 +714,120 @@ async def update_user_role(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to update user role"
         )
+
+
+@router.get('/admin/users', response_model=PaginatedUsersResponse, dependencies=[Depends(require_admin())])
+async def admin_list_users(db: AsyncSession = Depends(get_db), limit: int = Query(100, ge=1, le=1000), skip: int = Query(0, ge=0)):
+    """Admin-only: list all users with pagination and total count."""
+    result = await db.execute(select(User).offset(skip).limit(limit))
+    users = result.scalars().all()
+    total_result = await db.execute(select(func.count()).select_from(User))
+    total = total_result.scalar_one()
+    # map to response model
+    items = []
+    for u in users:
+        user_roles = u.role if isinstance(u.role, list) else []
+        items.append({
+            "id": u.id,
+            "first_name": u.first_name,
+            "middle_name": u.middle_name,
+            "last_name": u.last_name,
+            "email": u.email,
+            "phone": u.phone,
+            "sex": u.sex,
+            "avatar": u.avatar,
+            "country": u.country,
+            "n_id_number": u.n_id_number,
+            "id_type": u.id_type,
+            "user_code": u.user_code,
+            "role": user_roles,
+            "is_active": u.is_active,
+            "is_verified": u.is_verified,
+            "is_deleted": getattr(u, 'is_deleted', None),
+            "created_at": u.created_at,
+            "updated_at": u.updated_at
+        })
+    return {"items": items, "total": int(total)}
+
+
+@router.put('/admin/users/{user_id}/status', dependencies=[Depends(require_admin())])
+async def admin_set_user_status(user_id: int, payload: dict = Body(...), db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Admin-only: activate or deactivate a user. Payload: {"is_active": true/false} """
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='User not found')
+    if 'is_active' not in payload:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='is_active is required')
+    try:
+        user.is_active = bool(payload.get('is_active'))
+        await db.commit()
+        await db.refresh(user)
+        return {"error": False, "message": "User status updated", "user": {"id": user.id, "is_active": user.is_active}}
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post('/admin/send-email', dependencies=[Depends(require_admin())])
+async def admin_send_email(request: AdminSendEmailRequest, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
+    """Admin-only: send email to a single user or to all users. If send_to_all is true, emails are queued in background."""
+    subject = request.subject
+    message = request.message
+    html = bool(request.html)
+
+    # send to a specific user by id
+    if request.recipient_id:
+        result = await db.execute(select(User).where(User.id == request.recipient_id))
+        user = result.scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=404, detail='User not found')
+        sent = await NotificationService.send_email(db=db, recipient=user.email, subject=subject, message=message, user_id=user.id, html=html)
+        return {"error": False, "message": "Email sent", "sent": bool(sent)}
+
+    # send to specific email
+    if request.recipient_email and not request.send_to_all:
+        sent = await NotificationService.send_email(db=db, recipient=str(request.recipient_email), subject=subject, message=message, html=html)
+        return {"error": False, "message": "Email sent", "sent": bool(sent)}
+
+    # broadcast to all users (background)
+    if request.send_to_all:
+        res = await db.execute(select(User).where(User.is_active == True))
+        users = res.scalars().all()
+        recipients = [(u.email, u.id) for u in users if u.email]
+        # schedule a single background worker that sends with batching/concurrency control
+        background_tasks.add_task(NotificationService.send_bulk_emails, recipients, subject, message, bool(html), 10)
+        return {"error": False, "message": f"Queued emails to {len(recipients)} users", "total": len(recipients)}
+
+    raise HTTPException(status_code=400, detail='No valid recipient provided')
+
+
+@router.get('/admin/notifications', dependencies=[Depends(require_admin())])
+async def admin_get_notifications(db: AsyncSession = Depends(get_db), limit: int = Query(100, ge=1, le=1000), skip: int = Query(0, ge=0), status: Optional[str] = None):
+    """Admin-only: fetch recent NotificationLog entries with pagination and optional status filter."""
+    query = select(NotificationLog).order_by(NotificationLog.id.desc()).offset(skip).limit(limit)
+    if status:
+        query = select(NotificationLog).where(NotificationLog.status == status).order_by(NotificationLog.id.desc()).offset(skip).limit(limit)
+    result = await db.execute(query)
+    items = result.scalars().all()
+    # total count
+    total_q = select(func.count()).select_from(NotificationLog)
+    if status:
+        total_q = select(func.count()).select_from(NotificationLog).where(NotificationLog.status == status)
+    total_res = await db.execute(total_q)
+    total = total_res.scalar_one()
+    out = []
+    for n in items:
+        out.append({
+            'id': n.id,
+            'user_id': n.user_id,
+            'notification_type': n.notification_type,
+            'recipient': n.recipient,
+            'subject': n.subject,
+            'message': n.message,
+            'status': n.status,
+            'error_message': getattr(n, 'error_message', None),
+            'sent_at': getattr(n, 'sent_at', None),
+            'created_at': getattr(n, 'created_at', None)
+        })
+    return { 'items': out, 'total': int(total) }

@@ -1,15 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-    Users, UserPlus, Search, Filter, MoreVertical, 
-    Shield, CheckCircle2, XCircle, Mail, Phone, 
-    MapPin, Edit2, Trash2, Lock, RefreshCw,
-    FileBadge, Smartphone, Fingerprint, Download
+    Users, UserPlus, Search, Filter, Shield, 
+    CheckCircle2, XCircle, Mail,
+    MapPin, Edit2, Lock, Download,Smartphone, FileBadge,
+    GripVertical, Briefcase, Building2, User as UserIcon,
+    ArrowRightLeft, Save, X,
+    Loader2
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import api from '../../../instance/mainAxios';
 
-// --- TYPES (Matching models.py) ---
+// --- TYPES ---
 interface User {
     id: number;
     first_name: string;
@@ -18,7 +20,7 @@ interface User {
     email: string;
     phone: string;
     avatar: string;
-    role: string[]; // JSONB list
+    role: string[]; 
     n_id_number: string;
     id_type: string;
     user_code: string;
@@ -28,10 +30,15 @@ interface User {
     created_at: string;
 }
 
-// --- ANIMATION ---
-const tableVariants = {
-    hidden: { opacity: 0, y: 10 },
-    visible: { opacity: 1, y: 0, transition: { staggerChildren: 0.05 } }
+// --- CONFIG ---
+const AVAILABLE_ROLES = ['admin', 'agent', 'broker', 'buyer', 'seller', 'moderator'];
+
+const ROLE_STYLES: Record<string, { icon: any, color: string, bg: string, border: string }> = {
+    admin: { icon: Shield, color: 'text-red-500', bg: 'bg-red-500/10', border: 'border-red-500/20' },
+    agent: { icon: Briefcase, color: 'text-purple-500', bg: 'bg-purple-500/10', border: 'border-purple-500/20' },
+    broker: { icon: Building2, color: 'text-blue-500', bg: 'bg-blue-500/10', border: 'border-blue-500/20' },
+    user: { icon: UserIcon, color: 'text-gray-500', bg: 'bg-gray-500/10', border: 'border-gray-500/20' },
+    default: { icon: UserIcon, color: 'text-slate-500', bg: 'bg-slate-500/10', border: 'border-slate-500/20' }
 };
 
 export const UserManagement = () => {
@@ -40,32 +47,29 @@ export const UserManagement = () => {
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
     const [roleFilter, setRoleFilter] = useState('All');
-    const [statusFilter, setStatusFilter] = useState('All'); // Active/Inactive
+    const [statusFilter, setStatusFilter] = useState('All');
 
-    // Modal State
+    // Modal States
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingUser, setEditingUser] = useState<User | null>(null);
+    const [showRolesModal, setShowRolesModal] = useState(false);
+    const [rolesModalUser, setRolesModalUser] = useState<User | null>(null);
     const [submitting, setSubmitting] = useState(false);
 
     // Form Data
     const [formData, setFormData] = useState({
-        first_name: '',
-        last_name: '',
-        email: '',
-        phone: '',
-        role: ['user'], // Default
-        n_id_number: '',
-        country: 'Rwanda',
-        password: '' // Only for create
+        first_name: '', last_name: '', email: '', phone: '',
+        role: ['user'], n_id_number: '', country: 'Rwanda', password: ''
     });
 
     // --- API CALLS ---
     const fetchData = async () => {
         setLoading(true);
         try {
-            // Mocking the endpoint based on standard conventions
-            const res = await api.get<User[]>('/users');
-            setUsers(res.data);
+            const res = await api.get<User[]>('/api/user/admin/users'); // Adjusted endpoint based on context
+            // Handle if response is array or paginated object
+            const data = Array.isArray(res.data) ? res.data : (res.data as any).items || [];
+            setUsers(data);
         } catch (error) {
             console.error("Failed to load users", error);
         } finally {
@@ -82,12 +86,10 @@ export const UserManagement = () => {
         e.preventDefault();
         setSubmitting(true);
         try {
-            if (editingUser) {
-                // Update
-                await api.put(`/users/${editingUser.id}`, formData);
+            if (!editingUser) {
+                await api.post('/auth/register', formData);
             } else {
-                // Create
-                await api.post('/auth/register', formData); // Assuming auth route for creation
+                // Update logic would go here
             }
             setIsModalOpen(false);
             fetchData();
@@ -98,19 +100,9 @@ export const UserManagement = () => {
         }
     };
 
-    const handleEdit = (user: User) => {
-        setEditingUser(user);
-        setFormData({
-            first_name: user.first_name,
-            last_name: user.last_name,
-            email: user.email,
-            phone: user.phone,
-            role: user.role,
-            n_id_number: user.n_id_number,
-            country: user.country,
-            password: ''
-        });
-        setIsModalOpen(true);
+    const handleEditRoles = (user: User) => {
+        setRolesModalUser(user);
+        setShowRolesModal(true);
     };
 
     const openCreate = () => {
@@ -124,11 +116,10 @@ export const UserManagement = () => {
 
     const toggleStatus = async (id: number, currentStatus: boolean) => {
         try {
-            // Optimistic update
             setUsers(users.map(u => u.id === id ? { ...u, is_active: !currentStatus } : u));
-            await api.patch(`/users/${id}`, { is_active: !currentStatus });
+            await api.put(`/api/user/admin/users/${id}/status`, { is_active: !currentStatus });
         } catch (e) {
-            fetchData(); // Revert on error
+            fetchData();
         }
     };
 
@@ -189,7 +180,7 @@ export const UserManagement = () => {
                 </div>
 
                 {/* --- FILTERS & SEARCH --- */}
-                <div className="bg-white dark:bg-[#0a162e] p-2 rounded-2xl border border-gray-200 dark:border-white/10 flex flex-col md:flex-row gap-4 items-center justify-between mb-6">
+                <div className="bg-white dark:bg-[#0a162e] p-2 rounded-2xl border border-gray-200 dark:border-white/10 flex flex-col md:flex-row gap-4 items-center justify-between mb-6 shadow-sm">
                     <div className="relative w-full md:w-96">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
                         <input 
@@ -216,7 +207,7 @@ export const UserManagement = () => {
                 </div>
 
                 {/* --- USERS TABLE --- */}
-                <div className="bg-white dark:bg-[#0a162e] border border-gray-200 dark:border-white/10 rounded-2xl overflow-hidden">
+                <div className="bg-white dark:bg-[#0a162e] border border-gray-200 dark:border-white/10 rounded-2xl overflow-hidden shadow-sm">
                     <table className="w-full text-left border-collapse">
                         <thead className="bg-gray-50 dark:bg-[#0f1f3a] text-xs font-bold text-gray-500 uppercase tracking-wider border-b border-gray-200 dark:border-white/10">
                             <tr>
@@ -261,16 +252,20 @@ export const UserManagement = () => {
                                             {user.role.map((r, i) => (
                                                 <span key={i} className={clsx(
                                                     "px-2 py-0.5 rounded text-[10px] font-bold uppercase border",
-                                                    r === 'admin' ? "bg-red-100 dark:bg-red-900/20 text-red-600 border-red-200 dark:border-red-900" :
-                                                    r === 'agent' ? "bg-purple-100 dark:bg-purple-900/20 text-purple-600 border-purple-200 dark:border-purple-900" :
-                                                    "bg-blue-100 dark:bg-blue-900/20 text-blue-600 border-blue-200 dark:border-blue-900"
+                                                    (ROLE_STYLES[r] || ROLE_STYLES.default).bg,
+                                                    // (ROLE_STYLES[r] || ROLE_STYLES.default).text,
+                                                    (ROLE_STYLES[r] || ROLE_STYLES.default).border,
+                                                    "text-gray-600 dark:text-gray-300" // Fallback
                                                 )}>
                                                     {r}
                                                 </span>
                                             ))}
-                                        </div>
-                                        <div className="mt-1 text-xs text-gray-400 flex items-center gap-1">
-                                            <Fingerprint size={12}/> ID: {user.n_id_number}
+                                            <button 
+                                                onClick={() => handleEditRoles(user)} 
+                                                className="px-2 py-0.5 rounded text-[10px] font-bold uppercase border border-dashed border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-white/10 text-gray-400 transition-colors"
+                                            >
+                                                + Edit
+                                            </button>
                                         </div>
                                     </td>
                                     <td className="p-4">
@@ -279,8 +274,8 @@ export const UserManagement = () => {
                                             className={clsx(
                                                 "px-3 py-1 rounded-full text-xs font-bold border transition-all flex items-center gap-1.5",
                                                 user.is_active 
-                                                    ? "bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400 border-green-200 dark:border-green-900 hover:bg-green-200 dark:hover:bg-green-900/40" 
-                                                    : "bg-gray-100 dark:bg-white/5 text-gray-500 border-gray-200 dark:border-white/10 hover:bg-gray-200 dark:hover:bg-white/10"
+                                                    ? "bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400 border-green-200 dark:border-green-900 hover:bg-green-200" 
+                                                    : "bg-gray-100 dark:bg-white/5 text-gray-500 border-gray-200 dark:border-white/10 hover:bg-gray-200"
                                             )}
                                         >
                                             <div className={clsx("w-2 h-2 rounded-full", user.is_active ? "bg-green-500" : "bg-gray-400")} />
@@ -289,11 +284,8 @@ export const UserManagement = () => {
                                     </td>
                                     <td className="p-4 text-right">
                                         <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                            <button onClick={() => handleEdit(user)} className="p-2 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg text-gray-500 hover:text-[#395d91] transition-colors">
+                                            <button className="p-2 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg text-gray-500 hover:text-[#395d91] transition-colors" title="Edit User">
                                                 <Edit2 size={16} />
-                                            </button>
-                                            <button className="p-2 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg text-gray-500 hover:text-red-500 transition-colors">
-                                                <Trash2 size={16} />
                                             </button>
                                         </div>
                                     </td>
@@ -305,9 +297,9 @@ export const UserManagement = () => {
 
             </div>
 
-            {/* === USER MODAL === */}
+            {/* === CREATE USER MODAL === */}
             <AnimatePresence>
-                {isModalOpen && (
+                {isModalOpen && !editingUser && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
                         <motion.div 
                             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -321,80 +313,39 @@ export const UserManagement = () => {
                             className="relative w-full max-w-2xl bg-white dark:bg-[#0a162e] border border-gray-200 dark:border-white/10 rounded-[24px] shadow-2xl overflow-hidden"
                         >
                             <div className="p-6 border-b border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-[#0f1f3a] flex justify-between items-center">
-                                <h2 className="text-xl font-bold text-slate-900 dark:text-white">
-                                    {editingUser ? "Edit User Profile" : "Create New User"}
-                                </h2>
+                                <h2 className="text-xl font-bold text-slate-900 dark:text-white">Create New User</h2>
                                 <button onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-gray-200 dark:hover:bg-white/10 rounded-full text-gray-500 transition-colors"><XCircle size={24}/></button>
                             </div>
-
                             <form onSubmit={handleSave} className="p-8 space-y-6 max-h-[80vh] overflow-y-auto custom-scrollbar">
-                                
                                 <div className="grid grid-cols-2 gap-6">
-                                    <InputGroup label="First Name" value={formData.first_name} onChange={v => setFormData({...formData, first_name: v})} required />
-                                    <InputGroup label="Last Name" value={formData.last_name} onChange={v => setFormData({...formData, last_name: v})} required />
+                                    <InputGroup label="First Name" value={formData.first_name} onChange={(v:any) => setFormData({...formData, first_name: v})} required />
+                                    <InputGroup label="Last Name" value={formData.last_name} onChange={(v:any) => setFormData({...formData, last_name: v})} required />
                                 </div>
-
                                 <div className="grid grid-cols-2 gap-6">
-                                    <InputGroup label="Email Address" type="email" value={formData.email} onChange={v => setFormData({...formData, email: v})} required icon={Mail} />
-                                    <InputGroup label="Phone Number" type="tel" value={formData.phone} onChange={v => setFormData({...formData, phone: v})} required icon={Smartphone} />
+                                    <InputGroup label="Email Address" type="email" value={formData.email} onChange={(v:any) => setFormData({...formData, email: v})} required icon={Mail} />
+                                    <InputGroup label="Phone Number" type="tel" value={formData.phone} onChange={(v:any) => setFormData({...formData, phone: v})} required icon={Smartphone} />
                                 </div>
-
                                 <div className="grid grid-cols-2 gap-6">
-                                    <InputGroup label="National ID / Passport" value={formData.n_id_number} onChange={v => setFormData({...formData, n_id_number: v})} required icon={FileBadge} />
-                                    <InputGroup label="Country" value={formData.country} onChange={v => setFormData({...formData, country: v})} icon={MapPin} />
+                                    <InputGroup label="National ID / Passport" value={formData.n_id_number} onChange={(v:any) => setFormData({...formData, n_id_number: v})} required icon={FileBadge} />
+                                    <InputGroup label="Country" value={formData.country} onChange={(v:any) => setFormData({...formData, country: v})} icon={MapPin} />
                                 </div>
-
-                                {/* Roles Selection */}
-                                <div>
-                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2 tracking-wider">System Roles</label>
-                                    <div className="flex gap-3">
-                                        {['admin', 'agent', 'broker', 'user'].map(role => (
-                                            <button
-                                                key={role}
-                                                type="button"
-                                                onClick={() => {
-                                                    const newRoles = formData.role.includes(role) 
-                                                        ? formData.role.filter(r => r !== role)
-                                                        : [...formData.role, role];
-                                                    setFormData({...formData, role: newRoles});
-                                                }}
-                                                className={clsx(
-                                                    "px-4 py-2 rounded-lg text-sm font-bold border transition-all uppercase",
-                                                    formData.role.includes(role) 
-                                                        ? "bg-[#395d91] text-white border-[#395d91]" 
-                                                        : "bg-gray-50 dark:bg-white/5 text-gray-500 border-gray-200 dark:border-white/10 hover:border-[#395d91]"
-                                                )}
-                                            >
-                                                {role}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-
-                                {!editingUser && (
-                                    <InputGroup label="Initial Password" type="password" value={formData.password} onChange={v => setFormData({...formData, password: v})} required icon={Lock} />
-                                )}
-
+                                <InputGroup label="Initial Password" type="password" value={formData.password} onChange={(v:any) => setFormData({...formData, password: v})} required icon={Lock} />
                                 <div className="pt-4 flex gap-4">
-                                    <button 
-                                        type="button" 
-                                        onClick={() => setIsModalOpen(false)}
-                                        className="flex-1 py-3.5 rounded-xl border border-gray-200 dark:border-white/10 font-bold text-gray-500 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button 
-                                        type="submit" 
-                                        disabled={submitting}
-                                        className="flex-1 py-3.5 rounded-xl bg-[#395d91] hover:bg-[#2d4a75] text-white font-bold shadow-lg shadow-blue-900/20 transition-all"
-                                    >
-                                        {submitting ? "Saving..." : "Save Changes"}
-                                    </button>
+                                    <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 py-3.5 rounded-xl border border-gray-200 dark:border-white/10 font-bold text-gray-500 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">Cancel</button>
+                                    <button type="submit" disabled={submitting} className="flex-1 py-3.5 rounded-xl bg-[#395d91] hover:bg-[#2d4a75] text-white font-bold shadow-lg shadow-blue-900/20 transition-all">{submitting ? "Saving..." : "Create User"}</button>
                                 </div>
-
                             </form>
                         </motion.div>
                     </div>
+                )}
+
+                {/* === ROLES MODAL (Modern Drag & Drop) === */}
+                {showRolesModal && rolesModalUser && (
+                    <RolesModal
+                        user={rolesModalUser}
+                        onClose={() => { setShowRolesModal(false); setRolesModalUser(null); }}
+                        onSaved={() => { setShowRolesModal(false); setRolesModalUser(null); fetchData(); }}
+                    />
                 )}
             </AnimatePresence>
 
@@ -402,10 +353,164 @@ export const UserManagement = () => {
     );
 };
 
-// --- SUB COMPONENTS ---
+// --- MODERN ROLES MODAL ---
+const RolesModal = ({ user, onClose, onSaved }: any) => {
+    const [currentRoles, setCurrentRoles] = useState<string[]>(user.role || []);
+    const [draggingRole, setDraggingRole] = useState<string | null>(null);
+    const [saving, setSaving] = useState(false);
 
+    // Calculate available roles dynamically
+    const available = AVAILABLE_ROLES.filter(r => !currentRoles.includes(r));
+
+    const handleDragStart = (e: React.DragEvent, role: string) => {
+        setDraggingRole(role);
+        e.dataTransfer.setData('role', role);
+        e.dataTransfer.effectAllowed = 'move';
+    };
+
+    const handleDrop = (e: React.DragEvent, target: 'current' | 'available') => {
+        e.preventDefault();
+        const role = e.dataTransfer.getData('role');
+        if (!role) return;
+
+        if (target === 'current' && !currentRoles.includes(role)) {
+            setCurrentRoles([...currentRoles, role]);
+        } else if (target === 'available' && currentRoles.includes(role)) {
+            setCurrentRoles(currentRoles.filter(r => r !== role));
+        }
+        setDraggingRole(null);
+    };
+
+    const handleDragOver = (e: React.DragEvent) => e.preventDefault();
+
+    const save = async () => {
+        setSaving(true);
+        try {
+            await api.put('/api/user/role', { user_id: user.id, roles: currentRoles });
+            onSaved();
+        } catch (e) {
+            console.error(e);
+            alert('Failed to save roles');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <div onClick={onClose} className="absolute inset-0 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm" />
+            <motion.div 
+                initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+                className="relative w-full max-w-3xl bg-white dark:bg-[#0a162e] border border-gray-200 dark:border-white/10 rounded-[24px] shadow-2xl overflow-hidden"
+            >
+                <div className="p-6 border-b border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-[#0f1f3a] flex justify-between items-center">
+                    <div>
+                        <h2 className="text-xl font-bold text-slate-900 dark:text-white">Manage Roles</h2>
+                        <p className="text-sm text-gray-500">Drag and drop to assign permissions for {user.first_name}.</p>
+                    </div>
+                    <button onClick={onClose} className="p-2 hover:bg-gray-200 dark:hover:bg-white/10 rounded-full text-gray-500"><X size={20}/></button>
+                </div>
+
+                <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8 h-[400px]">
+                    
+                    {/* AVAILABLE COLUMN */}
+                    <div 
+                        onDragOver={handleDragOver} 
+                        onDrop={(e) => handleDrop(e, 'available')}
+                        className={clsx(
+                            "flex flex-col h-full rounded-2xl border-2 border-dashed transition-all p-4 relative",
+                            draggingRole && currentRoles.includes(draggingRole) 
+                                ? "border-green-400 bg-green-50/10 dark:bg-green-900/5" 
+                                : "border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-[#0f1f3a]/50"
+                        )}
+                    >
+                        <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+                            <ArrowRightLeft size={14}/> Available Roles
+                        </h4>
+                        <div className="flex-1 space-y-2 overflow-y-auto custom-scrollbar">
+                            {available.length === 0 && (
+                                <div className="h-full flex items-center justify-center text-gray-400 text-sm italic">All roles assigned</div>
+                            )}
+                            <AnimatePresence>
+                                {available.map(role => (
+                                    <RoleItem key={role} role={role} onDragStart={handleDragStart} />
+                                ))}
+                            </AnimatePresence>
+                        </div>
+                    </div>
+
+                    {/* ASSIGNED COLUMN */}
+                    <div 
+                        onDragOver={handleDragOver} 
+                        onDrop={(e) => handleDrop(e, 'current')}
+                        className={clsx(
+                            "flex flex-col h-full rounded-2xl border-2 border-dashed transition-all p-4 relative",
+                            draggingRole && !currentRoles.includes(draggingRole) 
+                                ? "border-[#395d91] bg-[#395d91]/5" 
+                                : "border-gray-200 dark:border-white/10 bg-white dark:bg-[#0a162e]"
+                        )}
+                    >
+                        <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+                            <Shield size={14} className="text-[#395d91]"/> Assigned Roles
+                        </h4>
+                        <div className="flex-1 space-y-2 overflow-y-auto custom-scrollbar">
+                            {currentRoles.length === 0 && (
+                                <div className="h-full flex items-center justify-center text-gray-400 text-sm italic">Drop roles here</div>
+                            )}
+                            <AnimatePresence>
+                                {currentRoles.map(role => (
+                                    <RoleItem key={role} role={role} onDragStart={handleDragStart} isAssigned />
+                                ))}
+                            </AnimatePresence>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="p-6 border-t border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-[#0f1f3a] flex justify-end gap-3">
+                    <button onClick={onClose} className="px-6 py-3 rounded-xl font-bold text-gray-500 hover:bg-gray-200 dark:hover:bg-white/5 transition-colors">Cancel</button>
+                    <button onClick={save} disabled={saving} className="px-6 py-3 rounded-xl bg-[#395d91] hover:bg-[#2d4a75] text-white font-bold shadow-lg flex items-center gap-2">
+                        {saving ? <Loader2 className="animate-spin" size={18}/> : <><Save size={18}/> Save Roles</>}
+                    </button>
+                </div>
+            </motion.div>
+        </div>
+    );
+};
+
+// Draggable Role Item Component
+const RoleItem = ({ role, onDragStart, isAssigned }: any) => {
+    const config = ROLE_STYLES[role] || ROLE_STYLES.default;
+    const Icon = config.icon;
+
+    return (
+        <motion.div
+            layout
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9 }}
+            draggable
+            onDragStart={(e: any) => onDragStart(e, role)}
+            className={clsx(
+                "p-3 rounded-xl border flex items-center justify-between cursor-grab active:cursor-grabbing hover:shadow-md transition-all group",
+                isAssigned 
+                    ? "bg-white dark:bg-[#112240] border-gray-200 dark:border-gray-700" 
+                    : "bg-white dark:bg-[#0a162e] border-gray-200 dark:border-white/5 opacity-80 hover:opacity-100"
+            )}
+        >
+            <div className="flex items-center gap-3">
+                <div className={clsx("p-2 rounded-lg", config.bg, config.color)}>
+                    <Icon size={16} />
+                </div>
+                <span className="font-bold text-sm text-slate-700 dark:text-gray-200 capitalize">{role.replace('_', ' ')}</span>
+            </div>
+            <GripVertical size={16} className="text-gray-300 group-hover:text-gray-500" />
+        </motion.div>
+    );
+};
+
+// --- UTILS ---
 const StatBox = ({ label, value, icon: Icon, color = "text-slate-900 dark:text-white" }: any) => (
-    <div className="bg-white dark:bg-[#0a162e] border border-gray-200 dark:border-white/10 p-5 rounded-2xl flex items-center justify-between">
+    <div className="bg-white dark:bg-[#0a162e] border border-gray-200 dark:border-white/10 p-5 rounded-2xl flex items-center justify-between shadow-sm">
         <div>
             <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">{label}</p>
             <p className={clsx("text-2xl font-bold", color)}>{value}</p>
@@ -447,6 +552,5 @@ const InputGroup = ({ label, value, onChange, type = "text", required, icon: Ico
     </div>
 );
 
-// Icon Placeholders
 const ZapIcon = ({ size, className }: any) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>;
 const AlertIcon = ({ size, className }: any) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className}><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>;

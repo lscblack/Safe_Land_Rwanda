@@ -21,7 +21,7 @@ class User(Base):
     middle_name = Column(String, nullable=True)
     last_name = Column(String, nullable=False)
     email = Column(String, unique=True, index=True, nullable=False)
-    avatar = Column(String, default="offchain/assets/logo_white.png")
+    avatar = Column(String, default="/logo_white.png")
     role = Column(JSONB, default=list, nullable=False)  # Store roles as JSON array
     n_id_number = Column(String, nullable=False)
     id_type = Column(String, default="NID")

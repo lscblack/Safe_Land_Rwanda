@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-    Building2, User, MapPin, Plus, Search, Filter, 
+    Building2, User, MapPin, Plus, Search,
     Upload, Loader2, CheckCircle2, Briefcase, FileText, 
-    X, AlertCircle, Trash2, MoreVertical, ShieldCheck,
+    X, AlertCircle, Trash2, ShieldCheck,
     LayoutGrid, List as ListIcon, RefreshCw, Edit
 } from 'lucide-react';
 import { clsx } from 'clsx';
@@ -68,6 +68,8 @@ export const AgencyManagement = ({ initialOpen = false, initialType = 'agency' }
     const [logoFile, setLogoFile] = useState<File | null>(null);
     const [logoPreview, setLogoPreview] = useState<string | null>(null);
     const [certFile, setCertFile] = useState<File | null>(null);
+    const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+    const [isPdfViewerOpen, setIsPdfViewerOpen] = useState<boolean>(false);
 
     // --- API CALLS ---
     const fetchData = async () => {
@@ -126,6 +128,29 @@ export const AgencyManagement = ({ initialOpen = false, initialType = 'agency' }
             window.removeEventListener('activeRoleChanged', onCustom as EventListener);
         };
     }, []);
+
+    useEffect(() => {
+        if (!isModalOpen) setPdfUrl(null);
+    }, [isModalOpen]);
+
+    // Prevent save/print shortcuts while PDF viewer open
+    useEffect(() => {
+        if (!isPdfViewerOpen) return;
+        const onKey = (e: KeyboardEvent) => {
+            const isCtrl = e.ctrlKey || e.metaKey;
+            // block Ctrl+S, Ctrl+P, Ctrl+Shift+S
+            if (isCtrl && (e.key.toLowerCase() === 's' || e.key.toLowerCase() === 'p')) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+            if (isCtrl && e.shiftKey && e.key.toLowerCase() === 's') {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [isPdfViewerOpen]);
 
     // Reflect changes to initialOpen/initialType when props change
     useEffect(() => {
@@ -361,7 +386,7 @@ export const AgencyManagement = ({ initialOpen = false, initialType = 'agency' }
                                 <div className={clsx("shrink-0", viewMode === 'grid' ? "mb-4" : "")}>
                                     <div className="w-16 h-16 rounded-xl bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 flex items-center justify-center overflow-hidden">
                                         {agency.logo_path ? (
-                                            <img src={`http://localhost:8000/${agency.logo_path}`} className="w-full h-full object-cover" alt={agency.name} />
+                                            <img src={`${import.meta.env.VITE_BASE_URL}/assets/${agency.logo_path}`} className="w-full h-full object-cover" alt={agency.name} />
                                         ) : (
                                             agency.type === 'agency' ? <Building2 className="text-gray-400" /> : <User className="text-gray-400" />
                                         )}
@@ -435,7 +460,15 @@ export const AgencyManagement = ({ initialOpen = false, initialType = 'agency' }
                                                         title="Activate"
                                                         onClick={async () => {
                                                             try {
-                                                                await api.put(`/api/agency/agencies-brokers/${agency.id}`, { status: 'active' });
+                                                                const payload = {
+                                                                    name: agency.name,
+                                                                    type: agency.type,
+                                                                    location: agency.location,
+                                                                    owner_user_id: agency.owner_user_id,
+                                                                    certificate_path: agency.certificate_path,
+                                                                    status: 'active'
+                                                                } as any;
+                                                                await api.put(`/api/agency/agencies-brokers/${agency.id}`, payload);
                                                                 fetchData();
                                                             } catch (e) { console.error(e); }
                                                         }}
@@ -448,7 +481,15 @@ export const AgencyManagement = ({ initialOpen = false, initialType = 'agency' }
                                                         title="Deactivate"
                                                         onClick={async () => {
                                                             try {
-                                                                await api.put(`/api/agency/agencies-brokers/${agency.id}`, { status: 'inactive' });
+                                                                const payload = {
+                                                                    name: agency.name,
+                                                                    type: agency.type,
+                                                                    location: agency.location,
+                                                                    owner_user_id: agency.owner_user_id,
+                                                                    certificate_path: agency.certificate_path,
+                                                                    status: 'inactive'
+                                                                } as any;
+                                                                await api.put(`/api/agency/agencies-brokers/${agency.id}`, payload);
                                                                 fetchData();
                                                             } catch (e) { console.error(e); }
                                                         }}
@@ -457,48 +498,7 @@ export const AgencyManagement = ({ initialOpen = false, initialType = 'agency' }
                                                         <X size={16} />
                                                     </button>
                                                 )}
-                                                <label
-                                                    title="Upload PDF"
-                                                    className="p-2 rounded-lg text-blue-600 cursor-pointer hover:bg-blue-50 dark:hover:bg-white/5"
-                                                >
-                                                    <Upload size={16} />
-                                                    <input
-                                                        type="file"
-                                                        accept="application/pdf"
-                                                        className="hidden"
-                                                        onChange={async (e) => {
-                                                            const f = e.target.files && e.target.files[0];
-                                                            if (!f) return;
-                                                            const fd = new FormData();
-                                                            fd.append('file', f);
-                                                            await api.post(`/api/agency/agencies-brokers/${agency.id}/certificate`, fd, {
-                                                                headers: { 'Content-Type': 'multipart/form-data' }
-                                                            });
-                                                            fetchData();
-                                                        }}
-                                                    />
-                                                </label>
-                                                {agency.certificate_path && (
-                                                    <button
-                                                        title="View PDF"
-                                                        onClick={() => window.open(`${api.defaults.baseURL?.replace(/\/$/, '')}/assets/${agency.certificate_path}`, '_blank')}
-                                                        className="p-2 rounded-lg text-gray-600 hover:bg-gray-50 dark:hover:bg-white/5"
-                                                    >
-                                                        <FileText size={16} />
-                                                    </button>
-                                                )}
-                                                <button
-                                                    title="Edit"
-                                                    onClick={async () => {
-                                                        setSelectedAgency(agency);
-                                                        setFormData({ ...agency });
-                                                        setModalMode('edit');
-                                                        setIsModalOpen(true);
-                                                    }}
-                                                    className="p-2 rounded-lg text-indigo-600 hover:bg-indigo-50 dark:hover:bg-white/5"
-                                                >
-                                                    <Edit size={16} />
-                                                </button>
+                                             
                                             </>
                                         ) : (
                                             // Non-admin users: show delete icon but disable if agency is active
@@ -518,6 +518,7 @@ export const AgencyManagement = ({ initialOpen = false, initialType = 'agency' }
                                                 >
                                                     <Trash2 size={16} />
                                                 </button>
+                                                
                                                 <button 
                                                     title="Edit" 
                                                     onClick={async () => { 
@@ -579,7 +580,7 @@ export const AgencyManagement = ({ initialOpen = false, initialType = 'agency' }
                                         <div className="w-28 h-28 rounded-lg bg-gray-100 overflow-hidden border border-gray-200 dark:border-white/10">
                                             {selectedAgency.logo_path ? (
                                                 <img 
-                                                    src={`${api.defaults.baseURL?.replace(/\/$/, '')}/${selectedAgency.logo_path}`} 
+                                                    src={`${import.meta.env.VITE_BASE_URL}/assets/${selectedAgency.logo_path}`} 
                                                     alt="logo" 
                                                     className="w-full h-full object-cover" 
                                                 />
@@ -603,14 +604,21 @@ export const AgencyManagement = ({ initialOpen = false, initialType = 'agency' }
                                     <div>
                                         <h4 className="text-sm font-bold mb-2">RDB Certificate</h4>
                                         {selectedAgency.certificate_path ? (
-                                            <div className="flex gap-2 items-center">
-                                                <button 
-                                                    onClick={() => window.open(`${api.defaults.baseURL?.replace(/\/$/, '')}/assets/${selectedAgency.certificate_path}`, '_blank')} 
-                                                    className="px-3 py-2 bg-gray-100 dark:bg-white/5 rounded-lg text-sm hover:bg-gray-200 dark:hover:bg-white/10 transition-colors"
-                                                >
-                                                    Open PDF
-                                                </button>
-                                                <span className="text-sm text-gray-500 truncate">{selectedAgency.certificate_path}</span>
+                                            <div className="flex flex-col gap-3">
+                                                <div className="flex gap-2 items-center">
+                                                    <button
+                                                        onClick={() => {
+                                                            const pdfFile = `${import.meta.env.VITE_BASE_URL.replace(/\/$/, '')}/assets/${selectedAgency.certificate_path}`;
+                                                            const viewer = `${window.location.origin}/pdf_viewer.html?file=${encodeURIComponent(pdfFile)}`;
+                                                            setPdfUrl(viewer);
+                                                            setIsPdfViewerOpen(true);
+                                                        }}
+                                                        className="px-3 py-2 bg-gray-100 dark:bg-white/5 rounded-lg text-sm hover:bg-gray-200 dark:hover:bg-white/10 transition-colors"
+                                                    >
+                                                        View PDF (Large)
+                                                    </button>
+                                                    <span className="text-sm text-gray-500 truncate">{selectedAgency.certificate_path}</span>
+                                                </div>
                                             </div>
                                         ) : (
                                             <p className="text-sm text-gray-400">No certificate uploaded</p>
@@ -630,7 +638,7 @@ export const AgencyManagement = ({ initialOpen = false, initialType = 'agency' }
                                                 Approve
                                             </button>
                                         )}
-                                        {(isAdminView || isBuyer || (loggedUser && loggedUser.id === selectedAgency.owner_user_id)) && (
+                                        {( isBuyer || (loggedUser && loggedUser.id === selectedAgency.owner_user_id) && !isAdminView) && (
                                             <button 
                                                 onClick={() => { 
                                                     setFormData({ ...selectedAgency } as any); 
@@ -641,7 +649,7 @@ export const AgencyManagement = ({ initialOpen = false, initialType = 'agency' }
                                                 Edit
                                             </button>
                                         )}
-                                        (isBuyer || (loggedUser && loggedUser.id === selectedAgency.owner_user_id)) && (
+                                        {(isBuyer || (loggedUser && loggedUser.id === selectedAgency.owner_user_id && !isAdminView)) && (
                                             <button 
                                                 onClick={async () => { 
                                                     if (!confirm('Delete this agency?')) return; 
@@ -653,7 +661,7 @@ export const AgencyManagement = ({ initialOpen = false, initialType = 'agency' }
                                             >
                                                 Delete
                                             </button>
-                                        )
+                                        )}
                                         <button 
                                             onClick={() => { 
                                                 setIsModalOpen(false); 
@@ -678,6 +686,7 @@ export const AgencyManagement = ({ initialOpen = false, initialType = 'agency' }
                                             <input 
                                                 type="radio" 
                                                 className="hidden" 
+                                                disabled={modalMode === 'edit'}
                                                 checked={formData.type === 'agency'} 
                                                 onChange={() => setFormData({...formData, type: 'agency'})}
                                             />
@@ -698,6 +707,7 @@ export const AgencyManagement = ({ initialOpen = false, initialType = 'agency' }
                                             <input 
                                                 type="radio" 
                                                 className="hidden" 
+                                                disabled={modalMode === 'edit'}
                                                 checked={formData.type === 'broker'} 
                                                 onChange={() => setFormData({...formData, type: 'broker'})}
                                             />
@@ -797,6 +807,23 @@ export const AgencyManagement = ({ initialOpen = false, initialType = 'agency' }
                     </div>
                 )}
             </AnimatePresence>
+
+            {/* Full-screen PDF viewer overlay (separate from modal) */}
+            {isPdfViewerOpen && pdfUrl && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" onContextMenu={(e) => e.preventDefault()}>
+                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => { setIsPdfViewerOpen(false); setPdfUrl(null); }} />
+                    <div className="relative w-full max-w-[1200px] h-[90vh] bg-white dark:bg-[#071226] rounded-xl overflow-hidden border border-gray-200 dark:border-white/10 z-10" onContextMenu={(e) => e.preventDefault()}>
+                        <div className="flex items-center justify-between p-3 border-b border-gray-100 dark:border-white/5 bg-white dark:bg-[#071226]">
+                            <div className="text-sm font-semibold">RDB Certificate</div>
+                            <div className="flex items-center gap-2">
+                                <a href={pdfUrl} target="_blank" rel="noreferrer" className="text-xs text-gray-500 hover:text-gray-700 hidden">Open in new tab</a>
+                                <button onClick={() => { setIsPdfViewerOpen(false); setPdfUrl(null); }} className="px-3 py-1 rounded bg-gray-100 dark:bg-white/5 text-sm">Close</button>
+                            </div>
+                        </div>
+                        <iframe src={pdfUrl} title="RDB Certificate" className="w-full h-[calc(100%_-_48px)]" sandbox="allow-scripts allow-same-origin" />
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

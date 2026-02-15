@@ -13,6 +13,7 @@ import logging
 
 from config.config import settings
 from data.models.models import NotificationLog
+from data.database.database import AsyncSessionLocal
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ class NotificationService:
     
     @staticmethod
     async def send_email(
-        db: AsyncSession,
+        db: Optional[AsyncSession],
         recipient: str,
         subject: str,
         message: str,
@@ -43,16 +44,21 @@ class NotificationService:
         Returns:
             True if sent successfully, False otherwise
         """
-        notification_log = NotificationLog(
-            user_id=user_id,
-            notification_type="email",
-            recipient=recipient,
-            subject=subject,
-            message=message,
-            status="pending"
-        )
-        db.add(notification_log)
-        await db.commit()
+        notification_log = None
+        if db is not None:
+            try:
+                notification_log = NotificationLog(
+                    user_id=user_id,
+                    notification_type="email",
+                    recipient=recipient,
+                    subject=subject,
+                    message=message,
+                    status="pending"
+                )
+                db.add(notification_log)
+                await db.commit()
+            except Exception:
+                notification_log = None
         
         try:
             # Support both new and legacy env keys
@@ -64,9 +70,10 @@ class NotificationService:
 
             if not all([smtp_host, smtp_user, smtp_password]):
                 logger.warning("SMTP not configured, email not sent")
-                notification_log.status = "failed"
-                notification_log.error_message = "SMTP not configured"
-                await db.commit()
+                if notification_log is not None and db is not None:
+                    notification_log.status = "failed"
+                    notification_log.error_message = "SMTP not configured"
+                    await db.commit()
                 return False
             
             # Create message
@@ -90,18 +97,20 @@ class NotificationService:
                 server.send_message(msg)
             
             # Update log
-            notification_log.status = "sent"
-            notification_log.sent_at = datetime.utcnow()
-            await db.commit()
+            if notification_log is not None and db is not None:
+                notification_log.status = "sent"
+                notification_log.sent_at = datetime.utcnow()
+                await db.commit()
             
             logger.info(f"Email sent to {recipient}")
             return True
             
         except Exception as e:
             logger.error(f"Error sending email: {e}")
-            notification_log.status = "failed"
-            notification_log.error_message = str(e)
-            await db.commit()
+            if notification_log is not None and db is not None:
+                notification_log.status = "failed"
+                notification_log.error_message = str(e)
+                await db.commit()
             return False
     
     @staticmethod
@@ -463,3 +472,98 @@ class NotificationService:
         subject = "SafeLand Password Reset"
         message = NotificationService._render_reset_template(reset_link)
         return await NotificationService.send_email(db, recipient, subject, message, user_id, html=True)
+
+    @staticmethod
+    def _render_unpublish_template(upi: str, reason: str = None, auto: bool = False) -> str:
+        title = "Property Unpublished" if not auto else "Property Unpublished Automatically"
+        reason_block = f"<p>{reason}</p>" if reason else ""
+        return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{title}</title>
+    <style>
+        body {{ margin: 0; padding: 0; background-color: #f5f7fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; color: #0a162e; }}
+        .container {{ width: 100%; background-color: #f5f7fb; padding: 24px 0; }}
+        .card {{ width: 100%; max-width: 620px; margin: 0 auto; background: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08); }}
+        .header {{ background: linear-gradient(135deg, #395d91 0%, #2b4b7f 100%); padding: 28px 32px; color: #ffffff; }}
+        .content {{ padding: 32px; }}
+        .cta {{ display: inline-block; color: white; padding: 12px 18px; background: linear-gradient(135deg, #395d91 0%, #2b4b7f 100%); text-decoration: none; border-radius: 8px; font-weight: 600; margin-top: 8px; }}
+        .footer {{ padding: 24px 32px 30px; background: #f8fafc; text-align: center; }}
+    </style>
+</head>
+<body>
+    <table role="presentation" class="container" width="100%"><tr><td align="center"><table role="presentation" class="card">
+    <tr><td class="header"><h1 style="margin:0;">{title}</h1></td></tr>
+    <tr><td class="content">
+        <h2>Property UPI: {upi}</h2>
+        {reason_block}
+        <p>Please review your property listing and update any necessary details. If you need assistance, contact support.</p>
+        <a class="cta" href="{getattr(settings, 'FRONTEND_URL', '/')}">Review Listing</a>
+    </td></tr>
+    <tr><td class="footer"><p>&copy; 2026 SafeLand Rwanda</p></td></tr>
+    </table></td></tr></table>
+</body>
+</html>"""
+
+    @staticmethod
+    async def send_property_unpublished_email(db: AsyncSession, recipient: str, upi: str, reason: str = None, user_id: Optional[int] = None, auto: bool = False) -> bool:
+        subject = f"Your property {upi} has been unpublished"
+        if auto:
+            subject = f"Your property {upi} was unpublished automatically"
+        message = NotificationService._render_unpublish_template(upi, reason=reason, auto=auto)
+        return await NotificationService.send_email(db, recipient, subject, message, user_id=user_id, html=True)
+
+    @staticmethod
+    async def send_email_with_new_session(recipient: str, subject: str, message: str, user_id: Optional[int] = None, html: bool = False) -> bool:
+        """Open a fresh AsyncSession and send email (logs to NotificationLog)."""
+        try:
+            async with AsyncSessionLocal() as session:
+                try:
+                    return await NotificationService.send_email(session, recipient, subject, message, user_id=user_id, html=html)
+                except Exception as e:
+                    try:
+                        await session.rollback()
+                    except Exception:
+                        pass
+                    raise
+        except Exception as e:
+            logger.error(f"Failed to send email with new session to {recipient}: {e}")
+            return False
+
+    @staticmethod
+    async def send_bulk_emails(recipients: list, subject: str, message: str, html: bool = False, concurrency: int = 5) -> dict:
+        """Send emails to a list of recipients using fresh DB sessions with controlled concurrency.
+
+        Returns a dict with counts: {sent: int, failed: int, total: int}
+        """
+        import asyncio
+        sent = 0
+        failed = 0
+        sem = asyncio.Semaphore(max(1, int(concurrency)))
+
+        async def _send_one(recipient, uid=None):
+            nonlocal sent, failed
+            async with sem:
+                ok = await NotificationService.send_email_with_new_session(recipient, subject, message, user_id=uid, html=html)
+                if ok:
+                    sent += 1
+                else:
+                    failed += 1
+
+        tasks = []
+        for r in recipients:
+            # r can be a tuple(email, user_id) or just email
+            if isinstance(r, (list, tuple)) and len(r) >= 2:
+                tasks.append(_send_one(r[0], r[1]))
+            else:
+                tasks.append(_send_one(r, None))
+
+        # run tasks with concurrency limit
+        try:
+            await asyncio.gather(*tasks)
+        except Exception as e:
+            logger.error(f"Error running bulk email tasks: {e}")
+
+        return {"sent": sent, "failed": failed, "total": len(recipients)}

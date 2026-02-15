@@ -1,19 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import  { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     LayoutGrid, List as ListIcon, Search, RefreshCw,
     MapPin, Building2, User, Briefcase, Eye,
     Edit2, Trash2, History, X, CheckCircle2, AlertTriangle,
-    MoreVertical, DollarSign, Calendar,
-    Database, Save, ArrowLeft, Upload, Link, Image as ImageIcon,
+   DollarSign, Calendar,
+    Database, Save, ArrowLeft, Upload,Image as ImageIcon,
     Video, Map, Home, Factory, Trees, Landmark, Tractor,
-    ChevronRight, ChevronDown, Plus, Minus, FileText, AlertCircle,
-    Layers, Ruler, UserCircle, Hash, Globe, Clock, Shield,
-    Scale, FileCheck, FileX, Lock, Unlock, Users, UserPlus,
-    Phone, Mail, MapPinned, MapPinHouse, Building, TreePalm,
-    Fence, Droplets, Zap, Car, Wifi, Trash2 as SewageIcon,
-    Calculator, CalendarDays, FileDigit, LandPlot, Mountain,
-    Droplet, Wind, Trees as Forest, Sprout, Combine,
+    ChevronRight, Plus, FileText, AlertCircle,
+    Layers, Ruler, UserCircle, Hash, Shield,
+    Scale, Lock, Unlock, Users, UserPlus,
+     MapPinned, MapPinHouse, Building,
+    Calculator,  FileDigit, LandPlot, Mountain,
+    Trees as Forest, Sprout, Combine,
     Loader,
     Timer,
     CheckCheck,
@@ -21,7 +20,7 @@ import {
 } from 'lucide-react';
 import clsx from 'clsx';
 import api from '../../../instance/mainAxios';
-import { FORM_CONFIG, type FormField, type Category, type SubCategory } from './propertyFormConfig';
+import { FORM_CONFIG, type FormField} from './propertyFormConfig';
 import RecordPropertyPage from './RecordPropertyPage';
 
 // ============================================================================
@@ -260,11 +259,6 @@ interface Property {
     representative?: Representative | any;
 }
 
-// Paginated response
-interface PaginatedResponse {
-    items: Property[];
-    total: number;
-}
 
 // History item
 interface PropertyHistoryItem {
@@ -306,7 +300,7 @@ export const PropertyManagement = () => {
     // --- Data State ---
     const [properties, setProperties] = useState<Property[]>([]);
     const [total, setTotal] = useState(0);
-    const [limit, setLimit] = useState(50);
+    const [limit] = useState(50);
     const [skip, setSkip] = useState(0);
 
     // --- Modal States ---
@@ -346,13 +340,22 @@ export const PropertyManagement = () => {
 
     // --- Map Modal State ---
     const [showMapModal, setShowMapModal] = useState(false);
-    const [mapUrl, setMapUrl] = useState<string | null>(null);
+    const [mapUrl] = useState<string | null>(null);
 
     // --- Contact Popup State ---
     const [contactPopup, setContactPopup] = useState<{ show: boolean, message?: string }>({ show: false });
 
     // --- Toasts ---
     const [toasts, setToasts] = useState<Array<{ id: number, type: 'success' | 'error' | 'info', message: string }>>([]);
+    // Reverify modal state
+    const [reverifyModalOpen, setReverifyModalOpen] = useState(false);
+    const [reverifyPayload, setReverifyPayload] = useState<{ differences: any[]; remote?: any; local?: any; auto_unpublished?: boolean }>({ differences: [], remote: null, local: null, auto_unpublished: false });
+
+    // Logged user + active role (used to show admin controls)
+    const [loggedUser, setLoggedUser] = useState<any | null>(null);
+    console.log('Logged user:', loggedUser,reverifyModalOpen,reverifyPayload);
+    const [activeRole, setActiveRole] = useState<string | null>(localStorage.getItem('activeRole') || localStorage.getItem('active_role') || null);
+    const isAdminView = activeRole === 'admin' || activeRole === 'superadmin';
 
     // Helper: Add toast notification
     const addToast = (type: 'success' | 'error' | 'info', message: string) => {
@@ -360,6 +363,26 @@ export const PropertyManagement = () => {
         setToasts(t => [...t, { id, type, message }]);
         setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 5000);
     };
+
+    // fetch current user profile to determine active role (admin view)
+    useEffect(() => {
+        (async () => {
+            try {
+                const res = await api.get('/api/user/profile');
+                setLoggedUser(res.data);
+                const roles = res.data?.role || res.data?.roles || [];
+                const active = res.data?.active_role ?? res.data?.activeRole ?? (Array.isArray(roles) ? roles[0] : roles);
+                try {
+                    const stored = localStorage.getItem('activeRole') || localStorage.getItem('active_role');
+                    if (!stored) setActiveRole(active ? String(active).toLowerCase() : null);
+                } catch (e) {
+                    setActiveRole(active ? String(active).toLowerCase() : null);
+                }
+            } catch (e) {
+                // ignore
+            }
+        })();
+    }, []);
 
     // ============================================================================
     // DATA MAPPING FUNCTIONS
@@ -479,10 +502,10 @@ export const PropertyManagement = () => {
         const gisCoordinates = serverData.gis_coordinates || '';
 
         // Get remaining lease term
-        const remainingLeaseTerm = serverData.remainingLeaseTerm ??
-            parcelInfo.remaining_lease_term ??
-            parcelInfo.remainingLeaseTerm ??
-            null;
+        // const remainingLeaseTerm = serverData.remainingLeaseTerm ??
+        //     parcelInfo.remaining_lease_term ??
+        //     parcelInfo.remainingLeaseTerm ??
+        //     null;
 
         // Get right type
         const rightType = serverData.right_type ||
@@ -801,6 +824,49 @@ export const PropertyManagement = () => {
     };
 
     /**
+     * Admin: Unpublish a published property (set status -> draft)
+     */
+    const unpublishProperty = async (propertyId: number) => {
+        try {
+            await api.put(`/api/property/properties/${propertyId}/status`, { status: 'draft' });
+            addToast('success', 'Property unpublished');
+            await loadProperties(limit, skip);
+            if (selectedProperty && selectedProperty.id === propertyId) {
+                const refreshed = (await api.get(`/api/property/properties/${propertyId}`)).data;
+                setSelectedProperty(refreshed);
+            }
+        } catch (e: any) {
+            console.error('Unpublish failed', e);
+            const errMsg = e?.response?.data?.detail || e?.message || 'Unpublish failed';
+            addToast('error', String(errMsg));
+        }
+    };
+
+    /**
+     * Admin: Re-verify UPI/parcel info against external LAIS and show differences
+     */
+    const reverifyProperty = async (propertyId: number) => {
+        try {
+            const res = await api.post(`/api/property/properties/${propertyId}/reverify`);
+            const data = res.data;
+            const diffs = data.differences || [];
+            // open a structured modal with diffs instead of alert()
+            setReverifyPayload({ differences: diffs, remote: data.remote, local: data.local, auto_unpublished: !!data.auto_unpublished });
+            setReverifyModalOpen(true);
+            if (data.auto_unpublished) {
+                addToast('error', 'Property auto-unpublished due to LAIS changes');
+                await loadProperties(limit, skip);
+            } else if (data.ok) {
+                addToast('success', 'Reverify OK — no differences');
+            }
+        } catch (e: any) {
+            console.error('Reverify failed', e);
+            const errMsg = e?.response?.data?.detail || e?.message || 'Reverify failed';
+            addToast('error', String(errMsg));
+        }
+    };
+
+    /**
      * Verify category against parcel land use
      */
     const verifyCategoryMatch = async (categoryId: number, subcategoryId: number) => {
@@ -820,7 +886,7 @@ export const PropertyManagement = () => {
 
             const categoryLabel = cat.label?.toLowerCase() || cat.name?.toLowerCase() || '';
             const subCategoryLabel = subCat.label?.toLowerCase() || subCat.name?.toLowerCase() || '';
-
+            console.log(subCategoryLabel)
             // Check if parcel use matches category
             const matches =
                 parcelUse.includes(categoryLabel) ||
@@ -1486,38 +1552,65 @@ export const PropertyManagement = () => {
                                             >
                                                 <Eye size={14} /> View
                                             </button>
-                                            <button
-                                                onClick={() => {
-                                                    if (property.status === 'published') {
-                                                        setContactPopup({
-                                                            show: true,
-                                                            message: 'Property is published — contact our agents to request changes.'
-                                                        });
-                                                        return;
-                                                    }
-                                                    openEdit(property);
-                                                }}
-                                                className="p-2 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-white/5 text-gray-500 transition-colors"
-                                            >
-                                                <Edit2 size={16} />
-                                            </button>
-                                            <button
-                                                onClick={() => handleDelete(property.id)}
-                                                className="p-2 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/10 text-gray-500 hover:text-red-500 transition-colors"
-                                            >
-                                                <Trash2 size={16} />
-                                            </button>
-                                            <button
-                                                onClick={() => handlePublish(property)}
-                                                className={clsx(
-                                                    "p-2 rounded-lg text-xs font-bold transition-colors",
-                                                    property.status === 'published'
-                                                        ? "border border-green-200 bg-green-50 text-green-700"
-                                                        : "border border-green-200 bg-green-50 text-green-700 hover:bg-green-100"
-                                                )}
-                                            >
-                                                {property.status === 'published' ? 'Published' : 'Publish'}
-                                            </button>
+                                            {!isAdminView && (
+                                                <button
+                                                    onClick={() => {
+                                                        if (property.status === 'published') {
+                                                            setContactPopup({
+                                                                show: true,
+                                                                message: 'Property is published — contact our agents to request changes.'
+                                                            });
+                                                            return;
+                                                        }
+                                                        openEdit(property);
+                                                    }}
+                                                    className="p-2 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-white/5 text-gray-500 transition-colors"
+                                                >
+                                                    <Edit2 size={16} />
+                                                </button>
+                                            )}
+                                            {(!isAdminView) ? (
+                                                <button
+                                                    onClick={() => {
+                                                        if (property.status === 'published') {
+                                                            setContactPopup({ show: true, message: 'Published properties cannot be deleted. Unpublish first (admin only).' });
+                                                            return;
+                                                        }
+                                                        handleDelete(property.id);
+                                                    }}
+                                                    title={property.status === 'published' ? 'Cannot delete published property' : 'Delete'}
+                                                    className={clsx(
+                                                        'p-2 border border-gray-200 dark:border-gray-700 rounded-lg transition-colors',
+                                                        property.status === 'published' ? 'text-gray-400 cursor-not-allowed' : 'hover:bg-red-50 dark:hover:bg-red-900/10 text-gray-500 hover:text-red-500'
+                                                    )}
+                                                >
+                                                    <Trash2 size={16} />
+                                                </button>
+                                            ) : (
+                                                // Admin view: show Unpublish for published properties
+                                                property.status === 'published' && (
+                                                    <button
+                                                        onClick={() => unpublishProperty(property.id)}
+                                                        title="Unpublish"
+                                                        className="p-2 border border-gray-200 dark:border-gray-700 rounded-lg transition-colors text-yellow-600 hover:bg-yellow-50 dark:hover:bg-white/5"
+                                                    >
+                                                        <Unlock size={16} />
+                                                    </button>
+                                                )
+                                            )}
+                                            {!isAdminView && (
+                                                <button
+                                                    onClick={() => handlePublish(property)}
+                                                    className={clsx(
+                                                        "p-2 rounded-lg text-xs font-bold transition-colors",
+                                                        property.status === 'published'
+                                                            ? "border border-green-200 bg-green-50 text-green-700"
+                                                            : "border border-green-200 bg-green-50 text-green-700 hover:bg-green-100"
+                                                    )}
+                                                >
+                                                    {property.status === 'published' ? 'Published' : 'Publish'}
+                                                </button>
+                                            )}
                                         </div>
                                     </div>
                                 </motion.div>
@@ -1618,38 +1711,69 @@ export const PropertyManagement = () => {
                                                     >
                                                         <Eye size={16} />
                                                     </button>
-                                                    <button
-                                                        onClick={() => {
-                                                            if (property.status === 'published') {
-                                                                setContactPopup({
-                                                                    show: true,
-                                                                    message: 'Property is published — contact our agents to request changes.'
-                                                                });
-                                                                return;
-                                                            }
-                                                            openEdit(property);
-                                                        }}
-                                                        className="p-1.5 hover:bg-gray-100 text-gray-400 hover:text-gray-600 rounded"
-                                                    >
-                                                        <Edit2 size={16} />
-                                                    </button>
-                                                    <button
-                                                        onClick={() => handleDelete(property.id)}
-                                                        className="p-1.5 hover:bg-red-50 text-gray-400 hover:text-red-600 rounded"
-                                                    >
-                                                        <Trash2 size={16} />
-                                                    </button>
-                                                    <button
-                                                        onClick={() => handlePublish(property)}
-                                                        className={clsx(
-                                                            "p-1.5 rounded text-xs font-bold",
-                                                            property.status === 'published'
-                                                                ? "bg-green-50 text-green-700"
-                                                                : "bg-green-50 text-green-700 hover:bg-green-100"
-                                                        )}
-                                                    >
-                                                        {property.status === 'published' ? 'Published' : 'Publish'}
-                                                    </button>
+                                                    {!isAdminView && (
+                                                        <button
+                                                            onClick={() => {
+                                                                if (property.status === 'published') {
+                                                                    setContactPopup({
+                                                                        show: true,
+                                                                        message: 'Property is published — contact our agents to request changes.'
+                                                                    });
+                                                                    return;
+                                                                }
+                                                                openEdit(property);
+                                                            }}
+                                                            className="p-1.5 hover:bg-gray-100 text-gray-400 hover:text-gray-600 rounded"
+                                                        >
+                                                            <Edit2 size={16} />
+                                                        </button>
+                                                    )}
+                                                    {/* Admin: show unpublish & reverify inline for published items */}
+                                                    {(activeRole === 'admin' || activeRole === 'superadmin') && property.status === 'published' && (
+                                                        <>
+                                                            <button
+                                                                onClick={() => unpublishProperty(property.id)}
+                                                                title="Unpublish"
+                                                                className="p-1.5 hover:bg-gray-100 text-gray-400 hover:text-yellow-600 rounded"
+                                                            >
+                                                                <Unlock size={16} />
+                                                            </button>
+                                                            <button
+                                                                onClick={() => reverifyProperty(property.id)}
+                                                                title="Reverify UPI"
+                                                                className="p-1.5 hover:bg-gray-100 text-gray-400 hover:text-indigo-600 rounded"
+                                                            >
+                                                                <Database size={16} />
+                                                            </button>
+                                                        </>
+                                                    )}
+                                                    {!(activeRole === 'admin' || activeRole === 'superadmin') && (
+                                                        <button
+                                                            onClick={() => {
+                                                                if (property.status === 'published') {
+                                                                    setContactPopup({ show: true, message: 'Published properties cannot be deleted. Unpublish first.' });
+                                                                    return;
+                                                                }
+                                                                handleDelete(property.id);
+                                                            }}
+                                                            className={clsx('p-1.5 rounded', property.status === 'published' ? 'text-gray-400 cursor-not-allowed' : 'hover:bg-red-50 text-gray-400 hover:text-red-600')}
+                                                        >
+                                                            <Trash2 size={16} />
+                                                        </button>
+                                                    )}
+                                                    {!isAdminView && (
+                                                        <button
+                                                            onClick={() => handlePublish(property)}
+                                                            className={clsx(
+                                                                "p-1.5 rounded text-xs font-bold",
+                                                                property.status === 'published'
+                                                                    ? "bg-green-50 text-green-700"
+                                                                    : "bg-green-50 text-green-700 hover:bg-green-100"
+                                                            )}
+                                                        >
+                                                            {property.status === 'published' ? 'Published' : 'Publish'}
+                                                        </button>
+                                                    )}
                                                 </div>
                                             </td>
                                         </tr>
@@ -1763,6 +1887,27 @@ export const PropertyManagement = () => {
                                     </p>
                                 </div>
                                 <div className="flex gap-2">
+                                    {/* Admin controls: unpublish & reverify */}
+                                    {(activeRole === 'admin' || activeRole === 'superadmin') && selectedProperty && (
+                                        <>
+                                            {selectedProperty.status === 'published' && (
+                                                <button
+                                                    onClick={() => unpublishProperty(selectedProperty.id)}
+                                                    className="p-2 hover:bg-gray-200 dark:hover:bg-gray-800 rounded-full"
+                                                    title="Unpublish"
+                                                >
+                                                    <Unlock size={20} />
+                                                </button>
+                                            )}
+                                            <button
+                                                onClick={() => reverifyProperty(selectedProperty.id)}
+                                                className="p-2 hover:bg-gray-200 dark:hover:bg-gray-800 rounded-full"
+                                                title="Reverify UPI"
+                                            >
+                                                <Database size={20} />
+                                            </button>
+                                        </>
+                                    )}
                                     <button
                                         onClick={() => {
                                             setShowHistory(true);
@@ -2148,15 +2293,17 @@ export const PropertyManagement = () => {
                                     <History size={16} /> View History
                                 </button>
                                 <div className="flex gap-2">
-                                    <button
-                                        onClick={() => {
-                                            setSelectedProperty(null);
-                                            openEdit(selectedProperty);
-                                        }}
-                                        className="px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 flex items-center gap-2 hover:bg-gray-100 dark:hover:bg-gray-800"
-                                    >
-                                        <Edit2 size={16} /> Edit
-                                    </button>
+                                    {!isAdminView && (
+                                        <button
+                                            onClick={() => {
+                                                setSelectedProperty(null);
+                                                openEdit(selectedProperty);
+                                            }}
+                                            className="px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 flex items-center gap-2 hover:bg-gray-100 dark:hover:bg-gray-800"
+                                        >
+                                            <Edit2 size={16} /> Edit
+                                        </button>
+                                    )}
                                     <button
                                         onClick={() => setSelectedProperty(null)}
                                         className="px-4 py-2 rounded-lg bg-primary text-white hover:bg-primary/90"

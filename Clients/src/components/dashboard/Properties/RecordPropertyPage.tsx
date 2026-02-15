@@ -354,21 +354,6 @@ const RecordPropertyPage = () => {
         });
     };
 
-    const handleVideosUpload = (fieldName: string, files: FileList | null) => {
-        if (!files || files.length === 0) return;
-        const file = files[0];
-        const withPreview = Object.assign(file, { preview: URL.createObjectURL(file) });
-        setFormData(prev => ({ ...prev, [fieldName]: withPreview }));
-    };
-
-    const removeVideo = (fieldName: string) => {
-        setFormData(prev => {
-            const item = prev[fieldName];
-            if (item && item.preview) URL.revokeObjectURL(item.preview);
-            return { ...prev, [fieldName]: null };
-        });
-    };
-
     const handle3DUpload = (fieldName: string, file: File | null) => {
         if (!file) return;
         const withPreview = Object.assign(file, { preview: URL.createObjectURL(file) });

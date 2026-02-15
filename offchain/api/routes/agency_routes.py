@@ -27,12 +27,48 @@ class AgencyOrBrokerSchema(BaseModel):
     type: str  # 'agency' or 'broker'
     location: Optional[str] = None
     owner_user_id: Optional[int] = None
+    owner_user: Optional[dict] = None
+    certificate_path: Optional[str] = None
     logo_path: Optional[str] = None
     status: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     class Config:
         orm_mode = True
+
+
+async def _fetch_owner_data(owner_id: Optional[int], db: AsyncSession):
+    if not owner_id:
+        return None
+    try:
+        res = await db.execute(select(User).where(User.id == owner_id))
+        u = res.scalar_one_or_none()
+        if not u:
+            return None
+        return {
+            'id': getattr(u, 'id', None),
+            'first_name': getattr(u, 'first_name', None),
+            'last_name': getattr(u, 'last_name', None),
+            'email': getattr(u, 'email', None),
+            'role': getattr(u, 'role', None)
+        }
+    except Exception:
+        return None
+
+
+def _serialize_agency(agency: AgencyOrBroker) -> dict:
+    return {
+        'id': getattr(agency, 'id', None),
+        'name': getattr(agency, 'name', None),
+        'type': getattr(agency, 'type', None),
+        'location': getattr(agency, 'location', None),
+        'owner_user_id': getattr(agency, 'owner_user_id', None),
+        'logo_path': getattr(agency, 'logo_path', None),
+        'certificate_path': getattr(agency, 'certificate_path', None),
+        'status': getattr(agency, 'status', None),
+        'created_at': getattr(agency, 'created_at', None),
+        'updated_at': getattr(agency, 'updated_at', None),
+    }
 
 # --- Agency Logo Upload ---
 @router.post("/agencies-brokers/{agency_id}/logo", response_model=AgencyOrBrokerSchema)
@@ -74,7 +110,10 @@ async def upload_agency_logo(
     agency.logo_path = rel_path
     await db.commit()
     await db.refresh(agency)
-    return agency
+    owner = await _fetch_owner_data(agency.owner_user_id, db)
+    data = _serialize_agency(agency)
+    data['owner_user'] = owner
+    return data
 
 
 @router.post("/agencies-brokers/{agency_id}/certificate", response_model=AgencyOrBrokerSchema)
@@ -125,7 +164,10 @@ async def upload_agency_certificate(
     agency.certificate_path = rel_path
     await db.commit()
     await db.refresh(agency)
-    return agency
+    owner = await _fetch_owner_data(agency.owner_user_id, db)
+    data = _serialize_agency(agency)
+    data['owner_user'] = owner
+    return data
 
 # --- Pydantic Schemas ---
 class AgencyUserSchema(BaseModel):
@@ -159,7 +201,10 @@ async def create_agency_broker(data: AgencyOrBrokerSchema, db: AsyncSession = De
             logger.info(f"Agency created id={obj.id}; total agencies in session query={len(all_objs)}")
         except Exception as e:
             logger.exception("Error querying agencies after create: %s", e)
-        return obj
+        owner = await _fetch_owner_data(obj.owner_user_id, db)
+        data_out = _serialize_agency(obj)
+        data_out['owner_user'] = owner
+        return data_out
     except IntegrityError as e:
         await db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
@@ -187,7 +232,10 @@ async def update_agency(
         setattr(agency, k, v)
     await db.commit()
     await db.refresh(agency)
-    return agency
+    owner = await _fetch_owner_data(agency.owner_user_id, db)
+    data = _serialize_agency(agency)
+    data['owner_user'] = owner
+    return data
 
 
 @router.delete("/agencies-brokers/{agency_id}")
@@ -224,16 +272,37 @@ async def list_agency_broker(
         if 'admin' not in roles and 'superadmin' not in roles:
             raise HTTPException(status_code=403, detail="Requires admin privileges")
         result = await db.execute(q)
-        return result.scalars().all()
+        rows = result.scalars().all()
+        out = []
+        for a in rows:
+            owner = await _fetch_owner_data(a.owner_user_id, db)
+            d = _serialize_agency(a)
+            d['owner_user'] = owner
+            out.append(d)
+        return out
     # owner-specific listings
     if mine:
         if not current_user:
             raise HTTPException(status_code=401, detail="Authentication required")
         result = await db.execute(q.where(AgencyOrBroker.owner_user_id == current_user.id))
-        return result.scalars().all()
+        rows = result.scalars().all()
+        out = []
+        for a in rows:
+            owner = await _fetch_owner_data(a.owner_user_id, db)
+            d = _serialize_agency(a)
+            d['owner_user'] = owner
+            out.append(d)
+        return out
     # public listing: only active agencies
     result = await db.execute(q.where(AgencyOrBroker.status == 'active'))
-    return result.scalars().all()
+    rows = result.scalars().all()
+    out = []
+    for a in rows:
+        owner = await _fetch_owner_data(a.owner_user_id, db)
+        d = _serialize_agency(a)
+        d['owner_user'] = owner
+        out.append(d)
+    return out
 
 # --- Agency User Assignment ---
 @router.post("/agency-users", response_model=AgencyUserSchema)
@@ -255,7 +324,10 @@ async def get_agency(agency_id: int, db: AsyncSession = Depends(get_db), current
     if agency.status != 'active':
         if not current_user or (current_user.id != agency.owner_user_id and 'admin' not in (getattr(current_user,'role',[]) or [])):
             raise HTTPException(status_code=404, detail="Agency not found")
-    return agency
+    owner = await _fetch_owner_data(agency.owner_user_id, db)
+    data = _serialize_agency(agency)
+    data['owner_user'] = owner
+    return data
 
 
 @router.put("/agencies-brokers/{agency_id}/approve", response_model=AgencyOrBrokerSchema)
@@ -267,10 +339,16 @@ async def approve_agency(agency_id: int, db: AsyncSession = Depends(get_db), cur
     agency = result.scalar_one_or_none()
     if not agency:
         raise HTTPException(status_code=404, detail="Agency not found")
+    # ensure an RDB certificate is present before approving
+    if not getattr(agency, 'certificate_path', None):
+        raise HTTPException(status_code=400, detail="Cannot approve agency without an RDB certificate uploaded")
     agency.status = 'active'
     await db.commit()
     await db.refresh(agency)
-    return agency
+    owner = await _fetch_owner_data(agency.owner_user_id, db)
+    data = _serialize_agency(agency)
+    data['owner_user'] = owner
+    return data
 
 @router.get("/agency-users", response_model=List[AgencyUserSchema])
 async def list_agency_users(db: AsyncSession = Depends(get_db)):
@@ -281,7 +359,8 @@ async def list_agency_users(db: AsyncSession = Depends(get_db)):
 @router.post("/rdb-certificate/upload")
 async def upload_rdb_certificate(
     user_id: int = Form(...),
-    file: UploadFile = File(...)
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db)
 ):
     # Save and compress PDF (assume asset folders managed externally)
     folder = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "assets", "rdb_certificates"))
@@ -313,4 +392,16 @@ async def upload_rdb_certificate(
     except Exception:
         pass  # fallback: just save original
     rel_path = f"rdb_certificates/{unique_name}"
-    return {"user_id": user_id, "certificate_path": rel_path}
+    # try to attach to the most recent agency owned by this user
+    try:
+        res = await db.execute(select(AgencyOrBroker).where(AgencyOrBroker.owner_user_id == user_id).order_by(AgencyOrBroker.id.desc()))
+        agency = res.scalars().first()
+        attached_id = None
+        if agency:
+            agency.certificate_path = rel_path
+            await db.commit()
+            await db.refresh(agency)
+            attached_id = agency.id
+    except Exception:
+        attached_id = None
+    return {"user_id": user_id, "certificate_path": rel_path, "attached_to_agency_id": attached_id}

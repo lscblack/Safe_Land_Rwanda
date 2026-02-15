@@ -20,7 +20,7 @@ from data.database.database import get_db, get_liip_db
 from data.models.models import Property, PropertyCategory, PropertySubCategory, PropertyImage, User, AgencyOrBroker, AgencyUser
 from data.services.otp_service import OTPService
 from data.services.notification_service import NotificationService
-from api.middlewares.auth import get_current_user, get_optional_user
+from api.middlewares.auth import get_current_user, get_optional_user, require_admin
 
 router = APIRouter()
 
@@ -982,9 +982,19 @@ async def change_property_status(property_id: int, payload: dict = Body(...), db
     obj = result.scalar_one_or_none()
     if not obj:
         raise HTTPException(status_code=404, detail='Property not found')
+    old_status = getattr(obj, 'status', None)
     new_status = payload.get('status')
     if not new_status:
         raise HTTPException(status_code=400, detail='status is required')
+
+    # If attempting to unpublish (published -> draft), only admin/superadmin may perform
+    try:
+        current_roles = getattr(current_user, 'role', []) or []
+        is_admin = any(['admin' in str(r).lower() or 'super' in str(r).lower() for r in (current_roles if isinstance(current_roles, list) else [current_roles])])
+    except Exception:
+        is_admin = False
+    if str(new_status).lower() == 'draft' and getattr(obj, 'status', '').lower() == 'published' and not is_admin:
+        raise HTTPException(status_code=403, detail='Only admin users can unpublish a published property')
 
     # If publishing, perform verification / OTP flow
     if str(new_status).lower() == 'published':
@@ -1051,7 +1061,11 @@ async def change_property_status(property_id: int, payload: dict = Body(...), db
             user_roles = getattr(current_user, 'role', []) or []
             is_seller = ('seller' in [str(r).lower() for r in (user_roles if isinstance(user_roles, list) else [user_roles])])
             if is_seller and rep_id and current_nid and str(rep_id).strip() == str(current_nid).strip():
-                # proceed without OTP
+                # proceed without OTP — run pre-publish parcel checks first
+                check = await _compare_parcel_risk_fields(obj, db)
+                if not check.get('ok'):
+                    keys = ", ".join([d.get('key') for d in (check.get('differences') or [])])
+                    raise HTTPException(status_code=400, detail=f'Pre-publish check failed: differences in {keys}. Please reverify before publishing.')
                 obj.status = 'published'
                 try:
                     await db.commit()
@@ -1088,6 +1102,7 @@ async def change_property_status(property_id: int, payload: dict = Body(...), db
                     if not liip_id_number or str(liip_id_number).strip() != str(rep_id).strip():
                         raise HTTPException(status_code=403, detail='LIIP record does not match representative ID')
                     # proceed to OTP via email address on LIIP
+
                 # Prefer phone verification
                 if rep_phone:
                     # Verify phone -> NID using configured external endpoint before sending OTP
@@ -1117,7 +1132,11 @@ async def change_property_status(property_id: int, payload: dict = Body(...), db
                         valid = await OTPService.verify_otp(db=db, otp_code=str(otp_code), phone=str(rep_phone), purpose='publish_verification')
                         if not valid:
                             raise HTTPException(status_code=401, detail='Invalid or expired OTP')
-                        # OTP valid -> publish
+                        # OTP valid -> run pre-publish checks then publish
+                        check = await _compare_parcel_risk_fields(obj, db)
+                        if not check.get('ok'):
+                            keys = ", ".join([d.get('key') for d in (check.get('differences') or [])])
+                            raise HTTPException(status_code=400, detail=f'Pre-publish check failed: differences in {keys}. Please reverify before publishing.')
                         obj.status = 'published'
                         try:
                             await db.commit()
@@ -1147,6 +1166,11 @@ async def change_property_status(property_id: int, payload: dict = Body(...), db
                         valid = await OTPService.verify_otp(db=db, otp_code=str(otp_code), email=str(rep_email), purpose='publish_verification')
                         if not valid:
                             raise HTTPException(status_code=401, detail='Invalid or expired OTP')
+                        # OTP valid -> run pre-publish checks then publish
+                        check = await _compare_parcel_risk_fields(obj, db)
+                        if not check.get('ok'):
+                            keys = ", ".join([d.get('key') for d in (check.get('differences') or [])])
+                            raise HTTPException(status_code=400, detail=f'Pre-publish check failed: differences in {keys}. Please reverify before publishing.')
                         obj.status = 'published'
                         try:
                             await db.commit()
@@ -1188,6 +1212,67 @@ async def change_property_status(property_id: int, payload: dict = Body(...), db
         except Exception as e:
             await db.rollback()
             raise HTTPException(status_code=400, detail=str(e))
+
+    # If an admin (or allowed actor) unpublished a previously published property, notify the uploader
+    try:
+        if old_status and str(old_status).lower() == 'published' and str(new_status).lower() == 'draft':
+            # find uploader email/address
+            uploader_email = None
+            try:
+                if getattr(obj, 'uploaded_by_user_id', None):
+                    r = await db.execute(select(User).where(User.id == obj.uploaded_by_user_id))
+                    ub = r.scalar_one_or_none()
+                    if ub:
+                        uploader_email = getattr(ub, 'email', None)
+            except Exception:
+                uploader_email = None
+
+            # fallback: try to extract representative/owner email from parcel_information
+            if not uploader_email:
+                try:
+                    pi = _maybe_parse_json_field(getattr(obj, 'parcel_information', None) or {}) or {}
+                    rep = pi.get('representative') if isinstance(pi, dict) else None
+                    if isinstance(rep, dict):
+                        uploader_email = rep.get('email') or rep.get('emailAddress') or rep.get('contact')
+                except Exception:
+                    pass
+
+            # attempt to notify uploader by templated email, fallback to plain email and SMS
+            if uploader_email:
+                try:
+                    sent = await NotificationService.send_property_unpublished_email(db=db, recipient=str(uploader_email), upi=getattr(obj, 'upi', ''), reason=None, user_id=getattr(obj, 'uploaded_by_user_id', None), auto=False)
+                except Exception:
+                    sent = False
+                if not sent:
+                    # fallback plain email
+                    try:
+                        fallback_msg = (
+                            f"Hello,\n\nYour property (UPI: {getattr(obj, 'upi', '')}) has been unpublished by an administrator. "
+                            "Please review the listing and update any necessary details. If you believe this was done in error, contact support.\n\nRegards,\nSafeLand Team"
+                        )
+                        await NotificationService.send_email(db=db, recipient=str(uploader_email), subject=f"Your property {getattr(obj, 'upi', '')} was unpublished", message=fallback_msg, html=False)
+                    except Exception:
+                        pass
+                    # fallback SMS
+                    try:
+                        uploader_phone = None
+                        if getattr(obj, 'uploaded_by_user_id', None):
+                            r = await db.execute(select(User).where(User.id == obj.uploaded_by_user_id))
+                            ub = r.scalar_one_or_none()
+                            if ub:
+                                uploader_phone = getattr(ub, 'phone', None) or getattr(ub, 'phone_number', None)
+                        if not uploader_phone:
+                            pi = _maybe_parse_json_field(getattr(obj, 'parcel_information', None) or {}) or {}
+                            rep = pi.get('representative') if isinstance(pi, dict) else None
+                            if isinstance(rep, dict):
+                                uploader_phone = rep.get('phone') or rep.get('phoneNumber') or rep.get('mobile')
+                        if uploader_phone:
+                            await NotificationService.send_sms(db=db, phone=str(uploader_phone), message=f"Your property {getattr(obj, 'upi', '')} was unpublished. Please review your listing.")
+                    except Exception:
+                        pass
+    except Exception:
+        # swallow notification errors
+        pass
 
     # record history snapshot (create a PropertyHistory entry for the change)
     try:
@@ -1251,6 +1336,380 @@ async def change_property_status(property_id: int, payload: dict = Body(...), db
     return PropertySchema(**enriched)
 
 
+async def _compare_parcel_risk_fields(obj, db: AsyncSession):
+    """Fetch parcel data from external LAIS and compare only risk fields.
+    Returns dict: {'ok': bool, 'differences': [...], 'remote': p, 'local': local_pi}
+    If external endpoint is not configured, returns ok=True to avoid blocking publish in offline envs.
+    """
+    try:
+        upi = getattr(obj, 'upi', None)
+        endpoint = getattr(settings, 'PARCEL_INFORMATION_IP_ADDRESS', None)
+        if not endpoint:
+            return {'ok': True, 'differences': [], 'remote': None, 'local': _maybe_parse_json_field(getattr(obj, 'parcel_information', None) or {})}
+
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.get(endpoint.rstrip('/') + f"?upi={upi}")
+        if resp.status_code != 200:
+            raise HTTPException(status_code=502, detail='Failed to fetch parcel information from external service')
+        try:
+            remote_json = resp.json()
+        except Exception:
+            remote_json = None
+        p = None
+        if isinstance(remote_json, dict):
+            p = remote_json.get('data') or remote_json
+        else:
+            p = remote_json
+
+        if not isinstance(p, dict):
+            raise HTTPException(status_code=502, detail='Unexpected parcel data format from external service')
+
+        local_pi = _maybe_parse_json_field(getattr(obj, 'parcel_information', None) or {}) or {}
+
+        import json
+
+        def _get_bool_field(dct, *keys):
+            for k in keys:
+                try:
+                    v = dct.get(k)
+                    if v is None:
+                        continue
+                    return bool(v)
+                except Exception:
+                    continue
+            return False
+
+        def _normalize_representative(dct):
+            if not isinstance(dct, dict):
+                return None
+            out = {}
+            out['id'] = dct.get('id') or dct.get('idNo') or dct.get('id_number')
+            out['phone'] = dct.get('phone') or dct.get('phoneNumber') or dct.get('mobile')
+            out['email'] = dct.get('email') or dct.get('emailAddress')
+            return out
+
+        def _extract_landuse_english_from_obj(dct):
+            if not isinstance(dct, dict):
+                return None
+            for k in ('landUseNameEnglish', 'landUseName', 'landUse', 'land_use', 'landUseName'):
+                try:
+                    v = dct.get(k)
+                    if v is not None:
+                        return str(v).strip()
+                except Exception:
+                    continue
+            return None
+
+        def _normalize_planned_uses(dct):
+            out = []
+            tries = []
+            try:
+                if isinstance(dct, dict):
+                    tries = dct.get('planned_land_uses') or dct.get('plannedLandUses') or []
+                elif isinstance(dct, list):
+                    tries = dct
+            except Exception:
+                tries = []
+            for item in (tries or []):
+                try:
+                    if isinstance(item, dict):
+                        name = item.get('landUseNameEnglish') or item.get('landUseName') or item.get('landUse')
+                        if not name:
+                            name = item.get('landUseNameEnglish') or item.get('landUseName')
+                        if name:
+                            out.append(str(name).strip())
+                    else:
+                        out.append(str(item))
+                except Exception:
+                    continue
+            return out
+
+        local_norm = {
+            'is_under_mortgage': _get_bool_field(local_pi, 'is_under_mortgage', 'isUnderMortgage'),
+            'is_under_restriction': _get_bool_field(local_pi, 'is_under_restriction', 'isUnderRestriction', 'is_under_restriction'),
+            'in_process': _get_bool_field(local_pi, 'in_process', 'inProcess'),
+            'representative': _normalize_representative(local_pi.get('representative') or local_pi.get('representative') or {}),
+            'land_use_english': _extract_landuse_english_from_obj(local_pi) or _extract_landuse_english_from_obj({'landUseName': local_pi.get('landUseName')}),
+            'planned_land_uses': _normalize_planned_uses(local_pi)
+        }
+
+        remote_norm = {
+            'is_under_mortgage': _get_bool_field(p, 'is_under_mortgage', 'isUnderMortgage'),
+            'is_under_restriction': _get_bool_field(p, 'is_under_restriction', 'isUnderRestriction'),
+            'in_process': _get_bool_field(p, 'in_process', 'inProcess'),
+            'representative': _normalize_representative(p.get('representative') or {}),
+            'land_use_english': _extract_landuse_english_from_obj(p) or _extract_landuse_english_from_obj({'landUseName': p.get('landUseName')}) or p.get('landUseNameEnglish'),
+            'planned_land_uses': _normalize_planned_uses(p.get('planned_land_uses') or p.get('plannedLandUses') or p.get('planned_land_uses') or p)
+        }
+
+        diffs = []
+        for key in ('is_under_mortgage', 'is_under_restriction', 'in_process', 'representative', 'land_use_english', 'planned_land_uses'):
+            try:
+                lv = local_norm.get(key)
+                rv = remote_norm.get(key)
+                try:
+                    lvj = json.dumps(lv, sort_keys=True, default=str)
+                except Exception:
+                    lvj = str(lv)
+                try:
+                    rvj = json.dumps(rv, sort_keys=True, default=str)
+                except Exception:
+                    rvj = str(rv)
+                if lvj != rvj:
+                    diffs.append({'key': key, 'local': lv, 'remote': rv})
+            except Exception:
+                continue
+
+        ok = len(diffs) == 0
+        return {'ok': ok, 'differences': diffs, 'remote': p, 'local': local_pi}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f'Error performing parcel checks: {e}')
+
+
+
+@router.post('/properties/{property_id}/reverify', response_model=dict, dependencies=[Depends(require_admin())])
+async def reverify_property_upi(property_id: int, db: AsyncSession = Depends(get_db)):
+    """Admin-only: re-fetch parcel information from external LAIS endpoint and compare with stored `parcel_information`.
+    Returns differences (if any) and both remote and local payloads for admin review.
+    """
+    result = await db.execute(select(Property).where(Property.id == property_id))
+    obj = result.scalar_one_or_none()
+    if not obj:
+        raise HTTPException(status_code=404, detail='Property not found')
+    upi = getattr(obj, 'upi', None)
+    if not upi:
+        raise HTTPException(status_code=400, detail='Property has no UPI to reverify')
+
+    endpoint = getattr(settings, 'PARCEL_INFORMATION_IP_ADDRESS', None)
+    if not endpoint:
+        raise HTTPException(status_code=501, detail='Parcel information endpoint not configured')
+
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.get(endpoint.rstrip('/') + f"?upi={upi}")
+        if resp.status_code != 200:
+            raise HTTPException(status_code=502, detail='Failed to fetch parcel information from external service')
+        try:
+            remote_json = resp.json()
+        except Exception:
+            remote_json = None
+        p = None
+        if isinstance(remote_json, dict):
+            p = remote_json.get('data') or remote_json
+        else:
+            p = remote_json
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f'Error fetching parcel information: {e}')
+
+    # normalize remote to dict
+    if not isinstance(p, dict):
+        raise HTTPException(status_code=502, detail='Unexpected parcel data format from external service')
+
+    # parse local stored parcel_information
+    local_pi = _maybe_parse_json_field(getattr(obj, 'parcel_information', None) or {}) or {}
+
+    import json
+
+    # Normalize and compare only specific "risk" fields. Prefer English land use names.
+    def _get_bool_field(dct, *keys):
+        for k in keys:
+            try:
+                v = dct.get(k)
+                if v is None:
+                    continue
+                return bool(v)
+            except Exception:
+                continue
+        return False
+
+    def _normalize_representative(dct):
+        if not isinstance(dct, dict):
+            return None
+        out = {}
+        out['id'] = dct.get('id') or dct.get('idNo') or dct.get('id_number')
+        out['phone'] = dct.get('phone') or dct.get('phoneNumber') or dct.get('mobile')
+        out['email'] = dct.get('email') or dct.get('emailAddress')
+        return out
+
+    def _extract_landuse_english_from_obj(dct):
+        # dct may contain landUseNameEnglish or landUseName or landUse
+        if not isinstance(dct, dict):
+            return None
+        for k in ('landUseNameEnglish', 'landUseName', 'landUse', 'land_use', 'landUseName'):
+            try:
+                v = dct.get(k)
+                if v is not None:
+                    return str(v).strip()
+            except Exception:
+                continue
+        return None
+
+    def _normalize_planned_uses(dct):
+        # Accept lists in 'planned_land_uses' or 'plannedLandUses'
+        out = []
+        tries = []
+        try:
+            if isinstance(dct, dict):
+                tries = dct.get('planned_land_uses') or dct.get('plannedLandUses') or []
+            elif isinstance(dct, list):
+                tries = dct
+        except Exception:
+            tries = []
+        for item in (tries or []):
+            try:
+                if isinstance(item, dict):
+                    name = item.get('landUseNameEnglish') or item.get('landUseName') or item.get('landUse')
+                    if not name:
+                        # try nested keys
+                        name = item.get('landUseNameEnglish') or item.get('landUseName')
+                    if name:
+                        out.append(str(name).strip())
+                else:
+                    out.append(str(item))
+            except Exception:
+                continue
+        return out
+
+    local_norm = {
+        'is_under_mortgage': _get_bool_field(local_pi, 'is_under_mortgage', 'isUnderMortgage'),
+        'is_under_restriction': _get_bool_field(local_pi, 'is_under_restriction', 'isUnderRestriction', 'is_under_restriction'),
+        'in_process': _get_bool_field(local_pi, 'in_process', 'inProcess'),
+        'representative': _normalize_representative(local_pi.get('representative') or local_pi.get('representative') or {}),
+        'land_use_english': _extract_landuse_english_from_obj(local_pi) or _extract_landuse_english_from_obj({'landUseName': local_pi.get('landUseName')}) ,
+        'planned_land_uses': _normalize_planned_uses(local_pi)
+    }
+
+    remote_norm = {
+        'is_under_mortgage': _get_bool_field(p, 'is_under_mortgage', 'isUnderMortgage'),
+        'is_under_restriction': _get_bool_field(p, 'is_under_restriction', 'isUnderRestriction'),
+        'in_process': _get_bool_field(p, 'in_process', 'inProcess'),
+        'representative': _normalize_representative(p.get('representative') or {}),
+        'land_use_english': _extract_landuse_english_from_obj(p) or _extract_landuse_english_from_obj({'landUseName': p.get('landUseName')}) or p.get('landUseNameEnglish'),
+        'planned_land_uses': _normalize_planned_uses(p.get('planned_land_uses') or p.get('plannedLandUses') or p.get('planned_land_uses') or p)
+    }
+
+    diffs = []
+    # compare each normalized key
+    for key in ('is_under_mortgage', 'is_under_restriction', 'in_process', 'representative', 'land_use_english', 'planned_land_uses'):
+        try:
+            lv = local_norm.get(key)
+            rv = remote_norm.get(key)
+            try:
+                lvj = json.dumps(lv, sort_keys=True, default=str)
+            except Exception:
+                lvj = str(lv)
+            try:
+                rvj = json.dumps(rv, sort_keys=True, default=str)
+            except Exception:
+                rvj = str(rv)
+            if lvj != rvj:
+                diffs.append({'key': key, 'local': lv, 'remote': rv})
+        except Exception:
+            continue
+
+    ok = len(diffs) == 0
+
+    # If differences exist on these risk fields and the property is published, auto-unpublish and notify uploader
+    auto_unpublished = False
+    if not ok and getattr(obj, 'status', None) and str(getattr(obj, 'status')).lower() == 'published':
+        try:
+            prev_status = getattr(obj, 'status', None)
+            obj.status = 'draft'
+            await db.commit()
+            auto_unpublished = True
+            # record history entry
+            try:
+                from data.models.models import PropertyHistory
+                hist = PropertyHistory(
+                    property_id=obj.id,
+                    upi=getattr(obj, 'upi', None),
+                    owner_id=getattr(obj, 'owner_id', None),
+                    owner_name=getattr(obj, 'owner_name', None),
+                    category_id=getattr(obj, 'category_id', None),
+                    subcategory_id=getattr(obj, 'subcategory_id', None),
+                    parcel_id=getattr(obj, 'parcel_id', None),
+                    size=getattr(obj, 'size', None),
+                    location=getattr(obj, 'location', None),
+                    district=getattr(obj, 'district', None),
+                    sector=getattr(obj, 'sector', None),
+                    cell=getattr(obj, 'cell', None),
+                    village=getattr(obj, 'village', None),
+                    land_use=getattr(obj, 'land_use', None),
+                    status='draft',
+                    estimated_amount=getattr(obj, 'estimated_amount', None),
+                    latitude=getattr(obj, 'latitude', None),
+                    longitude=getattr(obj, 'longitude', None),
+                    details=getattr(obj, 'details', None),
+                    parcel_information=local_pi,
+                    change_type='auto_unpublish_reverify'
+                )
+                db.add(hist)
+                await db.commit()
+            except Exception:
+                await db.rollback()
+
+            # notify uploader
+            try:
+                uploader_email = None
+                if getattr(obj, 'uploaded_by_user_id', None):
+                    r = await db.execute(select(User).where(User.id == obj.uploaded_by_user_id))
+                    ub = r.scalar_one_or_none()
+                    if ub:
+                        uploader_email = getattr(ub, 'email', None)
+                # ensure uploader_email is found either from uploaded_by_user or representative
+                if not uploader_email:
+                    pi = _maybe_parse_json_field(getattr(obj, 'parcel_information', None) or {}) or {}
+                    rep = pi.get('representative') if isinstance(pi, dict) else None
+                    if isinstance(rep, dict):
+                        uploader_email = rep.get('email') or rep.get('emailAddress')
+
+                if uploader_email:
+                    reason = "Changed fields: " + ", ".join([d['key'] for d in diffs])
+                    try:
+                        sent = await NotificationService.send_property_unpublished_email(db=db, recipient=str(uploader_email), upi=getattr(obj, 'upi', ''), reason=reason, user_id=getattr(obj, 'uploaded_by_user_id', None), auto=True)
+                    except Exception:
+                        sent = False
+                    if not sent:
+                        try:
+                            fallback_msg = (
+                                f"Hello,\n\nWe detected changes in official parcel data for your property (UPI: {getattr(obj, 'upi', '')}). "
+                                "Because the following risk fields changed: " + ", ".join([d['key'] for d in diffs]) + ".\n\n" 
+                                "As a precaution the listing has been unpublished. Please review your property and update any required information. An administrator will also review these changes.\n\nRegards,\nSafeLand Team"
+                            )
+                            await NotificationService.send_email(db=db, recipient=str(uploader_email), subject=f"Property {getattr(obj, 'upi', '')} unpublished due to LAIS changes", message=fallback_msg, html=False)
+                        except Exception:
+                            pass
+                        try:
+                            uploader_phone = None
+                            if getattr(obj, 'uploaded_by_user_id', None):
+                                r = await db.execute(select(User).where(User.id == obj.uploaded_by_user_id))
+                                ub = r.scalar_one_or_none()
+                                if ub:
+                                    uploader_phone = getattr(ub, 'phone', None) or getattr(ub, 'phone_number', None)
+                            if not uploader_phone:
+                                pi = _maybe_parse_json_field(getattr(obj, 'parcel_information', None) or {}) or {}
+                                rep = pi.get('representative') if isinstance(pi, dict) else None
+                                if isinstance(rep, dict):
+                                    uploader_phone = rep.get('phone') or rep.get('phoneNumber') or rep.get('mobile')
+                            if uploader_phone:
+                                await NotificationService.send_sms(db=db, phone=str(uploader_phone), message=f"Your property {getattr(obj, 'upi', '')} was unpublished due to parcel data changes. Please review your listing.")
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+        except Exception:
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+
+    return {'ok': ok and not auto_unpublished, 'differences': diffs, 'remote': p, 'local': local_pi, 'auto_unpublished': auto_unpublished}
+
+
 
 @router.post('/properties/{property_id}/send_publish_otp', response_model=PropertySchema)
 async def send_publish_otp(property_id: int, payload: dict = Body(...), db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -1272,7 +1731,7 @@ async def send_publish_otp(property_id: int, payload: dict = Body(...), db: Asyn
             await NotificationService.send_sms(db=db, phone=str(contact), message=f"Your SafeLand verification code is {otp.otp_code}")
         else:
             otp = await OTPService.create_otp(db=db, email=str(contact), otp_type='email', purpose='publish_verification')
-            await NotificationService.send_email(db=db, recipient=str(contact), subject='SafeLand verification code', message=f"Your verification code is {otp.otp_code}")
+            await NotificationService.send_otp_email(db=db, recipient=str(contact), otp_code=str(otp.otp_code))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f'Failed to send OTP: {str(e)}')
 
@@ -1727,14 +2186,41 @@ async def get_property(property_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.delete("/properties/{property_id}")
-async def delete_property(property_id: int, db: AsyncSession = Depends(get_db)):
+async def delete_property(property_id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
     result = await db.execute(select(Property).where(Property.id == property_id))
     obj = result.scalar_one_or_none()
     if not obj:
         raise HTTPException(status_code=404, detail="Property not found")
-    await db.delete(obj)
-    await db.commit()
-    return {"message": "Deleted"}
+    # Prevent deleting published properties — must be unpublished first
+    if getattr(obj, 'status', '') and str(getattr(obj, 'status')).lower() == 'published':
+        raise HTTPException(status_code=403, detail='Cannot delete a published property. Please unpublish first.')
+
+    # Allow delete if owner/uploader or admin
+    try:
+        cur_id = int(getattr(current_user, 'id'))
+    except Exception:
+        cur_id = None
+    roles = getattr(current_user, 'role', []) or []
+    is_admin = any(['admin' in str(r).lower() or 'super' in str(r).lower() for r in (roles if isinstance(roles, list) else [roles])])
+    # check uploader ownership
+    uploader_id = getattr(obj, 'uploaded_by_user_id', None)
+    if uploader_id is not None and cur_id is not None and int(uploader_id) == int(cur_id):
+        allowed = True
+    elif is_admin:
+        allowed = True
+    else:
+        allowed = False
+
+    if not allowed:
+        raise HTTPException(status_code=403, detail='Not authorized to delete this property')
+
+    try:
+        await db.delete(obj)
+        await db.commit()
+        return {"message": "Deleted"}
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ===================
 # Property images upload
