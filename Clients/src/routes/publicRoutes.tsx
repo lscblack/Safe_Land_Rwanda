@@ -2,6 +2,7 @@ import { Suspense, lazy } from "react";
 import { Routes, Route } from "react-router-dom";
 import SafeLandLoader from "../loaders/fullpageloader";
 import { useOnboardingCheck } from "../components/security/useOnboardingCheck";
+import MainAppGis from "../components/maps_comp/Main_Map";
 
 
 // Lazy Imports
@@ -24,6 +25,7 @@ const RouteManager = () => {
 };
 
 const AppRoutes = () => {
+  const isLoggedIn = localStorage.getItem("user_access_token") || sessionStorage.getItem("user_access_token");
   return (
     <Suspense fallback={<SafeLandLoader />}>
       {/* Run the check on every route change */}
@@ -35,12 +37,13 @@ const AppRoutes = () => {
 
         <Route path="/" element={<Home />} />
         <Route path="/home" element={<Home />} />
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/register" element={<RegisterPage />} />
+        <Route path="/login" element={isLoggedIn ? <DashboardLayout /> : <LoginPage />} />
+        <Route path="/register" element={isLoggedIn ? <DashboardLayout /> : <RegisterPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-        <Route path="/dashboard" element={<DashboardLayout />} />
+        <Route path="/dashboard" element={isLoggedIn ? <DashboardLayout /> : <LoginPage />} />
         <Route path="/properties" element={<MarketplaceIndex />} />
         <Route path="/properties/single" element={<PropertyListingPage />} />
+        <Route path="/map" element={<MainAppGis />} />
         <Route path="/about" element={<AboutPage />} />
         <Route path="/our-agents" element={<PartnersPage />} />
         <Route path="/market-trends" element={<MarketTrendsPage />} />

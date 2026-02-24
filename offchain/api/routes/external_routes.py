@@ -6,17 +6,300 @@ from fastapi import APIRouter, Depends, HTTPException, status, Response
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any, Union
 import logging
+
 from config.config import settings
 import httpx
 
 from api.middlewares.auth import verify_token, get_optional_user
 from fastapi import Request
 from fastapi.responses import JSONResponse
+from fastapi.responses import Response
 
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+from data.models.models import Property, PropertySubCategory, PropertyCategory
+from data.database.database import get_db
+from sqlalchemy.future import select
+from sqlalchemy import or_, and_
+from api.ml.search.search import parse_search_ollama_enhanced
+
+
+class NLPPropertySearchRequest(BaseModel):
+    query: str = Field(..., description="User's natural language search query")
+
+
+class NLPPropertySearchResponse(BaseModel):
+    filters: Dict[str, Any]
+    results: List[Dict[str, Any]]
+
+
+@router.post("/search_property_nlp", response_model=NLPPropertySearchResponse)
+async def search_property_nlp(
+    request: NLPPropertySearchRequest,
+    db=Depends(get_db),
+    # token_payload: dict = Depends(verify_token)
+):
+    """
+    NLP property search endpoint. Accepts a user query, extracts filters, and returns matching properties.
+    """
+    user_query = request.query
+    filters = parse_search_ollama_enhanced(user_query)
+    # Interpret budget: if a single budget provided treat it as maximum
+    budget_val = filters.get("budget")
+    budget_min = filters.get("budget_min") or filters.get("min_budget")
+    budget_max = filters.get("budget_max") or filters.get("max_budget")
+    if budget_val is not None and budget_max is None and budget_min is None:
+        # treat single number as maximum budget
+        budget_max = budget_val
+
+    # Build intelligent DB query from parsed filters
+    conditions = []
+
+    # Property type: match against land_use, subcategory.name/label, category.name/label
+    pt = filters.get("property_type")
+    if pt:
+        pt_str = str(pt)
+        conditions.append(or_(
+            Property.land_use.ilike(f"%{pt_str}%"),
+            Property.location.ilike(f"%{pt_str}%"),
+            Property.district.ilike(f"%{pt_str}%"),
+            Property.sector.ilike(f"%{pt_str}%"),
+            Property.village.ilike(f"%{pt_str}%"),
+            Property.details.contains({"property_type": pt_str}),
+            Property.details.contains({"type": pt_str}),
+            Property.subcategory_id == select(PropertySubCategory.id).where(or_(
+                PropertySubCategory.name.ilike(f"%{pt_str}%"),
+                PropertySubCategory.label.ilike(f"%{pt_str}%")
+            )).scalar_subquery(),
+            Property.category_id == select(PropertyCategory.id).where(or_(
+                PropertyCategory.name.ilike(f"%{pt_str}%"),
+                PropertyCategory.label.ilike(f"%{pt_str}%")
+            )).scalar_subquery()
+        ))
+
+    # Size range
+    min_size = filters.get("min_size")
+    max_size = filters.get("max_size")
+    if min_size is not None:
+        try:
+            conditions.append(Property.size >= float(min_size))
+        except Exception:
+            pass
+    if max_size is not None:
+        try:
+            conditions.append(Property.size <= float(max_size))
+        except Exception:
+            pass
+
+    # Budget -> estimated_amount or amount_paid
+    budget = filters.get("budget")
+    if budget is not None:
+        try:
+            b = float(budget)
+            conditions.append(or_(Property.estimated_amount <= b, Property.amount_paid <= b))
+        except Exception:
+            pass
+
+    # Location: match across several text fields
+    loc = filters.get("location")
+    if loc:
+        loc_str = str(loc)
+        conditions.append(or_(
+            Property.location.ilike(f"%{loc_str}%"),
+            Property.district.ilike(f"%{loc_str}%"),
+            Property.sector.ilike(f"%{loc_str}%"),
+            Property.village.ilike(f"%{loc_str}%"),
+            Property.details.contains({"location": loc_str})
+        ))
+
+    # Near water (example boolean stored in details or parcel_information)
+    near_water = filters.get("near_water")
+    if isinstance(near_water, bool) and near_water:
+        conditions.append(or_(
+            Property.details.contains({"near_water": True}),
+            Property.parcel_information.contains({"near_water": True})
+        ))
+
+    # Status (e.g., for sale)
+    status = filters.get("status")
+    if status:
+        if isinstance(status, list):
+            conditions.append(Property.status.in_(status))
+        else:
+            conditions.append(Property.status.ilike(f"%{str(status)}%"))
+
+    stmt = select(Property).outerjoin(PropertySubCategory, Property.subcategory_id == PropertySubCategory.id).outerjoin(PropertyCategory, Property.category_id == PropertyCategory.id)
+    if conditions:
+        stmt = stmt.where(and_(*conditions))
+
+    result = await db.execute(stmt)
+    properties = result.scalars().all()
+
+    # If no direct matches, fallback to searching inside JSONB details/parcel_information
+    if not properties:
+        fallback_conditions = []
+        if pt:
+            fallback_conditions.append(Property.details.contains({"property_type": str(pt)}))
+            fallback_conditions.append(Property.parcel_information.contains({"property_type": str(pt)}))
+        if loc:
+            fallback_conditions.append(Property.details.contains({"location": str(loc)}))
+            fallback_conditions.append(Property.parcel_information.contains({"location": str(loc)}))
+        if near_water:
+            fallback_conditions.append(Property.details.contains({"near_water": True}))
+            fallback_conditions.append(Property.parcel_information.contains({"near_water": True}))
+
+        if fallback_conditions:
+            fb_stmt = select(Property).where(or_(*fallback_conditions)).limit(500)
+            fb_result = await db.execute(fb_stmt)
+            properties = fb_result.scalars().all()
+
+    # Score results by how well they match the filters
+    def score_property(p: Property) -> int:
+        score = 0
+        # Helper lowercase strings
+        def has_substr(field, term):
+            try:
+                return term.lower() in (field or "").lower()
+            except Exception:
+                return False
+
+        if pt:
+            pt_str = str(pt).lower()
+            if has_substr(p.land_use, pt_str):
+                score += 30
+            # details may contain property_type
+            if isinstance(p.details, dict) and any(pt_str in str(v).lower() for v in p.details.values()):
+                score += 25
+
+        if loc:
+            loc_str = str(loc).lower()
+            if has_substr(p.location, loc_str) or has_substr(p.district, loc_str) or has_substr(p.sector, loc_str) or has_substr(p.village, loc_str):
+                score += 25
+            if isinstance(p.details, dict) and any(loc_str in str(v).lower() for v in p.details.values()):
+                score += 10
+
+        if min_size is not None and p.size is not None:
+            try:
+                if p.size >= float(min_size):
+                    score += 15
+            except Exception:
+                pass
+        if max_size is not None and p.size is not None:
+            try:
+                if p.size <= float(max_size):
+                    score += 15
+            except Exception:
+                pass
+
+        # Budget scoring
+        try:
+            if budget_min is not None:
+                if (p.estimated_amount is not None and p.estimated_amount >= float(budget_min)) or (p.amount_paid is not None and p.amount_paid >= float(budget_min)):
+                    score += 10
+            if budget_max is not None:
+                if (p.estimated_amount is not None and p.estimated_amount <= float(budget_max)) or (p.amount_paid is not None and p.amount_paid <= float(budget_max)):
+                    score += 20
+        except Exception:
+            pass
+
+        # near water
+        if near_water:
+            if (isinstance(p.details, dict) and p.details.get('near_water') is True) or (isinstance(p.parcel_information, dict) and p.parcel_information.get('near_water') is True):
+                score += 10
+
+        # status
+        if status:
+            try:
+                if isinstance(status, list) and p.status in status:
+                    score += 10
+                elif isinstance(status, str) and status.lower() in (p.status or "").lower():
+                    score += 10
+            except Exception:
+                pass
+
+        # small boost for having images
+        try:
+            if getattr(p, 'images', None):
+                if len(p.images) > 0:
+                    score += 5
+        except Exception:
+            pass
+
+        return score
+
+    scored = []
+    for p in properties:
+        s = score_property(p)
+        scored.append((s, p))
+
+    # Sort by score desc
+    scored.sort(key=lambda x: x[0], reverse=True)
+
+    def serialize_property(p: Property):
+        return {
+            "id": p.id,
+            "upi": p.upi,
+            "owner_id": p.owner_id,
+            "category_id": p.category_id,
+            "subcategory_id": p.subcategory_id,
+            "size": p.size,
+            "location": p.location,
+            "district": p.district,
+            "sector": p.sector,
+            "cell": p.cell,
+            "village": p.village,
+            "land_use": p.land_use,
+            "status": p.status,
+            "estimated_amount": p.estimated_amount,
+            "latitude": p.latitude,
+            "longitude": p.longitude,
+            "right_type": p.right_type,
+            "amount_paid": p.amount_paid,
+            "video_link": p.video_link,
+            "created_at": p.created_at,
+            "updated_at": p.updated_at,
+        }
+
+    results = []
+    for s, p in scored:
+        item = serialize_property(p)
+        item['score'] = s
+        results.append(item)
+
+    return JSONResponse(status_code=200, content={
+        "filters": filters,
+        "total": len(results),
+        "results": results
+    })
+
+@router.get("/title_data", response_model=None)
+async def get_title_data(
+    upi: str = None,
+    language: str = "english",
+    # token_payload: dict = Depends(verify_token)
+):
+    """
+    Get all title data by UPI and language using PARCEL_INFORMATION_IP_ADDRESS_GIS/title_data?upi={upi}&language={language}
+    Returns everything from the external endpoint.
+    """
+    if not upi:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="UPI is required")
+    if not language:
+        language = "english"
+    endpoint = getattr(settings, "PARCEL_INFORMATION_IP_ADDRESS_GIS", None)
+    if not endpoint:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="PARCEL_INFORMATION_IP_ADDRESS_GIS not configured")
+    url = endpoint.rstrip("/") + f"?upi={upi}&language={language}"
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.get(url)
+        return Response(content=resp.content, status_code=resp.status_code, media_type=resp.headers.get("content-type", "application/json"))
+    except Exception as e:
+        logger.error(f"Error fetching title data: {e}")
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Failed to fetch title data: {e}")
 
 
 # Request Models
@@ -70,7 +353,7 @@ class TaxArrearsResponse(BaseModel):
 @router.get("/citizen/{nid}", response_model=CitizenInfoResponse)
 async def get_citizen_information(
     nid: str,
-    token_payload: dict = Depends(verify_token)
+    # token_payload: dict = Depends(verify_token)
 ):
     """
     Get citizen information by NID using CITIZEN_INFORMATION_ENDPOINT/person/{nid}
@@ -119,7 +402,7 @@ async def get_phone_numbers_by_nid(
 @router.get("/phoneuser/{phone}", response_model=NIDResponse)
 async def get_nid_by_phone_number(
     phone: str,
-    token_payload: dict = Depends(verify_token)
+    # token_payload: dict = Depends(verify_token)
 ):
     """
     Get NID by phone number using NID_BY_PHONE_NUMBER_ENDPOINT/phoneuser/{phone}
@@ -290,7 +573,7 @@ async def get_tax_arrears(
 async def get_title_by_upi(
     upi: str = None,
     language: str = "english",
-    token_payload: dict = Depends(verify_token)
+    # token_payload: dict = Depends(verify_token)
 ):
     """
     Get e-title document by UPI

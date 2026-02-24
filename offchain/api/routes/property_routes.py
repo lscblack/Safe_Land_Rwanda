@@ -157,7 +157,8 @@ class PaginatedSubCategoryResponse(BaseModel):
 class PaginatedPropertyResponse(BaseModel):
     items: List[PropertySchema]
     total: int
-    model_config = {"from_attributes": True}
+    model_config = {"from_attributes": True, "extra": "allow"}
+    
 
 
 async def _enrich_property_dict(prop, db: AsyncSession):
@@ -265,7 +266,21 @@ async def create_category(
             raise HTTPException(status_code=409, detail="A category with this name already exists.")
         raise HTTPException(status_code=400, detail="Database integrity error: " + str(e.orig))
 
+# ===================
+# Admin: List all properties (any status)
+# ===================
 
+@router.get("/properties/all", response_model=PaginatedPropertyResponse, dependencies=[Depends(require_admin())])
+async def list_all_properties_admin(db: AsyncSession = Depends(get_db), limit: int = Query(50, ge=1, le=100), skip: int = Query(0, ge=0)):
+    """Admin-only: Return all properties (any status), paginated."""
+    total_result = await db.execute(select(Property))
+    total_count = len(total_result.scalars().all())
+    result = await db.execute(select(Property).options(selectinload(Property.images)).offset(skip).limit(limit))
+    properties = result.scalars().all()
+    items = []
+    for prop in properties:
+        items.append(await _enrich_property_dict(prop, db))
+    return PaginatedPropertyResponse(items=[PropertySchema(**it) for it in items], total=total_count)
 @router.get("/categories", response_model=PaginatedCategoryResponse)
 async def list_categories(db: AsyncSession = Depends(get_db), limit: int = Query(20, ge=1, le=100), skip: int = Query(0, ge=0)):
     total_result = await db.execute(select(PropertyCategory))
@@ -2221,6 +2236,9 @@ async def delete_property(property_id: int, db: AsyncSession = Depends(get_db), 
     except Exception as e:
         await db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+
 
 # ===================
 # Property images upload

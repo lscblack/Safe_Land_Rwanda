@@ -85,7 +85,7 @@ export const DashboardLayout = () => {
             const userToken = localStorage.getItem('user_access_token');
             console.log("Fetching user profile with token:", userToken);
             if (!userToken) {
-                window.location.href = '/login';
+                // window.location.href = '/login';
                 return;
             }
             try {
@@ -95,7 +95,7 @@ export const DashboardLayout = () => {
                 console.log("Fetched User Profile:", response.data);
                 setLoggedUser(response.data);
             } catch {
-                window.location.href = '/login';
+                // window.location.href = '/login';
             }
         };
         fetchProfile();

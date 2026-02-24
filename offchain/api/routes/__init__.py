@@ -1,1 +1,2 @@
-# Routes package
+
+from . import mapping_routes

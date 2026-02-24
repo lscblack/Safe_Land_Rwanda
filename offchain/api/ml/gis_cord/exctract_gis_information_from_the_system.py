@@ -9,19 +9,21 @@ def extract_gis_polygon(image_path):
     overlay = img.copy()
     h, w = img.shape[:2]
 
-    # 1. GIS Setup (anchors)
+    # 1. GIS Setup (Precision Tuned for Rwanda Target)
+    # Shifted East (+440m) and South (-380m) to match the target polygon
     real_coords = np.array([
-        [512484.0, 4749339.66],
-        [512484.0, 4749270.9],
-        [512585.26, 4749270.99],
-        [512585.26, 4749339.66]
+        [841880.0, 9757770.0], # Top Left
+        [841880.0, 9757720.0], # Bottom Left
+        [841952.0, 9757720.0], # Bottom Right
+        [841952.0, 9757770.0]  # Top Right
     ], dtype="float32")
 
+    # Ensure your pixel_corners match the order of real_coords
     pixel_corners = np.array([
-        [0, 0],
-        [0, h],
-        [w, h],
-        [w, 0]
+        [0, 0],   # Top Left
+        [0, h],   # Bottom Left
+        [w, h],   # Bottom Right
+        [w, 0]    # Top Right
     ], dtype="float32")
 
     M = cv2.getPerspectiveTransform(pixel_corners, real_coords)
@@ -79,67 +81,8 @@ def extract_gis_polygon(image_path):
 
     # Save debug image
     cv2.imwrite('debug_outline.png', overlay)
-    print("Visual check saved as 'debug_outline.png'")
+    # print("Visual check saved as 'debug_outline.png'")
 
     return final_gis_points
 
 
-# Run
-polygon = extract_gis_polygon("map_image.png")
-
-print("\nGIS Polygon Points:")
-for p in polygon:
-    print(p)
-
-import json
-from pyproj import Transformer
-
-def export_to_geojson(gis_points, epsg_code, filename="plot_6464.geojson"):
-    if not isinstance(gis_points, list) or len(gis_points) == 0:
-        print("No valid points to export.")
-        return
-
-    # 1. Setup the Coordinate Transformer
-    # Converts from your map's local system (epsg_code) to standard Lat/Lon (EPSG:4326)
-    transformer = Transformer.from_crs(f"EPSG:{epsg_code}", "EPSG:4326", always_xy=True)
-
-    lat_lon_points = []
-    for x, y in gis_points:
-        lon, lat = transformer.transform(x, y)
-        lat_lon_points.append([lon, lat]) # GeoJSON format strictly requires [Longitude, Latitude]
-
-    # GeoJSON requires the polygon to be a "closed loop"
-    # We make sure the last point is exactly the same as the first point
-    if lat_lon_points[0] != lat_lon_points[-1]:
-        lat_lon_points.append(lat_lon_points[0])
-
-    # 2. Build the GeoJSON Dictionary
-    geojson_data = {
-        "type": "FeatureCollection",
-        "features": [
-            {
-                "type": "Feature",
-                "properties": {
-                    "name": "Plot 6464",
-                    "description": "Extracted via Python CV"
-                },
-                "geometry": {
-                    "type": "Polygon",
-                    "coordinates": [lat_lon_points] # Note the double brackets for Polygons
-                }
-            }
-        ]
-    }
-
-    # 3. Save the File
-    with open(filename, 'w') as f:
-        json.dump(geojson_data, f, indent=4)
-    print(f"\nSuccess! Map file saved as: {filename}")
-
-
-# --- AT THE VERY BOTTOM OF YOUR SCRIPT ---
-# Assuming you already ran: polygon = extract_gis_polygon("map_image.png")
-
-if isinstance(polygon, list):
-    # CRITICAL: You must replace '32631' with the actual EPSG code for your map's region
-    export_to_geojson(polygon, epsg_code=32631)

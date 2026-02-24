@@ -1,27 +1,29 @@
-import  { useState, useEffect } from 'react';
+
+
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     LayoutGrid, List as ListIcon, Search, RefreshCw,
     MapPin, Building2, User, Briefcase, Eye,
     Edit2, Trash2, History, X, CheckCircle2, AlertTriangle,
-   DollarSign, Calendar,
-    Database, Save, ArrowLeft, Upload,Image as ImageIcon,
+    DollarSign, Calendar,
+    Database, Save, ArrowLeft, Upload, Image as ImageIcon,
     Video, Map, Home, Factory, Trees, Landmark, Tractor,
     ChevronRight, Plus, FileText, AlertCircle,
     Layers, Ruler, UserCircle, Hash, Shield,
     Scale, Lock, Unlock, Users, UserPlus,
-     MapPinned, MapPinHouse, Building,
-    Calculator,  FileDigit, LandPlot, Mountain,
+    MapPinned, MapPinHouse, Building,
+    Calculator, FileDigit, LandPlot, Mountain,
     Trees as Forest, Sprout, Combine,
     Loader,
-    Timer,
     CheckCheck,
-    CheckCheckIcon
+
 } from 'lucide-react';
 import clsx from 'clsx';
 import api from '../../../instance/mainAxios';
-import { FORM_CONFIG, type FormField} from './propertyFormConfig';
+import { FORM_CONFIG, type FormField } from './propertyFormConfig';
 import RecordPropertyPage from './RecordPropertyPage';
+// import getNearbyInfrastructure from '../../../utils/GetNearByInfra';
 
 // ============================================================================
 // COMPLETE TYPES BASED ON YOUR EXACT DATA STRUCTURE
@@ -114,6 +116,7 @@ interface ParcelInformation {
     owners?: ParcelParty[];
     inProcess?: boolean;
     in_process?: boolean;
+    address?: ParcelLocation | any;
     rightType?: string;
     right_type?: string;
     valuation?: Valuation | any;
@@ -138,6 +141,7 @@ interface ParcelInformation {
     coordinateReferenceSystem?: string;
     coordinate_reference_system?: string;
     _allowed_buyer_roles?: string[];
+    province?: any;
 }
 
 // Image object
@@ -209,7 +213,7 @@ interface Property {
     details?: Record<string, any> | null;
 
     // Parcel information (rich nested data)
-    parcel_information?: ParcelInformation | null;
+    parcel_information?: ParcelInformation | any;
 
     // Duplicate fields from API
     right_type?: string;
@@ -339,8 +343,8 @@ export const PropertyManagement = () => {
     const [otpDelivery, setOtpDelivery] = useState<'sms' | 'email' | null>(null);
 
     // --- Map Modal State ---
-    const [showMapModal, setShowMapModal] = useState(false);
-    const [mapUrl] = useState<string | null>(null);
+    // const [showMapModal, setShowMapModal] = useState(false);
+    // const [mapUrl] = useState<string | null>(null);
 
     // --- Contact Popup State ---
     const [contactPopup, setContactPopup] = useState<{ show: boolean, message?: string }>({ show: false });
@@ -353,7 +357,7 @@ export const PropertyManagement = () => {
 
     // Logged user + active role (used to show admin controls)
     const [loggedUser, setLoggedUser] = useState<any | null>(null);
-    console.log('Logged user:', loggedUser,reverifyModalOpen,reverifyPayload);
+    console.log('Logged user:', loggedUser, reverifyModalOpen, reverifyPayload);
     const [activeRole, setActiveRole] = useState<string | null>(localStorage.getItem('activeRole') || localStorage.getItem('active_role') || null);
     const isAdminView = activeRole === 'admin' || activeRole === 'superadmin';
 
@@ -609,9 +613,12 @@ export const PropertyManagement = () => {
     const loadProperties = async (lim = limit, sk = skip) => {
         setIsLoading(true);
         try {
-            const res = await api.get('/api/property/properties/mine', {
+            // Admins see all properties, others see only their own
+            const endpoint = isAdminView ? '/api/property/properties/all' : '/api/property/properties/mine';
+            const res = await api.get(endpoint, {
                 params: { limit: lim, skip: sk }
             });
+            console.log('API response for properties:', res.data);
 
             const items = res.data.items || [];
             const mapped = items.map((it: any) => mapServerToProperty(it));
@@ -1823,7 +1830,7 @@ export const PropertyManagement = () => {
             {/* --- CREATE RECORD MODAL --- */}
             <AnimatePresence>
                 {isCreating && (
-                    <div className="fixed inset-0 z-[120] flex items-start justify-center p-4">
+                    <div className="fixed inset-0 z-120 flex items-start justify-center p-4">
                         <motion.div
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
@@ -1957,7 +1964,7 @@ export const PropertyManagement = () => {
                                                             key={img.id || idx}
                                                             onClick={() => setSelectedImageIndex(idx)}
                                                             className={clsx(
-                                                                "w-16 h-16 rounded-lg overflow-hidden border-2 flex-shrink-0",
+                                                                "w-16 h-16 rounded-lg overflow-hidden border-2 shrink-0",
                                                                 selectedImageIndex === idx ? 'border-primary' : 'border-transparent'
                                                             )}
                                                         >
@@ -2005,50 +2012,30 @@ export const PropertyManagement = () => {
 
 
                                         {/* Alerts */}
-                                        {(selectedProperty) && (
-                                            <div className={`${selectedProperty.isUnderMortgage || selectedProperty.isUnderRestriction || selectedProperty.inProcess ? 'bg-red-50 dark:bg-red-900/10 border-red-100 dark:border-red-900/30' : 'bg-green-50/60 dark:bg-green-900/10 border-green-100 dark:border-green-900/30'} p-4 border rounded-xl font-bold space-y-2`}>
-                                                <p className={`${selectedProperty.isUnderMortgage || selectedProperty.isUnderRestriction || selectedProperty.inProcess ? 'text-red-500' : 'text-green-700'} text-xs font-bold uppercase flex items-center gap-2`}>
+                                        {selectedProperty && (
+                                            <div className={`bg-green-50/60 dark:bg-green-900/10 border-green-100 dark:border-green-900/30 p-4 border rounded-xl font-bold space-y-2`}>
+                                                <p className="text-xs font-bold uppercase flex items-center gap-2">
                                                     <AlertTriangle size={14} /> Risk Alerts
                                                 </p>
-                                                {selectedProperty && (
-                                                    <div className={`${selectedProperty.isUnderMortgage ? 'text-red-400' : 'text-green-600'} text-xs flex items-center gap-1`}>
-                                                        {selectedProperty.isUnderMortgage ? (
-                                                            <>
-                                                                <Shield size={12} /> Property Under Mortgage
-                                                            </>
-                                                        ) : (
-                                                            <>
-                                                                <CheckCheck size={12} /> No Mortgage
-                                                            </>
-                                                        )}
-                                                    </div>
-                                                )}
-                                                {selectedProperty && (
-                                                    <div className={`${selectedProperty.isUnderRestriction ? 'text-red-400' : 'text-green-600'} text-xs flex items-center gap-1`}>
-                                                        {selectedProperty.isUnderRestriction ? (
-                                                            <>
-                                                                <Lock size={12} /> Property Under Restriction
-                                                            </>
-                                                        ) : (
-                                                            <>
-                                                                <CheckCheck size={12} /> No Restrictions
-                                                            </>
-                                                        )}
-                                                    </div>
-                                                )}
-                                                {selectedProperty && (
-                                                    <div className={`${selectedProperty.inProcess ? 'text-red-400' : 'text-green-600'} text-xs flex items-center gap-1`}>
-                                                        {selectedProperty.inProcess ? (
-                                                            <>
-                                                                <Timer size={12} /> this Property is in process
-                                                            </>
-                                                        ) : (
-                                                            <>
-                                                                <CheckCheckIcon size={12} /> No Process
-                                                            </>
-                                                        )}
-                                                    </div>
-                                                )}
+                                                <div className="grid grid-cols-2 md:grid-cols-2 gap-2">
+                                                    {Object.entries(selectedProperty)
+                                                        .filter(([, value]) => typeof value === 'boolean')
+                                                        .map(([key, value]) => {
+                                                            let label = key.replace(/_/g, ' ');
+                                                            let isRisk = value === true;
+                                                            // Custom label formatting
+                                                            if (key.toLowerCase().includes('mortgage')) label = isRisk ? 'Is Under Mortgage' : 'Is Not Under Mortgage';
+                                                            else if (key.toLowerCase().includes('restriction')) label = isRisk ? 'Is Under Restriction' : 'Is Not Under Restriction';
+                                                            else if (key.toLowerCase().includes('process')) label = isRisk ? 'Is In Process' : 'Is Not In Process';
+                                                            else label = label.charAt(0).toUpperCase() + label.slice(1);
+                                                            return (
+                                                                <div key={key} className={`text-xs flex items-center gap-1 ${isRisk ? 'text-red-600' : 'text-green-600'}`}>
+                                                                    {isRisk ? <AlertTriangle size={12} /> : <CheckCheck size={12} />}
+                                                                    {label}
+                                                                </div>
+                                                            );
+                                                        })}
+                                                </div>
                                             </div>
                                         )}
 
@@ -2076,6 +2063,11 @@ export const PropertyManagement = () => {
                                             />
                                         </div>
                                     </div>
+                                    {/* {selectedProperty.parcel_information && (
+                                        <>{getNearbyInfrastructure(selectedProperty?.latitude?.toFixed(6), selectedProperty?.longitude?.toFixed(6))
+                                            .then(console.log)}
+                                        </>
+                                    )} */}
 
                                     {/* Right Column: Detailed Information */}
                                     <div className="lg:col-span-2 space-y-8">
@@ -2117,6 +2109,7 @@ export const PropertyManagement = () => {
                                                 </div>
                                             </section>
                                         )}
+
                                         {/* Parcel Details Section */}
                                         <section>
                                             <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
@@ -2127,14 +2120,14 @@ export const PropertyManagement = () => {
                                                 <DetailItem label="Parcel ID" value={selectedProperty.parcel_id || '—'} icon={FileDigit} />
                                                 <DetailItem label="Category" value={selectedProperty.category?.label || selectedProperty.category?.name || '—'} icon={Layers} />
                                                 <DetailItem label="Subcategory" value={selectedProperty.subcategory?.label || selectedProperty.subcategory?.name || '—'} icon={Layers} />
-                                                <DetailItem label="GIS Coordinates" value={
-                                                    selectedProperty.gis_coordinates || 'N/A'
-                                                } icon={Map} />
-                                                <DetailItem label="Latitude / Longitude" value={
+                                                {/* GIS and polygon info hidden from UI as requested */}
 
+                                                <DetailItem label="Latitude / Longitude" value={
                                                     (selectedProperty.latitude && selectedProperty.longitude ?
-                                                        `${selectedProperty.latitude.toFixed(6)}, ${selectedProperty.longitude.toFixed(6)}` : '—')
+                                                        `${selectedProperty?.latitude?.toFixed(6)}, ${selectedProperty?.longitude?.toFixed(6)}` : '—')
                                                 } icon={Map} />
+
+
                                             </div>
                                         </section>
 
@@ -2145,9 +2138,8 @@ export const PropertyManagement = () => {
                                             </h3>
                                             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                                 <DetailItem label="Province" value={
-                                                    selectedProperty.parcel_information?.parcel_location?.province?.provinceName ||
-                                                    selectedProperty.parcel_raw?.parcelLocation?.province?.provinceName ||
-                                                    '—'
+                                                    selectedProperty.parcel_information?.parcelLocation.province?.provinceName
+
                                                 } icon={MapPinHouse} />
                                                 <DetailItem label="District" value={selectedProperty.district || '—'} icon={Building} />
                                                 <DetailItem label="Sector" value={selectedProperty.sector || '—'} icon={Building2} />
@@ -2162,9 +2154,9 @@ export const PropertyManagement = () => {
                                                 <Users size={18} className="text-primary" /> Owners
                                             </h3>
                                             <div className="space-y-3 bg-white dark:bg-[#071025] rounded-xl border border-gray-100 dark:border-gray-800 p-4">
-                                                {(selectedProperty.owners && selectedProperty.owners.length > 0) ? (
+                                                {(Array.isArray(selectedProperty.owners) && selectedProperty.owners.length > 0) ? (
                                                     selectedProperty.owners.map((owner, idx) => (
-                                                        <OwnerCard key={idx} owner={owner} />
+                                                        <OwnerCard key={owner.idNo || owner.id || idx} owner={owner} />
                                                     ))
                                                 ) : (
                                                     <p className="text-sm text-gray-500">No owner information available</p>
@@ -2218,6 +2210,30 @@ export const PropertyManagement = () => {
                                                 </div>
                                             </section>
                                         )}
+                                        {/* Products Section (from property features) */}
+                                        {(() => {
+                                            // Try to get products from details or parcel_information
+                                            const productsArr = (selectedProperty.details && selectedProperty.details.products)
+                                                || (selectedProperty.parcel_information && selectedProperty.parcel_information.products)
+                                                || [];
+                                            if (Array.isArray(productsArr) && productsArr.length > 0) {
+                                                return (
+                                                    <section>
+                                                        <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+                                                            <Factory size={18} className="text-primary" /> Product Types
+                                                        </h3>
+                                                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                                                            {productsArr.map((product: any, idx: number) => (
+                                                                <div key={product.id || product.name || idx} className="p-3 bg-white dark:bg-[#112240] border border-gray-100 dark:border-gray-800 rounded-xl">
+                                                                    <div key={idx} className="text-xs text-gray-400 flex">{String(product)}</div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </section>
+                                                );
+                                            }
+                                            return null;
+                                        })()}
 
                                         {/* Property Features */}
                                         {(selectedProperty.details && Object.keys(selectedProperty.details).length > 0) && (
@@ -2226,9 +2242,26 @@ export const PropertyManagement = () => {
                                                     <Home size={18} className="text-primary" /> Property Features
                                                 </h3>
                                                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                                                    {selectedProperty.details && Object.entries(selectedProperty.details).filter(([key]) => !['cell', 'village', 'district', 'sector'].includes(key)).map(([key, value]) => (
-                                                        <DetailItem key={key} label={key.split("_").map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(" ")} value={value} icon={Home} />
-                                                    ))}
+
+                                                    {selectedProperty.details && Object.entries(selectedProperty.details)
+                                                        .filter(([key]) => ![
+                                                            'cell', 'village', 'district', 'sector',
+                                                            'hasCaveat', 'underMortgage', 'inTransaction', 'isProvisional', 'hasBuilding', 'hasInfrastructure',
+                                                            'parcelPolygon', 'parcelGeometry', 'parcelCoordinates',
+                                                            'polygon', 'geometry', 'coordinates', 'products',
+                                                            '[Object]'
+                                                        ].includes(key))
+                                                        .map(([key, value]) => {
+                                                            // Prevent rendering objects as React children
+                                                            let displayValue = value;
+                                                            if (typeof value === 'object' && value !== null) {
+                                                                // loop the object and create a string representation of its key details
+
+                                                            }
+                                                            return (
+                                                                <DetailItem key={key} label={key.split("_").map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(" ")} value={displayValue} icon={Home} />
+                                                            );
+                                                        })}
 
                                                 </div>
                                             </section>
@@ -2314,744 +2347,720 @@ export const PropertyManagement = () => {
                             </div>
                         </motion.div>
                     </div>
-                )}
-            </AnimatePresence>
+                )
+                }
+            </AnimatePresence >
 
             {/* --- EDIT MODAL --- */}
             <AnimatePresence>
-                {editProperty && (
-                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-                        <motion.div
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            onClick={() => setEditProperty(null)}
-                            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-                        />
-                        <motion.div
-                            initial={{ scale: 0.95, opacity: 0 }}
-                            animate={{ scale: 1, opacity: 1 }}
-                            exit={{ scale: 0.95, opacity: 0 }}
-                            className="relative bg-white dark:bg-[#0f1f3a] rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col z-10"
-                        >
-                            {/* Modal Header */}
-                            <div className="p-6 border-b border-gray-200 dark:border-white/10 flex justify-between items-start bg-gray-50 dark:bg-[#112240]">
-                                <div>
-                                    <h3 className="text-xl font-bold flex items-center gap-2">
-                                        <Edit2 size={20} className="text-primary" />
-                                        Edit Property — {editProperty.upi}
-                                    </h3>
-                                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                                        Step {editStep} of 2: {editStep === 1 ? 'Basic Information' : 'Property Details & Media'}
-                                    </p>
+                {
+                    editProperty && (
+                        <div className="fixed inset-0 z-100 flex items-center justify-center p-4">
+                            <motion.div
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                onClick={() => setEditProperty(null)}
+                                className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+                            />
+                            <motion.div
+                                initial={{ scale: 0.95, opacity: 0 }}
+                                animate={{ scale: 1, opacity: 1 }}
+                                exit={{ scale: 0.95, opacity: 0 }}
+                                className="relative bg-white dark:bg-[#0f1f3a] rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col z-10"
+                            >
+                                {/* Modal Header */}
+                                <div className="p-6 border-b border-gray-200 dark:border-white/10 flex justify-between items-start bg-gray-50 dark:bg-[#112240]">
+                                    <div>
+                                        <h3 className="text-xl font-bold flex items-center gap-2">
+                                            <Edit2 size={20} className="text-primary" />
+                                            Edit Property — {editProperty.upi}
+                                        </h3>
+                                        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                                            Step {editStep} of 2: {editStep === 1 ? 'Basic Information' : 'Property Details & Media'}
+                                        </p>
+                                    </div>
+                                    <button
+                                        onClick={() => setEditProperty(null)}
+                                        className="p-2 hover:bg-gray-200 dark:hover:bg-white/10 rounded-full transition-colors"
+                                    >
+                                        <X size={20} />
+                                    </button>
                                 </div>
-                                <button
-                                    onClick={() => setEditProperty(null)}
-                                    className="p-2 hover:bg-gray-200 dark:hover:bg-white/10 rounded-full transition-colors"
-                                >
-                                    <X size={20} />
-                                </button>
-                            </div>
 
-                            {/* Modal Content - Scrollable */}
-                            <div className="flex-1 overflow-y-auto p-6">
-                                {editStep === 1 ? (
-                                    /* STEP 1: Basic Information */
-                                    <div className="space-y-6">
-                                        {/* Category Mismatch Warning */}
-                                        {categoryMismatchWarning && (
-                                            <div className="bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/30 rounded-xl p-4 flex items-start gap-3">
-                                                <AlertCircle size={20} className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
-                                                <div>
-                                                    <h4 className="text-sm font-bold text-amber-800 dark:text-amber-300">Category Mismatch Detected</h4>
-                                                    <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">{categoryMismatchWarning}</p>
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        {/* UPI-fetched fields - READ ONLY */}
-                                        <div className="bg-blue-50 dark:bg-blue-900/10 border border-blue-200 dark:border-blue-800/30 rounded-xl p-4">
-                                            <h4 className="text-xs font-bold uppercase text-blue-700 dark:text-blue-400 mb-3 flex items-center gap-2">
-                                                <Database size={14} />
-                                                System Data (Read-only - Fetched from UPI)
-                                            </h4>
-                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                                <div>
-                                                    <label className="text-xs text-gray-500 dark:text-gray-400">Under Mortgage</label>
-                                                    <div className="mt-1 p-2 bg-white dark:bg-[#0a162e] rounded border border-gray-200 dark:border-gray-700 text-sm">
-                                                        {editProperty.is_under_mortgage ? 'Yes' : 'No'}
-                                                    </div>
-                                                </div>
-                                                <div>
-                                                    <label className="text-xs text-gray-500 dark:text-gray-400">Under Restriction</label>
-                                                    <div className="mt-1 p-2 bg-white dark:bg-[#0a162e] rounded border border-gray-200 dark:border-gray-700 text-sm">
-                                                        {editProperty.is_under_restriction ? 'Yes' : 'No'}
-                                                    </div>
-                                                </div>
-                                                <div>
-                                                    <label className="text-xs text-gray-500 dark:text-gray-400">In Process</label>
-                                                    <div className="mt-1 p-2 bg-white dark:bg-[#0a162e] rounded border border-gray-200 dark:border-gray-700 text-sm">
-                                                        {editProperty.in_process ? 'Yes' : 'No'}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">
-                                                <p>Parcel Land Use: <span className="font-bold">{editProperty.land_use || 'N/A'}</span></p>
-                                                <p>Owner: {editProperty.owner_name || 'N/A'}</p>
-                                            </div>
-                                        </div>
-
-                                        {/* Editable Fields - Category Selection */}
-                                        <div>
-                                            <h4 className="text-sm font-bold mb-3">Category & Property Type</h4>
-                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                                {/* Category Selection */}
-                                                <div>
-                                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Category</label>
-                                                    <div className="grid grid-cols-2 gap-2">
-                                                        {categories.map((cat) => {
-                                                            const Icon = IconMap[cat.icon || 'Home'] || Home;
-                                                            const isSelected = selectedCategory?.id === cat.id;
-                                                            return (
-                                                                <button
-                                                                    key={cat.id}
-                                                                    type="button"
-                                                                    onClick={() => handleCategoryChange(cat)}
-                                                                    className={clsx(
-                                                                        "flex flex-col items-center justify-center p-3 rounded-xl border transition-all",
-                                                                        isSelected
-                                                                            ? "bg-primary/10 border-primary text-primary"
-                                                                            : "bg-gray-50 dark:bg-[#112240] border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:border-gray-300"
-                                                                    )}
-                                                                >
-                                                                    <Icon size={20} />
-                                                                    <span className="text-[10px] font-bold mt-1">{cat.label || cat.name}</span>
-                                                                </button>
-                                                            );
-                                                        })}
-                                                    </div>
-                                                </div>
-
-                                                {/* Subcategory Selection */}
-                                                {selectedCategory && (
+                                {/* Modal Content - Scrollable */}
+                                <div className="flex-1 overflow-y-auto p-6">
+                                    {editStep === 1 ? (
+                                        /* STEP 1: Basic Information */
+                                        <div className="space-y-6">
+                                            {/* Category Mismatch Warning */}
+                                            {categoryMismatchWarning && (
+                                                <div className="bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/30 rounded-xl p-4 flex items-start gap-3">
+                                                    <AlertCircle size={20} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                                                     <div>
-                                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Property Type</label>
-                                                        <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
-                                                            {subCategories
-                                                                .filter(s => s.category_id === selectedCategory.id)
-                                                                .map((sub) => {
-                                                                    const isSelected = selectedSubCategory?.id === sub.id;
-                                                                    return (
-                                                                        <button
-                                                                            key={sub.id}
-                                                                            type="button"
-                                                                            onClick={() => handleSubCategoryChange(sub)}
-                                                                            className={clsx(
-                                                                                "w-full p-3 rounded-xl border text-left text-sm font-medium transition-all",
-                                                                                isSelected
-                                                                                    ? "bg-primary/10 border-primary text-primary"
-                                                                                    : "bg-gray-50 dark:bg-[#112240] border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:border-gray-300"
-                                                                            )}
-                                                                        >
-                                                                            {sub.label || sub.name}
-                                                                        </button>
-                                                                    );
-                                                                })}
+                                                        <h4 className="text-sm font-bold text-amber-800 dark:text-amber-300">Category Mismatch Detected</h4>
+                                                        <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">{categoryMismatchWarning}</p>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* UPI-fetched fields - READ ONLY */}
+                                            <div className="bg-blue-50 dark:bg-blue-900/10 border border-blue-200 dark:border-blue-800/30 rounded-xl p-4">
+                                                <h4 className="text-xs font-bold uppercase text-blue-700 dark:text-blue-400 mb-3 flex items-center gap-2">
+                                                    <Database size={14} />
+                                                    System Data (Read-only - Fetched from UPI)
+                                                </h4>
+                                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                                    <div>
+                                                        <label className="text-xs text-gray-500 dark:text-gray-400">Under Mortgage</label>
+                                                        <div className="mt-1 p-2 bg-white dark:bg-[#0a162e] rounded border border-gray-200 dark:border-gray-700 text-sm">
+                                                            {editProperty.is_under_mortgage ? 'Yes' : 'No'}
                                                         </div>
                                                     </div>
-                                                )}
+                                                    <div>
+                                                        <label className="text-xs text-gray-500 dark:text-gray-400">Under Restriction</label>
+                                                        <div className="mt-1 p-2 bg-white dark:bg-[#0a162e] rounded border border-gray-200 dark:border-gray-700 text-sm">
+                                                            {editProperty.is_under_restriction ? 'Yes' : 'No'}
+                                                        </div>
+                                                    </div>
+                                                    <div>
+                                                        <label className="text-xs text-gray-500 dark:text-gray-400">In Process</label>
+                                                        <div className="mt-1 p-2 bg-white dark:bg-[#0a162e] rounded border border-gray-200 dark:border-gray-700 text-sm">
+                                                            {editProperty.in_process ? 'Yes' : 'No'}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+                                                    <p>Parcel Land Use: <span className="font-bold">{editProperty.land_use || 'N/A'}</span></p>
+                                                    <p>Owner: {editProperty.owner_name || 'N/A'}</p>
+                                                </div>
                                             </div>
-                                        </div>
 
-                                        {/* Owner Details - Read Only */}
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            {/* Editable Fields - Category Selection */}
                                             <div>
-                                                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Owner Name</label>
-                                                <input
-                                                    type="text"
-                                                    value={editForm.owner_name || ''}
-                                                    disabled={true}
-                                                    className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-[#112240] text-sm cursor-not-allowed"
-                                                />
+                                                <h4 className="text-sm font-bold mb-3">Category & Property Type</h4>
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                                    {/* Category Selection */}
+                                                    <div>
+                                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Category</label>
+                                                        <div className="grid grid-cols-2 gap-2">
+                                                            {categories.map((cat) => {
+                                                                const Icon = IconMap[cat.icon || 'Home'] || Home;
+                                                                const isSelected = selectedCategory?.id === cat.id;
+                                                                return (
+                                                                    <button
+                                                                        key={cat.id}
+                                                                        type="button"
+                                                                        onClick={() => handleCategoryChange(cat)}
+                                                                        className={clsx(
+                                                                            "flex flex-col items-center justify-center p-3 rounded-xl border transition-all",
+                                                                            isSelected
+                                                                                ? "bg-primary/10 border-primary text-primary"
+                                                                                : "bg-gray-50 dark:bg-[#112240] border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:border-gray-300"
+                                                                        )}
+                                                                    >
+                                                                        <Icon size={20} />
+                                                                        <span className="text-[10px] font-bold mt-1">{cat.label || cat.name}</span>
+                                                                    </button>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Subcategory Selection */}
+                                                    {selectedCategory && (
+                                                        <div>
+                                                            <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Property Type</label>
+                                                            <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
+                                                                {subCategories
+                                                                    .filter(s => s.category_id === selectedCategory.id)
+                                                                    .map((sub) => {
+                                                                        const isSelected = selectedSubCategory?.id === sub.id;
+                                                                        return (
+                                                                            <button
+                                                                                key={sub.id}
+                                                                                type="button"
+                                                                                onClick={() => handleSubCategoryChange(sub)}
+                                                                                className={clsx(
+                                                                                    "w-full p-3 rounded-xl border text-left text-sm font-medium transition-all",
+                                                                                    isSelected
+                                                                                        ? "bg-primary/10 border-primary text-primary"
+                                                                                        : "bg-gray-50 dark:bg-[#112240] border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:border-gray-300"
+                                                                                )}
+                                                                            >
+                                                                                {sub.label || sub.name}
+                                                                            </button>
+                                                                        );
+                                                                    })}
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
                                             </div>
+
+                                            {/* Owner Details - Read Only */}
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <div>
+                                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Owner Name</label>
+                                                    <input
+                                                        type="text"
+                                                        value={editForm.owner_name || ''}
+                                                        disabled={true}
+                                                        className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-[#112240] text-sm cursor-not-allowed"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Owner ID</label>
+                                                    <input
+                                                        type="text"
+                                                        value={editForm.owner_id || ''}
+                                                        disabled={true}
+                                                        className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-[#112240] text-sm cursor-not-allowed"
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            {/* Location Fields - Read Only */}
                                             <div>
-                                                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Owner ID</label>
-                                                <input
-                                                    type="text"
-                                                    value={editForm.owner_id || ''}
-                                                    disabled={true}
-                                                    className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-[#112240] text-sm cursor-not-allowed"
-                                                />
+                                                <h4 className="text-sm font-bold mb-3">Location</h4>
+                                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                                    <div>
+                                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-2">District</label>
+                                                        <input
+                                                            type="text"
+                                                            value={editForm.district || ''}
+                                                            disabled={true}
+                                                            className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-[#112240] text-sm cursor-not-allowed"
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Sector</label>
+                                                        <input
+                                                            type="text"
+                                                            value={editForm.sector || ''}
+                                                            disabled={true}
+                                                            className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-[#112240] text-sm cursor-not-allowed"
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Cell</label>
+                                                        <input
+                                                            type="text"
+                                                            value={editForm.cell || ''}
+                                                            disabled={true}
+                                                            className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-[#112240] text-sm cursor-not-allowed"
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Village</label>
+                                                        <input
+                                                            type="text"
+                                                            value={editForm.village || ''}
+                                                            disabled={true}
+                                                            className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-[#112240] text-sm cursor-not-allowed"
+                                                        />
+                                                    </div>
+                                                </div>
                                             </div>
-                                        </div>
 
-                                        {/* Location Fields - Read Only */}
-                                        <div>
-                                            <h4 className="text-sm font-bold mb-3">Location</h4>
-                                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                                                <div>
-                                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">District</label>
-                                                    <input
-                                                        type="text"
-                                                        value={editForm.district || ''}
-                                                        disabled={true}
-                                                        className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-[#112240] text-sm cursor-not-allowed"
-                                                    />
-                                                </div>
-                                                <div>
-                                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Sector</label>
-                                                    <input
-                                                        type="text"
-                                                        value={editForm.sector || ''}
-                                                        disabled={true}
-                                                        className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-[#112240] text-sm cursor-not-allowed"
-                                                    />
-                                                </div>
-                                                <div>
-                                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Cell</label>
-                                                    <input
-                                                        type="text"
-                                                        value={editForm.cell || ''}
-                                                        disabled={true}
-                                                        className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-[#112240] text-sm cursor-not-allowed"
-                                                    />
-                                                </div>
-                                                <div>
-                                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Village</label>
-                                                    <input
-                                                        type="text"
-                                                        value={editForm.village || ''}
-                                                        disabled={true}
-                                                        className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-[#112240] text-sm cursor-not-allowed"
-                                                    />
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        {/* Basic Property Details - Some Editable */}
-                                        <div>
-                                            <h4 className="text-sm font-bold mb-3">Property Details</h4>
-                                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                                                <div>
-                                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Parcel Size (m²)</label>
-                                                    <input
-                                                        type="number"
-                                                        value={editForm.size || editForm.size || ''}
-                                                        disabled={true}
-                                                        className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-[#112240] text-sm cursor-not-allowed"
-                                                    />
-                                                </div>
-                                                <div>
-                                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Estimated Amount (RWF)</label>
-                                                    <input
-                                                        type="number"
-                                                        value={editForm.estimated_amount || ''}
-                                                        onChange={(e) => handleInputChange('estimated_amount', parseFloat(e.target.value))}
-                                                        className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#112240] text-sm focus:border-primary outline-none"
-                                                    />
-                                                </div>
-                                                <div>
-                                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Land Use</label>
-                                                    <input
-                                                        type="text"
-                                                        value={editForm.land_use || ''}
-                                                        disabled={true}
-                                                        className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-[#112240] text-sm cursor-not-allowed"
-                                                    />
-                                                </div>
-                                                <div>
-                                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Remaining Lease </label>
-                                                    <input
-                                                        type="number"
-                                                        value={editForm?.remaining_lease_term || ''}
-                                                        disabled={true}
-                                                        className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-[#112240] text-sm cursor-not-allowed"
-                                                    />
-                                                </div>
-                                                <div>
-                                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Right Type</label>
-                                                    <select
-                                                        value={editForm.right_type || ''}
-                                                        onChange={(e) => handleInputChange('right_type', e.target.value)}
-                                                        disabled={true}
-                                                        className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-[#112240] text-sm cursor-not-allowed"
-                                                    >
-                                                        <option value="">Select...</option>
-                                                        <option value="Freehold">Freehold</option>
-                                                        <option value="Leasehold">Leasehold</option>
-                                                        <option value="Emphyteutic Lease">Emphyteutic Lease</option>
-                                                        <option value="Customary">Customary</option>
-                                                    </select>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                ) : (
-                                    /* STEP 2: Property Details & Media */
-                                    <div className="space-y-8">
-                                        {/* Dynamic Form Fields from Config */}
-                                        {selectedSubCategory && (
+                                            {/* Basic Property Details - Some Editable */}
                                             <div>
-                                                <h4 className="text-sm font-bold mb-4 flex items-center gap-2">
-                                                    <FileText size={16} className="text-primary" />
-                                                    {selectedSubCategory.label} Details
-                                                </h4>
+                                                <h4 className="text-sm font-bold mb-3">Property Details</h4>
+                                                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                                                    <div>
+                                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Parcel Size (m²)</label>
+                                                        <input
+                                                            type="number"
+                                                            value={editForm.size || editForm.size || ''}
+                                                            disabled={true}
+                                                            className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-[#112240] text-sm cursor-not-allowed"
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Estimated Amount (RWF)</label>
+                                                        <input
+                                                            type="number"
+                                                            value={editForm.estimated_amount || ''}
+                                                            onChange={(e) => handleInputChange('estimated_amount', parseFloat(e.target.value))}
+                                                            className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#112240] text-sm focus:border-primary outline-none"
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Land Use</label>
+                                                        <input
+                                                            type="text"
+                                                            value={editForm.land_use || ''}
+                                                            disabled={true}
+                                                            className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-[#112240] text-sm cursor-not-allowed"
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Remaining Lease </label>
+                                                        <input
+                                                            type="number"
+                                                            value={editForm?.remaining_lease_term || ''}
+                                                            disabled={true}
+                                                            className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-[#112240] text-sm cursor-not-allowed"
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Right Type</label>
+                                                        <select
+                                                            value={editForm.right_type || ''}
+                                                            onChange={(e) => handleInputChange('right_type', e.target.value)}
+                                                            disabled={true}
+                                                            className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-[#112240] text-sm cursor-not-allowed"
+                                                        >
+                                                            <option value="">Select...</option>
+                                                            <option value="Freehold">Freehold</option>
+                                                            <option value="Leasehold">Leasehold</option>
+                                                            <option value="Emphyteutic Lease">Emphyteutic Lease</option>
+                                                            <option value="Customary">Customary</option>
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        /* STEP 2: Property Details & Media */
+                                        <div className="space-y-8">
+                                            {/* Dynamic Form Fields from Config */}
+                                            {selectedSubCategory && (
+                                                <div>
+                                                    <h4 className="text-sm font-bold mb-4 flex items-center gap-2">
+                                                        <FileText size={16} className="text-primary" />
+                                                        {selectedSubCategory.label} Details
+                                                    </h4>
 
-                                                {(() => {
-                                                    const configCategory = FORM_CONFIG.find(c =>
-                                                        c.label.toLowerCase() === selectedCategory?.label?.toLowerCase()
-                                                    );
-                                                    const configSub = configCategory?.subCategories.find(s =>
-                                                        s.label.toLowerCase() === selectedSubCategory.label?.toLowerCase()
-                                                    );
+                                                    {(() => {
+                                                        const configCategory = FORM_CONFIG.find(c =>
+                                                            c.label.toLowerCase() === selectedCategory?.label?.toLowerCase()
+                                                        );
+                                                        const configSub = configCategory?.subCategories.find(s =>
+                                                            s.label.toLowerCase() === selectedSubCategory.label?.toLowerCase()
+                                                        );
 
-                                                    if (!configSub) {
+                                                        if (!configSub) {
+                                                            return (
+                                                                <div className="p-8 text-center text-gray-500 border-2 border-dashed rounded-xl">
+                                                                    <p>No specific fields defined for this property type.</p>
+                                                                </div>
+                                                            );
+                                                        }
+
                                                         return (
-                                                            <div className="p-8 text-center text-gray-500 border-2 border-dashed rounded-xl">
-                                                                <p>No specific fields defined for this property type.</p>
+                                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                                                {configSub.fields.map((field) => (
+                                                                    <div
+                                                                        key={field.name}
+                                                                        className={clsx(
+                                                                            field.width === 'full' ? 'col-span-1 md:col-span-2' : 'col-span-1'
+                                                                        )}
+                                                                    >
+                                                                        {field.type !== 'section_header' && (
+                                                                            <label className="block text-xs font-bold text-gray-500 uppercase mb-2">
+                                                                                {field.label} {field.required && <span className="text-red-500">*</span>}
+                                                                            </label>
+                                                                        )}
+                                                                        {renderFormField(field)}
+                                                                    </div>
+                                                                ))}
                                                             </div>
                                                         );
-                                                    }
+                                                    })()}
+                                                </div>
+                                            )}
 
-                                                    return (
-                                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                                            {configSub.fields.map((field) => (
-                                                                <div
-                                                                    key={field.name}
-                                                                    className={clsx(
-                                                                        field.width === 'full' ? 'col-span-1 md:col-span-2' : 'col-span-1'
-                                                                    )}
-                                                                >
-                                                                    {field.type !== 'section_header' && (
-                                                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-2">
-                                                                            {field.label} {field.required && <span className="text-red-500">*</span>}
-                                                                        </label>
-                                                                    )}
-                                                                    {renderFormField(field)}
-                                                                </div>
-                                                            ))}
+                                            {/* Images Management */}
+                                            <div>
+                                                <h4 className="text-sm font-bold mb-3 flex items-center gap-2">
+                                                    <ImageIcon size={16} className="text-primary" />
+                                                    Property Images
+                                                </h4>
+
+                                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                                                    {editProperty.images?.map((img, idx) => (
+                                                        <div key={img.id || idx} className="relative group aspect-square rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700">
+                                                            <img
+                                                                src={`${api.defaults?.baseURL?.replace(/\/$/, '') || ''}/assets/${img.file_path}`}
+                                                                alt={`Property ${idx}`}
+                                                                className="w-full h-full object-cover"
+                                                                onError={(e) => {
+                                                                    (e.target as HTMLImageElement).src = 'https://via.placeholder.com/150?text=Error';
+                                                                }}
+                                                            />
+                                                            <button
+                                                                onClick={() => img.id && handleImageDelete(img.id)}
+                                                                className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                                                            >
+                                                                <X size={14} />
+                                                            </button>
                                                         </div>
-                                                    );
-                                                })()}
+                                                    ))}
+                                                </div>
+
+                                                <div className="border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-xl p-6 text-center">
+                                                    <input
+                                                        type="file"
+                                                        id="image-upload"
+                                                        multiple
+                                                        accept="image/*"
+                                                        className="hidden"
+                                                        onChange={(e) => handleImagesUpload(e.target.files)}
+                                                        disabled={isUploadingImage}
+                                                    />
+                                                    <label
+                                                        htmlFor="image-upload"
+                                                        className="cursor-pointer inline-flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg text-sm font-bold hover:bg-primary/90 transition-colors"
+                                                    >
+                                                        {isUploadingImage ? (
+                                                            <>
+                                                                <RefreshCw size={16} className="animate-spin" />
+                                                                Uploading...
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <Upload size={16} />
+                                                                Upload Images
+                                                            </>
+                                                        )}
+                                                    </label>
+                                                    <p className="text-xs text-gray-500 mt-2">PNG, JPG, JPEG up to 10MB each</p>
+                                                </div>
                                             </div>
-                                        )}
 
-                                        {/* Images Management */}
-                                        <div>
-                                            <h4 className="text-sm font-bold mb-3 flex items-center gap-2">
-                                                <ImageIcon size={16} className="text-primary" />
-                                                Property Images
-                                            </h4>
+                                            {/* Video Links */}
+                                            <div>
+                                                <h4 className="text-sm font-bold mb-3 flex items-center gap-2">
+                                                    <Video size={16} className="text-primary" />
+                                                    Video & 3D Content
+                                                </h4>
 
-                                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                                                {editProperty.images?.map((img, idx) => (
-                                                    <div key={img.id || idx} className="relative group aspect-square rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700">
-                                                        <img
-                                                            src={`${api.defaults?.baseURL?.replace(/\/$/, '') || ''}/assets/${img.file_path}`}
-                                                            alt={`Property ${idx}`}
-                                                            className="w-full h-full object-cover"
-                                                            onError={(e) => {
-                                                                (e.target as HTMLImageElement).src = 'https://via.placeholder.com/150?text=Error';
-                                                            }}
+                                                <div className="space-y-4">
+                                                    <div>
+                                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Video Link (YouTube/Vimeo)</label>
+                                                        <input
+                                                            type="url"
+                                                            value={editForm.video_link || ''}
+                                                            onChange={(e) => handleInputChange('video_link', e.target.value)}
+                                                            placeholder="https://www.youtube.com/watch?v=..."
+                                                            className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#112240] text-sm focus:border-primary outline-none"
                                                         />
-                                                        <button
-                                                            onClick={() => img.id && handleImageDelete(img.id)}
-                                                            className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                                                        >
-                                                            <X size={14} />
-                                                        </button>
                                                     </div>
-                                                ))}
+                                                </div>
                                             </div>
 
-                                            <div className="border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-xl p-6 text-center">
+                                            {/* GIS Coordinates */}
+                                            <div>
+                                                <h4 className="text-sm font-bold mb-3 flex items-center gap-2">
+                                                    <Map size={16} className="text-primary" />
+                                                    GIS Coordinates
+                                                </h4>
+
+                                                <div className="grid grid-cols-2 gap-4">
+                                                    <div>
+                                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Latitude</label>
+                                                        <input
+                                                            type="number"
+                                                            step="any"
+                                                            value={editForm.latitude || ''}
+                                                            onChange={(e) => handleInputChange('latitude', parseFloat(e.target.value))}
+                                                            className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#112240] text-sm focus:border-primary outline-none"
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Longitude</label>
+                                                        <input
+                                                            type="number"
+                                                            step="any"
+                                                            value={editForm.longitude || ''}
+                                                            onChange={(e) => handleInputChange('longitude', parseFloat(e.target.value))}
+                                                            className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#112240] text-sm focus:border-primary outline-none"
+                                                        />
+                                                    </div>
+                                                </div>
                                                 <input
-                                                    type="file"
-                                                    id="image-upload"
-                                                    multiple
-                                                    accept="image/*"
-                                                    className="hidden"
-                                                    onChange={(e) => handleImagesUpload(e.target.files)}
-                                                    disabled={isUploadingImage}
+                                                    type="text"
+                                                    value={editForm.gis_coordinates || ''}
+                                                    onChange={(e) => handleInputChange('gis_coordinates', e.target.value)}
+                                                    placeholder="Or enter as 'lat, lon' (e.g. -1.9441,30.0619)"
+                                                    className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#112240] text-sm focus:border-primary outline-none mt-2"
                                                 />
-                                                <label
-                                                    htmlFor="image-upload"
-                                                    className="cursor-pointer inline-flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg text-sm font-bold hover:bg-primary/90 transition-colors"
-                                                >
-                                                    {isUploadingImage ? (
-                                                        <>
-                                                            <RefreshCw size={16} className="animate-spin" />
-                                                            Uploading...
-                                                        </>
-                                                    ) : (
-                                                        <>
-                                                            <Upload size={16} />
-                                                            Upload Images
-                                                        </>
-                                                    )}
-                                                </label>
-                                                <p className="text-xs text-gray-500 mt-2">PNG, JPG, JPEG up to 10MB each</p>
                                             </div>
                                         </div>
-
-                                        {/* Video Links */}
-                                        <div>
-                                            <h4 className="text-sm font-bold mb-3 flex items-center gap-2">
-                                                <Video size={16} className="text-primary" />
-                                                Video & 3D Content
-                                            </h4>
-
-                                            <div className="space-y-4">
-                                                <div>
-                                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Video Link (YouTube/Vimeo)</label>
-                                                    <input
-                                                        type="url"
-                                                        value={editForm.video_link || ''}
-                                                        onChange={(e) => handleInputChange('video_link', e.target.value)}
-                                                        placeholder="https://www.youtube.com/watch?v=..."
-                                                        className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#112240] text-sm focus:border-primary outline-none"
-                                                    />
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        {/* GIS Coordinates */}
-                                        <div>
-                                            <h4 className="text-sm font-bold mb-3 flex items-center gap-2">
-                                                <Map size={16} className="text-primary" />
-                                                GIS Coordinates
-                                            </h4>
-
-                                            <div className="grid grid-cols-2 gap-4">
-                                                <div>
-                                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Latitude</label>
-                                                    <input
-                                                        type="number"
-                                                        step="any"
-                                                        value={editForm.latitude || ''}
-                                                        onChange={(e) => handleInputChange('latitude', parseFloat(e.target.value))}
-                                                        className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#112240] text-sm focus:border-primary outline-none"
-                                                    />
-                                                </div>
-                                                <div>
-                                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Longitude</label>
-                                                    <input
-                                                        type="number"
-                                                        step="any"
-                                                        value={editForm.longitude || ''}
-                                                        onChange={(e) => handleInputChange('longitude', parseFloat(e.target.value))}
-                                                        className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#112240] text-sm focus:border-primary outline-none"
-                                                    />
-                                                </div>
-                                            </div>
-                                            <input
-                                                type="text"
-                                                value={editForm.gis_coordinates || ''}
-                                                onChange={(e) => handleInputChange('gis_coordinates', e.target.value)}
-                                                placeholder="Or enter as 'lat, lon' (e.g. -1.9441,30.0619)"
-                                                className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#112240] text-sm focus:border-primary outline-none mt-2"
-                                            />
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Modal Footer */}
-                            <div className="p-6 border-t border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-[#112240] flex justify-between">
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        if (editStep === 1) {
-                                            setEditProperty(null);
-                                        } else {
-                                            setEditStep(1);
-                                        }
-                                    }}
-                                    className="px-6 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#0a162e] text-sm font-bold hover:bg-gray-50 dark:hover:bg-white/5 transition-colors flex items-center gap-2"
-                                >
-                                    <ArrowLeft size={16} />
-                                    {editStep === 1 ? 'Cancel' : 'Back'}
-                                </button>
-
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        if (editStep === 1) {
-                                            if (!selectedCategory || !selectedSubCategory) {
-                                                addToast('error', 'Please select category and property type');
-                                                return;
-                                            }
-                                            setEditStep(2);
-                                        } else {
-                                            saveEdit();
-                                        }
-                                    }}
-                                    disabled={isVerifyingCategory}
-                                    className="px-8 py-2 bg-primary text-white rounded-xl text-sm font-bold hover:bg-primary/90 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                    {editStep === 1 ? (
-                                        <>
-                                            Continue
-                                            <ChevronRight size={16} />
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Save size={16} />
-                                            Save Changes
-                                        </>
                                     )}
-                                </button>
-                            </div>
-                        </motion.div>
-                    </div>
-                )}
-            </AnimatePresence>
+                                </div>
+
+                                {/* Modal Footer */}
+                                <div className="p-6 border-t border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-[#112240] flex justify-between">
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            if (editStep === 1) {
+                                                setEditProperty(null);
+                                            } else {
+                                                setEditStep(1);
+                                            }
+                                        }}
+                                        className="px-6 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#0a162e] text-sm font-bold hover:bg-gray-50 dark:hover:bg-white/5 transition-colors flex items-center gap-2"
+                                    >
+                                        <ArrowLeft size={16} />
+                                        {editStep === 1 ? 'Cancel' : 'Back'}
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            if (editStep === 1) {
+                                                if (!selectedCategory || !selectedSubCategory) {
+                                                    addToast('error', 'Please select category and property type');
+                                                    return;
+                                                }
+                                                setEditStep(2);
+                                            } else {
+                                                saveEdit();
+                                            }
+                                        }}
+                                        disabled={isVerifyingCategory}
+                                        className="px-8 py-2 bg-primary text-white rounded-xl text-sm font-bold hover:bg-primary/90 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        {editStep === 1 ? (
+                                            <>
+                                                Continue
+                                                <ChevronRight size={16} />
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Save size={16} />
+                                                Save Changes
+                                            </>
+                                        )}
+                                    </button>
+                                </div>
+                            </motion.div>
+                        </div>
+                    )
+                }
+            </AnimatePresence >
 
             {/* --- HISTORY MODAL --- */}
             <AnimatePresence>
-                {showHistory && selectedProperty && (
-                    <div className="fixed inset-0 z-[60] flex items-center justify-end">
-                        <motion.div
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            onClick={() => setShowHistory(false)}
-                            className="absolute inset-0 bg-black/20 backdrop-blur-sm"
-                        />
-                        <motion.div
-                            initial={{ x: "100%" }}
-                            animate={{ x: 0 }}
-                            exit={{ x: "100%" }}
-                            transition={{ type: "spring", damping: 25, stiffness: 200 }}
-                            className="relative w-full max-w-md h-full bg-white dark:bg-[#0a162e] border-l border-gray-200 dark:border-gray-800 shadow-2xl p-6 overflow-y-auto"
-                        >
-                            <div className="flex justify-between items-center mb-8">
-                                <h3 className="text-xl font-bold flex items-center gap-2">
-                                    <History size={20} className="text-primary" /> Audit Log
-                                </h3>
-                                <button onClick={() => setShowHistory(false)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full">
-                                    <X size={20} />
-                                </button>
-                            </div>
+                {
+                    showHistory && selectedProperty && (
+                        <div className="fixed inset-0 z-60 flex items-center justify-end">
+                            <motion.div
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                onClick={() => setShowHistory(false)}
+                                className="absolute inset-0 bg-black/20 backdrop-blur-sm"
+                            />
+                            <motion.div
+                                initial={{ x: "100%" }}
+                                animate={{ x: 0 }}
+                                exit={{ x: "100%" }}
+                                transition={{ type: "spring", damping: 25, stiffness: 200 }}
+                                className="relative w-full max-w-md h-full bg-white dark:bg-[#0a162e] border-l border-gray-200 dark:border-gray-800 shadow-2xl p-6 overflow-y-auto"
+                            >
+                                <div className="flex justify-between items-center mb-8">
+                                    <h3 className="text-xl font-bold flex items-center gap-2">
+                                        <History size={20} className="text-primary" /> Audit Log
+                                    </h3>
+                                    <button onClick={() => setShowHistory(false)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full">
+                                        <X size={20} />
+                                    </button>
+                                </div>
 
-                            <div className="space-y-8 relative before:absolute before:left-[19px] before:top-2 before:bottom-0 before:w-[2px] before:bg-gray-100 dark:before:bg-gray-800">
-                                {historyItems.length > 0 ? historyItems.map((item) => (
-                                    <div key={item.id} className="relative pl-12">
-                                        <div className="absolute left-0 top-1 w-10 h-10 bg-white dark:bg-[#0a162e] border border-gray-200 dark:border-gray-800 rounded-full flex items-center justify-center z-10 text-gray-400 text-xs font-bold">
-                                            {item.date ? new Date(item.date).toLocaleDateString().slice(0, 2) : ''}
-                                        </div>
-                                        <div>
-                                            <p className="text-xs text-gray-400 font-mono mb-1">
-                                                {item.date ? new Date(item.date).toLocaleString() : ''}
-                                            </p>
-                                            <h4 className="font-bold text-slate-900 dark:text-white">{item.action || 'Change'}</h4>
-                                            <p className="text-sm text-gray-500 mt-1">{item.details || ''}</p>
-                                            <div className="mt-2 inline-flex items-center gap-1 text-[10px] bg-gray-100 dark:bg-[#112240] px-2 py-1 rounded">
-                                                <User size={10} /> User ID: {item.user || 'System'}
+                                <div className="space-y-8 relative before:absolute before:left-4.75 before:top-2 before:bottom-0 before:w-0.5 before:bg-gray-100 dark:before:bg-gray-800">
+                                    {historyItems.length > 0 ? historyItems.map((item) => (
+                                        <div key={item.id} className="relative pl-12">
+                                            <div className="absolute left-0 top-1 w-10 h-10 bg-white dark:bg-[#0a162e] border border-gray-200 dark:border-gray-800 rounded-full flex items-center justify-center z-10 text-gray-400 text-xs font-bold">
+                                                {item.date ? new Date(item.date).toLocaleDateString().slice(0, 2) : ''}
+                                            </div>
+                                            <div>
+                                                <p className="text-xs text-gray-400 font-mono mb-1">
+                                                    {item.date ? new Date(item.date).toLocaleString() : ''}
+                                                </p>
+                                                <h4 className="font-bold text-slate-900 dark:text-white">{item.action || 'Change'}</h4>
+                                                <p className="text-sm text-gray-500 mt-1">{item.details || ''}</p>
+                                                <div className="mt-2 inline-flex items-center gap-1 text-[10px] bg-gray-100 dark:bg-[#112240] px-2 py-1 rounded">
+                                                    <User size={10} /> User ID: {item.user || 'System'}
+                                                </div>
                                             </div>
                                         </div>
-                                    </div>
-                                )) : (
-                                    <div className="p-6 text-sm text-gray-500 text-center">
-                                        <History size={32} className="mx-auto mb-3 text-gray-300" />
-                                        <p>No history entries for this property.</p>
-                                    </div>
-                                )}
-                            </div>
-                        </motion.div>
-                    </div>
-                )}
-            </AnimatePresence>
+                                    )) : (
+                                        <div className="p-6 text-sm text-gray-500 text-center">
+                                            <History size={32} className="mx-auto mb-3 text-gray-300" />
+                                            <p>No history entries for this property.</p>
+                                        </div>
+                                    )}
+                                </div>
+                            </motion.div>
+                        </div>
+                    )
+                }
+            </AnimatePresence >
 
             {/* --- DELETE CONFIRM MODAL --- */}
             <AnimatePresence>
-                {deletingId && (
-                    <div className="fixed inset-0 z-60 flex items-center justify-center p-4">
-                        <motion.div
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            onClick={() => setDeletingId(null)}
-                            className="absolute inset-0 bg-black/40"
-                        />
-                        <motion.div
-                            initial={{ scale: 0.95, opacity: 0 }}
-                            animate={{ scale: 1, opacity: 1 }}
-                            exit={{ scale: 0.95, opacity: 0 }}
-                            className="relative bg-white dark:bg-[#0f1f3a] rounded-xl p-6 w-full max-w-md z-10"
-                        >
-                            <h3 className="text-lg font-bold mb-2">Confirm Delete</h3>
-                            <p className="text-sm text-gray-500 mb-6">
-                                Are you sure you want to delete this property? This action cannot be undone.
-                            </p>
-                            <div className="flex justify-end gap-2">
-                                <button
-                                    onClick={() => setDeletingId(null)}
-                                    className="px-4 py-2 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    onClick={confirmDelete}
-                                    className="px-4 py-2 rounded bg-red-600 text-white hover:bg-red-700"
-                                >
-                                    Delete
-                                </button>
-                            </div>
-                        </motion.div>
-                    </div>
-                )}
-            </AnimatePresence>
+                {
+                    deletingId && (
+                        <div className="fixed inset-0 z-60 flex items-center justify-center p-4">
+                            <motion.div
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                onClick={() => setDeletingId(null)}
+                                className="absolute inset-0 bg-black/40"
+                            />
+                            <motion.div
+                                initial={{ scale: 0.95, opacity: 0 }}
+                                animate={{ scale: 1, opacity: 1 }}
+                                exit={{ scale: 0.95, opacity: 0 }}
+                                className="relative bg-white dark:bg-[#0f1f3a] rounded-xl p-6 w-full max-w-md z-10"
+                            >
+                                <h3 className="text-lg font-bold mb-2">Confirm Delete</h3>
+                                <p className="text-sm text-gray-500 mb-6">
+                                    Are you sure you want to delete this property? This action cannot be undone.
+                                </p>
+                                <div className="flex justify-end gap-2">
+                                    <button
+                                        onClick={() => setDeletingId(null)}
+                                        className="px-4 py-2 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={confirmDelete}
+                                        className="px-4 py-2 rounded bg-red-600 text-white hover:bg-red-700"
+                                    >
+                                        Delete
+                                    </button>
+                                </div>
+                            </motion.div>
+                        </div>
+                    )
+                }
+            </AnimatePresence >
 
             {/* --- OTP MODAL --- */}
             <AnimatePresence>
-                {showOTPModal && (
-                    <div className="fixed inset-0 z-60 flex items-center justify-center p-4">
-                        <motion.div
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            onClick={() => setShowOTPModal(false)}
-                            className="absolute inset-0 bg-black/40"
-                        />
-                        <motion.div
-                            initial={{ scale: 0.95, opacity: 0 }}
-                            animate={{ scale: 1, opacity: 1 }}
-                            exit={{ scale: 0.95, opacity: 0 }}
-                            className="relative bg-white dark:bg-[#0f1f3a] rounded-xl p-6 w-full max-w-md z-10"
-                        >
-                            <h3 className="text-lg font-bold mb-4">Verification Required</h3>
+                {
+                    showOTPModal && (
+                        <div className="fixed inset-0 z-60 flex items-center justify-center p-4">
+                            <motion.div
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                onClick={() => setShowOTPModal(false)}
+                                className="absolute inset-0 bg-black/40"
+                            />
+                            <motion.div
+                                initial={{ scale: 0.95, opacity: 0 }}
+                                animate={{ scale: 1, opacity: 1 }}
+                                exit={{ scale: 0.95, opacity: 0 }}
+                                className="relative bg-white dark:bg-[#0f1f3a] rounded-xl p-6 w-full max-w-md z-10"
+                            >
+                                <h3 className="text-lg font-bold mb-4">Verification Required</h3>
 
-                            {otpPhase === 'enter_contact' ? (
-                                <>
-                                    <p className="text-sm text-gray-500 mb-4">
-                                        Enter the phone number or email where you'd like to receive the verification code.
-                                    </p>
-                                    {maskedContact && (
-                                        <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
-                                            Suggested: <span className="font-bold">{maskedContact}</span>
+                                {otpPhase === 'enter_contact' ? (
+                                    <>
+                                        <p className="text-sm text-gray-500 mb-4">
+                                            Enter the phone number or email where you'd like to receive the verification code.
                                         </p>
-                                    )}
-                                    <input
-                                        value={contactInput}
-                                        onChange={(e) => setContactInput(e.target.value)}
-                                        className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#112240] mb-4"
-                                        placeholder={maskedContact || "Phone or email"}
-                                    />
-                                    <div className="flex justify-end gap-2">
-                                        <button
-                                            onClick={() => { setShowOTPModal(false); setContactInput(''); }}
-                                            className="px-4 py-2 rounded border border-gray-200 dark:border-gray-700"
-                                        >
-                                            Cancel
-                                        </button>
-                                        <button
-                                            onClick={requestSendOtp}
-                                            className="px-4 py-2 rounded bg-primary text-white hover:bg-primary/90"
-                                        >
-                                            Send Code
-                                        </button>
-                                    </div>
-                                </>
-                            ) : (
-                                <>
-                                    <p className="text-sm text-gray-500 mb-4">
-                                        Enter the verification code sent to your contact.
-                                    </p>
-                                    <input
-                                        value={otpCode}
-                                        onChange={(e) => setOtpCode(e.target.value)}
-                                        className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#112240] mb-4"
-                                        placeholder="OTP code"
-                                    />
-                                    <div className="flex justify-end gap-2">
-                                        <button
-                                            onClick={() => { setShowOTPModal(false); setOtpCode(''); }}
-                                            className="px-4 py-2 rounded border border-gray-200 dark:border-gray-700"
-                                        >
-                                            Cancel
-                                        </button>
-                                        <button
-                                            onClick={submitOtp}
-                                            className="px-4 py-2 rounded bg-primary text-white hover:bg-primary/90"
-                                        >
-                                            Verify & Publish
-                                        </button>
-                                    </div>
-                                </>
-                            )}
-                        </motion.div>
-                    </div>
-                )}
-            </AnimatePresence>
+                                        {maskedContact && (
+                                            <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                                                Suggested: <span className="font-bold">{maskedContact}</span>
+                                            </p>
+                                        )}
+                                        <input
+                                            value={contactInput}
+                                            onChange={(e) => setContactInput(e.target.value)}
+                                            className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#112240] mb-4"
+                                            placeholder={maskedContact || "Phone or email"}
+                                        />
+                                        <div className="flex justify-end gap-2">
+                                            <button
+                                                onClick={() => { setShowOTPModal(false); setContactInput(''); }}
+                                                className="px-4 py-2 rounded border border-gray-200 dark:border-gray-700"
+                                            >
+                                                Cancel
+                                            </button>
+                                            <button
+                                                onClick={requestSendOtp}
+                                                className="px-4 py-2 rounded bg-primary text-white hover:bg-primary/90"
+                                            >
+                                                Send Code
+                                            </button>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <>
+                                        <p className="text-sm text-gray-500 mb-4">
+                                            Enter the verification code sent to your contact.
+                                        </p>
+                                        <input
+                                            value={otpCode}
+                                            onChange={(e) => setOtpCode(e.target.value)}
+                                            className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#112240] mb-4"
+                                            placeholder="OTP code"
+                                        />
+                                        <div className="flex justify-end gap-2">
+                                            <button
+                                                onClick={() => { setShowOTPModal(false); setOtpCode(''); }}
+                                                className="px-4 py-2 rounded border border-gray-200 dark:border-gray-700"
+                                            >
+                                                Cancel
+                                            </button>
+                                            <button
+                                                onClick={submitOtp}
+                                                className="px-4 py-2 rounded bg-primary text-white hover:bg-primary/90"
+                                            >
+                                                Verify & Publish
+                                            </button>
+                                        </div>
+                                    </>
+                                )}
+                            </motion.div>
+                        </div>
+                    )
+                }
+            </AnimatePresence >
 
-            {/* --- MAP MODAL --- */}
-            <AnimatePresence>
-                {showMapModal && mapUrl && (
-                    <div className="fixed inset-0 z-70 flex items-center justify-center p-4">
-                        <motion.div
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            onClick={() => setShowMapModal(false)}
-                            className="absolute inset-0 bg-black/60"
-                        />
-                        <motion.div
-                            initial={{ scale: 0.95, opacity: 0 }}
-                            animate={{ scale: 1, opacity: 1 }}
-                            exit={{ scale: 0.95, opacity: 0 }}
-                            className="relative bg-white dark:bg-[#071025] rounded-xl p-4 w-full max-w-4xl h-[80vh] z-80"
-                        >
-                            <div className="flex justify-between items-center mb-2">
-                                <h3 className="text-lg font-bold">Property Location Map</h3>
-                                <button onClick={() => setShowMapModal(false)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full">
-                                    <X size={20} />
-                                </button>
-                            </div>
-                            <div className="w-full h-[calc(100%-48px)]">
-                                <iframe
-                                    title="property-map"
-                                    src={mapUrl}
-                                    className="w-full h-full border-0 rounded"
-                                    allowFullScreen
-                                    loading="lazy"
-                                />
-                            </div>
-                        </motion.div>
-                    </div>
-                )}
-            </AnimatePresence>
+
 
             {/* --- CONTACT POPUP --- */}
             <AnimatePresence>
-                {contactPopup.show && (
-                    <div className="fixed bottom-6 right-6 z-70">
-                        <motion.div
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: 10 }}
-                            className="bg-white dark:bg-[#0b1530] p-4 rounded-lg shadow-lg border border-gray-200 dark:border-gray-800 max-w-sm"
-                        >
-                            <div className="flex items-start gap-3">
-                                <AlertTriangle size={20} className="text-amber-500 flex-shrink-0" />
-                                <div className="flex-1">
-                                    <p className="font-bold mb-1">Action Blocked</p>
-                                    <p className="text-sm text-gray-500">{contactPopup.message}</p>
+                {
+                    contactPopup.show && (
+                        <div className="fixed bottom-6 right-6 z-70">
+                            <motion.div
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: 10 }}
+                                className="bg-white dark:bg-[#0b1530] p-4 rounded-lg shadow-lg border border-gray-200 dark:border-gray-800 max-w-sm"
+                            >
+                                <div className="flex items-start gap-3">
+                                    <AlertTriangle size={20} className="text-amber-500 shrink-0" />
+                                    <div className="flex-1">
+                                        <p className="font-bold mb-1">Action Blocked</p>
+                                        <p className="text-sm text-gray-500">{contactPopup.message}</p>
+                                    </div>
+                                    <button
+                                        onClick={() => setContactPopup({ show: false })}
+                                        className="text-sm text-gray-400 hover:text-gray-600"
+                                    >
+                                        <X size={16} />
+                                    </button>
                                 </div>
-                                <button
-                                    onClick={() => setContactPopup({ show: false })}
-                                    className="text-sm text-gray-400 hover:text-gray-600"
-                                >
-                                    <X size={16} />
-                                </button>
-                            </div>
-                        </motion.div>
-                    </div>
-                )}
-            </AnimatePresence>
+                            </motion.div>
+                        </div>
+                    )
+                }
+            </AnimatePresence >
 
             {/* --- TOAST NOTIFICATIONS --- */}
-            <div className="fixed bottom-6 left-6 z-80 flex flex-col gap-3">
+            < div className="fixed bottom-6 left-6 z-80 flex flex-col gap-3" >
                 <AnimatePresence>
                     {toasts.map(t => (
                         <motion.div
@@ -3073,7 +3082,7 @@ export const PropertyManagement = () => {
                         </motion.div>
                     ))}
                 </AnimatePresence>
-            </div>
-        </div>
+            </div >
+        </div >
     );
 };

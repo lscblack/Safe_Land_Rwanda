@@ -1,4 +1,6 @@
+import 'leaflet/dist/leaflet.css';
 import React, { useState } from 'react';
+// import { MapContainer, TileLayer, Polygon } from 'react-leaflet';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     TreePine, Tractor, Home, Building2, Factory, Landmark,
@@ -32,6 +34,8 @@ const RecordPropertyPage = () => {
     const [isUpiVerified, setIsUpiVerified] = useState(false);
     const [upiError, setUpiError] = useState<string | null>(null);
     const [parcelInfo, setParcelInfo] = useState<any | null>(null);
+    const [oldParcelInfo, setOldParcelInfo] = useState<any | null>(null);
+    // const [showOldData, setShowOldData] = useState(false);
     const [parcelStatusMessage, setParcelStatusMessage] = useState<string | null>(null);
     const [parcelAllowed, setParcelAllowed] = useState<boolean>(false);
     const [parcelCategoryWarning, setParcelCategoryWarning] = useState<string | null>(null);
@@ -39,7 +43,7 @@ const RecordPropertyPage = () => {
     const [dbCategories, setDbCategories] = useState<any[]>([]);
     const [dbSubCategories, setDbSubCategories] = useState<any[]>([]);
     const [formCategories, setFormCategories] = useState<Category[]>(FORM_CONFIG);
-
+console.log(oldParcelInfo)
     // Load taxonomy from backend and map to the static FORM_CONFIG fields
     React.useEffect(() => {
         const loadTaxonomy = async () => {
@@ -122,9 +126,26 @@ const RecordPropertyPage = () => {
         setIsUpiVerifying(true);
         setUpiError(null);
         try {
-            const res = await api.post('/api/external/parcel', { upi, owner_id: formData.owner_id || '' });
-            const data = res.data;
+            // Use new endpoint
+            const res = await api.get(`/api/external/title_data?upi=${encodeURIComponent(upi)}&language=english`);
+            const result = res.data;
+            if (!result.success || !result.found || !result.data || !result.data.parcelDetails) {
+                setUpiError('Parcel not found or invalid response.');
+                setIsUpiVerified(false);
+                setParcelAllowed(false);
+                setIsUpiVerifying(false);
+                return;
+            }
+            const data = result.data.parcelDetails;
             setParcelInfo(data);
+
+            // Also fetch old endpoint for legacy data (optional/minimizable)
+            try {
+                const oldRes = await api.post('/api/external/parcel', { upi, owner_id: formData.owner_id || '' });
+                setOldParcelInfo(oldRes.data);
+            } catch (e) {
+                setOldParcelInfo(null);
+            }
 
             // Check if this UPI was already uploaded by the current user (prevent re-upload)
             try {
@@ -144,59 +165,52 @@ const RecordPropertyPage = () => {
                 // ignore failures to check user's existing properties
             }
 
-            // Auto-populate district/sector/cell/village and coordinates from parcel data.
-            try {
-                const loc = data.parcelLocation || data.parcel_location || data.representative?.address || null;
-                const district = loc?.district?.districtName || loc?.districtName || '';
-                const sector = loc?.sector?.sectorName || loc?.sectorName || '';
-                const cell = loc?.cell?.cellName || loc?.cellName || '';
-                const village = loc?.village?.villageName || loc?.villageName || '';
+            // Extract address/location
+            const address = data.address || {};
+            const district = address.districtName || data.districtName || '';
+            const sector = address.sectorName || data.sectorName || '';
+            const cell = address.cellName || data.cellName || '';
+            const village = address.villageName || data.villageName || '';
 
-                // prefer coordinates array first, then top-level latitude/longitude fields
-                let lat: number | null = null;
-                let lon: number | null = null;
-                try {
-                    if (Array.isArray(data.coordinates) && data.coordinates.length > 0) {
-                        const c0: any = data.coordinates[0];
-                        const maybeLat = c0?.lat ?? c0?.latitude ?? null;
-                        const maybeLon = c0?.lon ?? c0?.longitude ?? c0?.lng ?? null;
-                        const nlat = maybeLat !== null && maybeLat !== undefined ? Number(maybeLat) : NaN;
-                        const nlon = maybeLon !== null && maybeLon !== undefined ? Number(maybeLon) : NaN;
-                        if (!Number.isNaN(nlat)) lat = nlat;
-                        if (!Number.isNaN(nlon)) lon = nlon;
-                    }
-                } catch (e) {
-                    // ignore
-                }
-                if ((lat === null || lon === null) && (data.latitude !== undefined || data.longitude !== undefined)) {
-                    const nlat = data.latitude !== undefined && data.latitude !== null ? Number(data.latitude) : NaN;
-                    const nlon = data.longitude !== undefined && data.longitude !== null ? Number(data.longitude) : NaN;
-                    if (!Number.isNaN(nlat)) lat = nlat;
-                    if (!Number.isNaN(nlon)) lon = nlon;
-                }
-
-                setFormData(prev => ({
-                    ...prev,
-                    district: district || prev.district,
-                    sector: sector || prev.sector,
-                    cell: cell || prev.cell,
-                    village: village || prev.village,
-                    ...(lat !== null ? { latitude: lat } : {}),
-                    ...(lon !== null ? { longitude: lon } : {})
-                }));
-            } catch (e) {
-                // ignore
+            // GIS coordinates
+            let lat = null, lon = null;
+            if (data.parcelCoordinates) {
+                lat = data.parcelCoordinates.lat;
+                lon = data.parcelCoordinates.lon;
+            }
+            // fallback to geometry if needed
+            if ((lat === null || lon === null) && data.parcelGeometry?.geometry?.rings?.[0]?.[0]) {
+                lon = data.parcelGeometry.geometry.rings[0][0][0];
+                lat = data.parcelGeometry.geometry.rings[0][0][1];
             }
 
-            // Determine ownership: prefer representative, else first owner
+            // Save all new status fields
+            setFormData(prev => ({
+                ...prev,
+                district: district || prev.district,
+                sector: sector || prev.sector,
+                cell: cell || prev.cell,
+                village: village || prev.village,
+                ...(lat !== null ? { latitude: lat } : {}),
+                ...(lon !== null ? { longitude: lon } : {}),
+                hasCaveat: data.hasCaveat,
+                underMortgage: data.underMortgage,
+                inTransaction: data.inTransaction,
+                isProvisional: data.isProvisional,
+                hasBuilding: data.hasBuilding,
+                hasInfrastructure: data.hasInfrastructure,
+                parcelCoordinates: data.parcelCoordinates,
+            }));
+
+            // Determine ownership: prefer parcelRepresentative, else first owner
             let ownerId = '';
             let ownerName = '';
-            if (data.representative && data.representative.idNo) {
-                ownerId = data.representative.idNo;
-                ownerName = `${data.representative.foreNames || ''} ${data.representative.surname || ''}`.trim();
-            } else if (Array.isArray(data.owners) && data.owners.length > 0) {
-                ownerId = data.owners[0].idNo || '';
-                ownerName = data.owners[0].fullName || '';
+            if (data.parcelRepresentative && data.parcelRepresentative.idNo) {
+                ownerId = data.parcelRepresentative.idNo;
+                ownerName = `${data.parcelRepresentative.foreNames || ''} ${data.parcelRepresentative.surname || ''}`.trim();
+            } else if (Array.isArray(result.data.owners) && result.data.owners.length > 0) {
+                ownerId = result.data.owners[0].idNo || '';
+                ownerName = result.data.owners[0].fullName || '';
             }
             if (ownerId) {
                 setFormData(prev => ({ ...prev, owner_id: ownerId, owner_name: ownerName }));
@@ -204,9 +218,10 @@ const RecordPropertyPage = () => {
 
             // Check blocking conditions
             const blockedReasons: string[] = [];
-            if (data.isUnderMortgage || data.isUnderMortgage === true) blockedReasons.push('Under mortgage');
-            if (data.isUnderRestriction || data.isUnderRestriction === true) blockedReasons.push('Under restriction');
-            if (data.inProcess || data.inProcess === true) blockedReasons.push('Parcel currently in process');
+            if (data.underMortgage) blockedReasons.push('Under mortgage');
+            if (data.hasCaveat) blockedReasons.push('Has caveat');
+            if (data.inTransaction) blockedReasons.push('Parcel currently in transaction');
+            if (data.isProvisional) blockedReasons.push('Provisional title');
 
             if (blockedReasons.length > 0) {
                 setParcelStatusMessage(`Upload blocked: ${blockedReasons.join(', ')}.`);
@@ -219,7 +234,7 @@ const RecordPropertyPage = () => {
                 setIsUpiVerified(true);
                 // Check land-use vs selected category (warn if mismatch)
                 try {
-                    const parcelUseRaw = (data.landUseNameEnglish || data.landUseName || '').toString();
+                    const parcelUseRaw = (data.landUseTypeNameEnglish || data.landUseTypeNameKinyarwanda || data.landUseTypeNameFrench || '').toString();
                     const catLabelRaw = (selectedCategory?.label || selectedCategory?.name || '').toString();
                     const normalize = (s: string) => s.toLowerCase().replace(/[^a-z]/g, '');
                     const p = normalize(parcelUseRaw);
@@ -261,6 +276,7 @@ const RecordPropertyPage = () => {
         setIsSubmitting(true);
         try {
             // Prepare payload: include known top-level fields and bundle others into details
+            const address = parcelInfo?.address || {};
             const payload: any = {
                 upi: String(formData.upi || ''),
                 owner_id: String(formData.owner_id || ''),
@@ -270,12 +286,23 @@ const RecordPropertyPage = () => {
                 estimated_amount: formData.estimated_amount || null,
                 latitude: formData.latitude || null,
                 longitude: formData.longitude || null,
+                // Address fields from parcelInfo.address
+                province: address.provinceNameEnglish || address.provinceNameKinyarwanda || address.provinceNameFrench || '',
+                province_id: address.provinceId || '',
+                district: address.districtName || '',
+                district_id: address.districtId || '',
+                sector: address.sectorName || '',
+                sector_id: address.sectorId || '',
+                cell: address.cellName || '',
+                cell_id: address.cellId || '',
+                village: address.villageName || '',
+                village_id: address.villageId || '',
                 // size: prefer explicit form field, fallback to parcelInfo.size or sum of planned land uses
                 size: formData.size || parcelInfo?.size || (Array.isArray(parcelInfo?.plannedLandUses) ? parcelInfo.plannedLandUses.reduce((s: number, p: any) => s + (Number(p.area || 0)), 0) : null),
                 // video link (YouTube or other) instead of file upload
                 video_link: formData.video_link || null,
                 // include parcel verification details returned by /api/external/parcel
-                parcel_raw: parcelInfo || null,
+                parcel_information: parcelInfo ? { ...parcelInfo } : null,
                 planned_land_uses: parcelInfo?.plannedLandUses || parcelInfo?.planned_land_uses || [],
                 isUnderMortgage: parcelInfo?.isUnderMortgage || false,
                 isUnderRestriction: parcelInfo?.isUnderRestriction || false,
@@ -283,7 +310,7 @@ const RecordPropertyPage = () => {
             };
 
             // Add all other fields into details
-            const baseKeys = new Set(['upi', 'owner_id', 'owner_name', 'category_id', 'subcategory_id', 'estimated_amount', 'latitude', 'longitude', 'images', 'video_link', 'video_3d']);
+            const baseKeys = new Set(['upi', 'owner_id', 'owner_name', 'category_id', 'subcategory_id', 'estimated_amount', 'latitude', 'longitude', 'province', 'province_id', 'district', 'district_id', 'sector', 'sector_id', 'cell', 'cell_id', 'village', 'village_id', 'images', 'video_link', 'video_3d']);
             const details: any = {};
             Object.keys(formData).forEach(k => {
                 if (!baseKeys.has(k)) details[k] = formData[k];
@@ -748,10 +775,19 @@ const RecordPropertyPage = () => {
                                                             </div>
                                                         )}
                                                         {parcelInfo && (
-                                                            <div className="mt-2 text-xs text-gray-400">
-                                                                <div>Land use: {parcelInfo.landUseNameEnglish || parcelInfo.landUseName || 'N/A'}</div>
-                                                                <div>Size: {parcelInfo.size || parcelInfo.area || 'N/A'}</div>
-                                                                <div>Representative: {parcelInfo.representative ? `${parcelInfo.representative.foreNames || ''} ${parcelInfo.representative.surname || ''}` : (parcelInfo.owners && parcelInfo.owners[0]?.fullName) || 'N/A'}</div>
+                                                            <div className="mt-2 font-bold text-xs text-gray-400">
+                                                                <div className="font-bold text-primary mb-1">Parcel Data (Status)</div>
+                                                                <div>Land use: {parcelInfo.landUseTypeNameEnglish || parcelInfo.landUseTypeNameKinyarwanda || parcelInfo.landUseTypeNameFrench || 'N/A'}</div>
+                                                                <div>Size: {parcelInfo.area || parcelInfo.size || 'N/A'} ㎡</div>
+                                                                <div>Status:</div>
+                                                                <ul className="ml-4 list-disc">
+                                                                    <li>Has Caveat: <span className={parcelInfo.hasCaveat ? 'text-red-600' : 'text-green-600'}>{parcelInfo.hasCaveat ? 'Yes' : 'No'}</span></li>
+                                                                    <li>Under Mortgage: <span className={parcelInfo.underMortgage ? 'text-red-600' : 'text-green-600'}>{parcelInfo.underMortgage ? 'Yes' : 'No'}</span></li>
+                                                                    <li>In Transaction: <span className={parcelInfo.inTransaction ? 'text-red-600' : 'text-green-600'}>{parcelInfo.inTransaction ? 'Yes' : 'No'}</span></li>
+                                                                    <li>Is Provisional: <span className={parcelInfo.isProvisional ? 'text-yellow-600' : 'text-green-600'}>{parcelInfo.isProvisional ? 'Yes' : 'No'}</span></li>
+                                                                    <li>Has Building: <span className={parcelInfo.hasBuilding ? 'text-blue-600' : 'text-gray-600'}>{parcelInfo.hasBuilding ? 'Yes' : 'No'}</span></li>
+                                                                    <li>Has Infrastructure: <span className={parcelInfo.hasInfrastructure ? 'text-blue-600' : 'text-gray-600'}>{parcelInfo.hasInfrastructure ? 'Yes' : 'No'}</span></li>
+                                                                </ul>
                                                             </div>
                                                         )}
                                                     </div>

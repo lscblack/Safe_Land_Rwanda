@@ -22,7 +22,8 @@ from api.routes import (
     liip_routes, 
     notification_routes, 
     property_routes, 
-    agency_routes
+    agency_routes,
+    mapping_routes
 )
 
 # --- Configuration ---
@@ -78,6 +79,7 @@ app.mount("/assets", StaticFiles(directory="assets"), name="assets")
 app.include_router(frontend_auth_routes.router, prefix="/api/frontend", tags=["Frontend Auth"])
 app.include_router(user_routes.router, prefix="/api/user", tags=["User Management"])
 app.include_router(property_routes.router, prefix="/api/property", tags=["Property & GIS"])
+app.include_router(mapping_routes.router, prefix="/api/mapping", tags=["Mapping & GIS"])
 app.include_router(agency_routes.router, prefix="/api/agency", tags=["Agency & Broker Portal"])
 app.include_router(external_routes.router, prefix="/api/external", tags=["External Integrations"])
 app.include_router(liip_routes.router, prefix="/api/liip", tags=["LIIP Systems"])
