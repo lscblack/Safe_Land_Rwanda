@@ -102,7 +102,7 @@ This project leverages a modern, robust technology stack for full-featured, scal
 
 ## Deployment Plan
 - **Frontend:**
-  - Deployed on [Vercel safeLand Link](https://safe-land-rwanda.vercel.app/) for production. All pushes to `main` auto-deploy.
+  - Deployed on [Private Serverk](http://197.243.23.195) for production. All pushes to `main` auto-deploy.
 - **Backend:**
   - Local development with FastAPI. Production deployment (Docker, cloud, or VPS) is planned for the next phase.
 - **Onchain:**
