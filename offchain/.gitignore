@@ -4,12 +4,7 @@
 *.sqlite3
 *.log
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
-*.db
-*.sqlite
-.env
+
 .env.*
 .vscode/
 .idea/
@@ -22,7 +17,7 @@ venv/
 env/
 *.egg-info/
 dist/
-models/
+# models/
 build/
 .pytest_cache/
 .coverage

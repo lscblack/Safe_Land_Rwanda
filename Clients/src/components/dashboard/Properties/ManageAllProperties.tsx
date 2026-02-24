@@ -116,6 +116,7 @@ interface ParcelInformation {
     owners?: ParcelParty[];
     inProcess?: boolean;
     in_process?: boolean;
+    rightTypeName?: string;
     address?: ParcelLocation | any;
     rightType?: string;
     right_type?: string;
@@ -127,6 +128,8 @@ interface ParcelInformation {
     yCoordinate?: string;
     parcelLocation?: ParcelLocation;
     parcel_location?: ParcelLocation;
+    landUse?: any;
+    tenure?: any;
     representative?: Representative | any;
     isUnderMortgage?: boolean;
     is_under_mortgage?: boolean;
@@ -193,6 +196,7 @@ interface Property {
     upi: string;
     owner_id?: string | number;
     owner_name?: string;
+    rightTypeName?: string;
     category_id?: number;
     subcategory_id?: number;
     parcel_id?: string;
@@ -251,7 +255,8 @@ interface Property {
     remaining_lease_term?: any;
     is_under_restriction?: boolean;
     in_process?: boolean;
-
+    landUse?: any;
+    tenure?: any;
     // Planned land uses
     planned_land_uses?: PlannedLandUse[];
 
@@ -461,6 +466,7 @@ export const PropertyManagement = () => {
             parcelRaw.landUseNameEnglish ||
             parcelInfo.landUseName ||
             parcelRaw.landUseName ||
+            parcelInfo.landUse?.landUseTypeNameEnglish ||
             '';
 
         // Get size
@@ -515,6 +521,8 @@ export const PropertyManagement = () => {
         const rightType = serverData.right_type ||
             parcelInfo.right_type ||
             parcelInfo.rightType ||
+            parcelRaw.tenure.rightTypeName ||
+            parcelInfo.tenure.rightTypeName ||
             '';
 
         // Get coordinates
@@ -546,6 +554,7 @@ export const PropertyManagement = () => {
             status: serverData.status || 'draft',
             estimated_amount: serverData.estimated_amount,
             latitude,
+            landUse,
             longitude,
             amount_paid: serverData.amount_paid,
             new_owner_id: serverData.new_owner_id,
@@ -618,7 +627,7 @@ export const PropertyManagement = () => {
             const res = await api.get(endpoint, {
                 params: { limit: lim, skip: sk }
             });
-            console.log('API response for properties:', res.data);
+            // console.log('API response for properties:', res.data);
 
             const items = res.data.items || [];
             const mapped = items.map((it: any) => mapServerToProperty(it));
@@ -1345,7 +1354,8 @@ export const PropertyManagement = () => {
     // ============================================================================
     // MAIN RENDER
     // ============================================================================
-
+    //
+    console.log('Rendering ManageAllProperties with properties:', properties);
     return (
         <div className="min-h-screen bg-gray-50 dark:bg-[#050c1a] text-slate-900 dark:text-white p-6 lg:p-10 font-sans transition-colors duration-300">
             <div className="max-w-full mx-auto space-y-8">
@@ -1525,7 +1535,7 @@ export const PropertyManagement = () => {
                                             <div>
                                                 <span className="block text-[10px] uppercase font-bold text-gray-400">Land Use</span>
                                                 <span className="font-mono text-slate-700 dark:text-gray-300">
-                                                    {property.land_use ? property.land_use.split(' ')[0] : '—'}
+                                                    {property?.land_use ? property.land_use.split(' ')[0] : property?.landUseTypeNameEnglish || property.landUse?.landUseTypeNameEnglish || '—'}
                                                 </span>
                                             </div>
                                         </div>
@@ -2058,7 +2068,7 @@ export const PropertyManagement = () => {
                                             />
                                             <DetailItem
                                                 label="Land Use"
-                                                value={selectedProperty.land_use || '—'}
+                                                value={selectedProperty?.land_use || selectedProperty?.landUseTypeNameEnglish || '—'}
                                                 icon={LandPlot}
                                             />
                                         </div>
@@ -2138,7 +2148,7 @@ export const PropertyManagement = () => {
                                             </h3>
                                             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                                 <DetailItem label="Province" value={
-                                                    selectedProperty.parcel_information?.parcelLocation.province?.provinceName
+                                                    selectedProperty.parcel_information?.parcelLocation?.province?.provinceName || selectedProperty.parcel_information?.address?.provinceNameEnglish|| '—'
 
                                                 } icon={MapPinHouse} />
                                                 <DetailItem label="District" value={selectedProperty.district || '—'} icon={Building} />

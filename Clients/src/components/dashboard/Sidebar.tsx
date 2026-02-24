@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { LayoutDashboard, Building2, Users, BarChart3, Settings, LogOut, Timer, Building } from 'lucide-react';
+import { LayoutDashboard, Building2, Users, BarChart3, Settings, LogOut, Timer, Building, Map } from 'lucide-react';
 import { clsx } from 'clsx';
 
 // Define all possible views (sync with Dashboard)
@@ -40,6 +40,13 @@ const MENU_CONFIG = [
         icon: LayoutDashboard,
         labelKey: 'dash.nav.overview',
         roles: ['admin', 'seller', 'buyer', 'blocker'],
+    },
+    {
+        id: 'maps',
+        place: 'main',
+        icon: Map,
+        labelKey: 'GIS Map',
+        roles: ['admin'],
     },
     {
         id: 'category',

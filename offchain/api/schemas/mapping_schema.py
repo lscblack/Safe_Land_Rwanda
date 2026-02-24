@@ -5,8 +5,9 @@ from datetime import datetime
 class MappingSchema(BaseModel):
     id: Optional[int]
     upi: str
-    gispolygon: Optional[str] = None
-    parcel_polygon: Optional[str] = None
+    official_registry_polygon: Optional[str] = None
+    document_detected_polygon: Optional[str] = None
+    status_details: Optional[str] = None
     overlaps: Optional[bool] = False
     year_of_record: Optional[int] = None
     save_to_buy: Optional[bool] = False

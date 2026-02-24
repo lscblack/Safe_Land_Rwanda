@@ -199,6 +199,7 @@ async def _enrich_property_dict(prop, db: AsyncSession):
     try:
         if getattr(prop, 'category_id', None):
             res = await db.execute(select(PropertyCategory).where(PropertyCategory.id == prop.category_id))
+
             cat = res.scalar_one_or_none()
             if cat:
                 base['category'] = { 'id': cat.id, 'name': cat.name, 'label': cat.label, 'icon': cat.icon }
@@ -667,12 +668,17 @@ async def create_property(property: dict = Body(...), db: AsyncSession = Depends
         if 'parcel_raw' in data and isinstance(data.get('parcel_raw'), dict):
             # prefer the provided parcel_raw as-is
             try:
-                # remove any pre-populated parcel_information (e.g. from enrichment)
-                # to avoid nesting `parcel_information` inside itself when we later
-                # consolidate keys. The client-provided `parcel_raw` should be
-                # authoritative for what is stored under `parcel_information`.
-                data.pop('parcel_information', None)
-                explicit_pi = data.pop('parcel_raw') or explicit_pi
+                # prefer the provided parcel_raw as authoritative for parcel_information
+                # but do NOT remove any existing `parcel_information` field from the payload
+                # to avoid dropping data sent by clients. Merge gently so we keep both.
+                raw = data.pop('parcel_raw') or {}
+                if isinstance(explicit_pi, dict):
+                    # merge keys from raw into explicit_pi without losing existing keys
+                    for kk, vv in (raw.items() if isinstance(raw, dict) else []):
+                        if kk not in explicit_pi:
+                            explicit_pi[kk] = vv
+                else:
+                    explicit_pi = raw or explicit_pi
             except Exception:
                 pass
         # move any keys that look parcel-related into parcel_information
@@ -1832,9 +1838,7 @@ async def move_property_to_history(payload: dict = Body(...), db: AsyncSession =
 
 @router.put("/properties/{property_id}/update_parcel", response_model=PropertySchema)
 async def update_property_parcel_flags(property_id: int, payload: dict = Body(...), db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
-    """Update property's UPI and parcel flags (isUnderMortgage, isUnderRestriction, inProcess).
-    Also records a PropertyHistory snapshot in `property_history`.
-    """
+   
     from data.models.models import PropertyHistory
     result = await db.execute(select(Property).where(Property.id == property_id))
     obj = result.scalar_one_or_none()
@@ -2301,3 +2305,15 @@ async def delete_property_image(property_id: int, image_id: int, db: AsyncSessio
     except Exception as e:
         await db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+    
+@router.get("/properties/by-upi/{upi:path}", response_model=PropertySchema)
+async def get_property_by_upi(upi: str, db: AsyncSession = Depends(get_db)):
+    # Load the property by UPI and eagerly load related images via the relationship
+    result = await db.execute(select(Property).options(selectinload(Property.images)).where(Property.upi == upi))
+    obj = result.scalar_one_or_none()
+
+    if not obj:
+        raise HTTPException(status_code=404, detail="Property not found")
+
+    enriched = await _enrich_property_dict(obj, db)
+    return PropertySchema(**enriched)

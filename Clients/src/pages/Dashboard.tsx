@@ -15,6 +15,7 @@ import { CategoryManagement } from '../components/dashboard/Categories/Categorie
 import { PropertyManagement } from '../components/dashboard/Properties/ManageAllProperties';
 import { AgencyManagement } from '../components/dashboard/agents/AgencyManagement';
 import { UserManagement } from '../components/dashboard/agents/UsersMAnag';
+import ParcelMap from '../components/maps_comp/Main_Map';
 
 
 type ViewState =
@@ -237,6 +238,7 @@ export const DashboardLayout = () => {
                                 {activeView === 'users' && <UserManagement />}
                                 {activeView === 'analytics' && <EmptyWidget title="Analytics Center" />}
                                 {activeView === 'settings' && <EmptyWidget title="System Settings" />}
+                                {activeView === 'maps' && <ParcelMap/>}
                             </motion.div>
                         </AnimatePresence>
                     </div>
