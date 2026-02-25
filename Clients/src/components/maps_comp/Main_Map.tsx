@@ -15,7 +15,7 @@ import {
   Circle,
 } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
-import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   X,
@@ -47,10 +47,13 @@ import {
   Train,
   Bike,
   ParkingCircle,
+  PawPrint,
+  Banknote,
   Stethoscope,
   Pill,
   Baby,
   Heart,
+  Bone,
   Eye,
   Brain,
   Droplet,
@@ -58,6 +61,9 @@ import {
   BookOpen,
   GraduationCap,
   Library,
+  Mic,
+  Palette,
+  Drum,
   Coffee,
   Pizza,
   Cake,
@@ -70,33 +76,49 @@ import {
   Flower2,
   Gem,
   Dog,
+  Cat,
   Wallet,
   Mail,
   FileText,
   Scale,
+  Gavel,
   Shield,
   Flame,
   Waves,
   Plane,
+  TrainTrack,
   BusFront,
   Bike as BikeIcon,
   ParkingMeter,
   BatteryCharging,
+  Church as ChurchIcon,
   LandPlot,
+  Drama,
   Music,
   Camera,
   Dumbbell,
+  Waves as Beach,
   Mountain,
+  Bird,
   Tent,
   Hotel,
   Building,
   Globe,
+  Sparkles,
   Wifi,
   Printer,
   Laptop,
   WashingMachine,
+  Scissors,
   Theater,
+  MicVocal,
+  Palette as Art,
+  Camera as Photo,
+  Scissors as Tattoo,
   Film,
+  AlertCircle,
+  CheckCircle2,
+  XCircle,
 } from "lucide-react";
 import L from "leaflet";
 import api from "../../instance/mainAxios";
@@ -116,6 +138,8 @@ interface ParcelStatus {
   hasCaveat: boolean;
   isProvisional?: boolean;
   area?: number;
+  status?: string;
+  isPublished?: boolean;
 }
 
 interface Owner {
@@ -123,18 +147,67 @@ interface Owner {
   sharePercentage?: string;
   idNo?: string;
   partyId?: string;
+  idTypeName?: string;
+  countryName?: string;
+  gender?: string;
+  maritalStatus?: string;
 }
 
 interface Representative {
   foreNames: string;
   surname: string;
+  idNo?: string;
+  idTypeName?: string;
+  countryName?: string;
+  gender?: string;
+  maritalStatus?: string;
+  address?: {
+    village?: { villageName: string };
+    cell?: { cellName: string };
+    sector?: { sectorName: string };
+    district?: { districtName: string };
+    province?: { provinceName: string };
+  };
+}
+
+interface Coordinate {
+  lat: string;
+  lon: string;
+}
+
+interface ValuationValue {
+  minPrice?: string;
+  maxPrice?: string;
+}
+
+interface PlannedLandUse {
+  upi: string;
+  landUseName: string;
+  area?: number;
+}
+
+interface LocationDetail {
+  villageCode?: string;
+  villageName?: string;
+  cellCode?: string;
+  cellName?: string;
+  sectorCode?: string;
+  sectorName?: string;
+  districtCode?: string;
+  districtName?: string;
+  provinceCode?: string;
+  provinceName?: string;
 }
 
 interface ParcelInfo {
   upi: string;
   area?: number;
+  size?: number;
   rightType?: string;
   landUse?: string;
+  landUseNameEnglish?: string;
+  landUseNameKinyarwanda?: string;
+  landUseCode?: number;
   owners: Owner[];
   representative?: Representative;
   estimatedAmount?: number;
@@ -144,6 +217,11 @@ interface ParcelInfo {
     inTransaction: boolean;
     underMortgage: boolean;
     hasCaveat: boolean;
+    inProcess?: boolean;
+    isUnderMortgage?: boolean;
+    isUnderRestriction?: boolean;
+    status?: string;
+    isPublished?: boolean;
   };
   location: {
     village?: string;
@@ -156,15 +234,32 @@ interface ParcelInfo {
     neighborhood?: string;
     mainRoad?: string;
     mainRoadDistance?: number;
+    parcelLocation?: {
+      village?: LocationDetail;
+      cell?: LocationDetail;
+      sector?: LocationDetail;
+      district?: LocationDetail;
+      province?: LocationDetail;
+    };
   };
   overlapping?: boolean;
-  coordinates?: number[][];
+  coordinates?: Coordinate[];
   documents?: { id: number; title: string; file_path: string }[];
   valuation?: {
     amount: number;
     date: string;
     valuator: string;
+    minPrice?: string;
+    maxPrice?: string;
   };
+  plannedLandUses?: PlannedLandUse[];
+  coordinateReferenceSystem?: string;
+  xCoordinate?: string;
+  yCoordinate?: string;
+  externalDataError?: boolean;
+  propertyDataError?: boolean;
+  verificationFailed?: boolean;
+  dataSource?: 'external' | 'property' | 'both' | 'none';
 }
 
 interface NearbyPlace {
@@ -180,14 +275,7 @@ interface NearbyPlace {
   phone?: string;
   hours?: string;
   website?: string;
-}
-
-interface Road {
-  id: string;
-  name: string;
-  type: 'main' | 'secondary' | 'residential' | 'highway';
-  distance: number;
-  position: [number, number];
+  road?: string;
 }
 
 interface FilterState {
@@ -210,116 +298,113 @@ interface DraggableModalProps {
 }
 
 /* =========================
+   PRICE FORMATTER
+========================= */
+function formatPrice(price?: number): string {
+  if (!price) return '';
+  
+  if (price >= 1000000) {
+    return `${(price / 1000000).toFixed(1)}M`;
+  } else if (price >= 1000) {
+    return `${(price / 1000).toFixed(0)}k`;
+  } else {
+    return price.toString();
+  }
+}
+
+/* =========================
+   DISTANCE FORMATTER
+========================= */
+function formatDistance(meters: number): string {
+  if (meters >= 1000) {
+    return `${(meters / 1000).toFixed(1)}km`;
+  } else {
+    return `${Math.round(meters)}m`;
+  }
+}
+
+/* =========================
    POI TYPE ICONS MAPPING
 ========================= */
-const poiIcons: Record<string, { icon: React.ReactNode; color: string }> = {
+const poiIcons: Record<string, { icon: React.ReactNode; color: string; emoji: string; category: string }> = {
   // Healthcare
-  hospital: { icon: <Hospital size={16} />, color: "#EF4444" },
-  clinic: { icon: <Stethoscope size={16} />, color: "#F97316" },
-  pharmacy: { icon: <Pill size={16} />, color: "#10B981" },
-  dental: { icon: <Baby size={16} />, color: "#8B5CF6" },
-  veterinary: { icon: <Dog size={16} />, color: "#EC4899" },
-  rehabilitation: { icon: <Heart size={16} />, color: "#EF4444" },
-  eye_care: { icon: <Eye size={16} />, color: "#3B82F6" },
-  mental_health: { icon: <Brain size={16} />, color: "#8B5CF6" },
-  blood_bank: { icon: <Droplet size={16} />, color: "#EF4444" },
-  diagnostic_lab: { icon: <FlaskConical size={16} />, color: "#6B7280" },
-
+  hospital: { icon: <Hospital size={16} />, color: "#EF4444", emoji: "🏥", category: "Healthcare" },
+  clinic: { icon: <Stethoscope size={16} />, color: "#F97316", emoji: "🏥", category: "Healthcare" },
+  pharmacy: { icon: <Pill size={16} />, color: "#10B981", emoji: "💊", category: "Healthcare" },
+  doctors: { icon: <Stethoscope size={16} />, color: "#3B82F6", emoji: "👨‍⚕️", category: "Healthcare" },
+  dentist: { icon: <Baby size={16} />, color: "#8B5CF6", emoji: "🦷", category: "Healthcare" },
+  
   // Education
-  school: { icon: <School size={16} />, color: "#3B82F6" },
-  university: { icon: <GraduationCap size={16} />, color: "#6366F1" },
-  kindergarten: { icon: <Baby size={16} />, color: "#EC4899" },
-  library: { icon: <Library size={16} />, color: "#8B5CF6" },
-  training_center: { icon: <BookOpen size={16} />, color: "#F59E0B" },
+  school: { icon: <School size={16} />, color: "#3B82F6", emoji: "🏫", category: "Education" },
+  university: { icon: <GraduationCap size={16} />, color: "#6366F1", emoji: "🎓", category: "Education" },
+  kindergarten: { icon: <Baby size={16} />, color: "#EC4899", emoji: "🧸", category: "Education" },
+  library: { icon: <Library size={16} />, color: "#8B5CF6", emoji: "📚", category: "Education" },
+  college: { icon: <GraduationCap size={16} />, color: "#6366F1", emoji: "🏛️", category: "Education" },
 
   // Food & Dining
-  restaurant: { icon: <Utensils size={16} />, color: "#F59E0B" },
-  cafe: { icon: <Coffee size={16} />, color: "#8B5CF6" },
-  fast_food: { icon: <Pizza size={16} />, color: "#EF4444" },
-  bakery: { icon: <Cake size={16} />, color: "#F97316" },
-  ice_cream: { icon: <IceCream size={16} />, color: "#EC4899" },
+  restaurant: { icon: <Utensils size={16} />, color: "#F59E0B", emoji: "🍽️", category: "Food & Dining" },
+  cafe: { icon: <Coffee size={16} />, color: "#8B5CF6", emoji: "☕", category: "Food & Dining" },
+  fast_food: { icon: <Pizza size={16} />, color: "#EF4444", emoji: "🍔", category: "Food & Dining" },
+  bar: { icon: <Coffee size={16} />, color: "#6B7280", emoji: "🍺", category: "Food & Dining" },
+  pub: { icon: <Coffee size={16} />, color: "#6B7280", emoji: "🍻", category: "Food & Dining" },
+  bakery: { icon: <Cake size={16} />, color: "#F97316", emoji: "🥖", category: "Food & Dining" },
 
   // Retail & Commerce
-  shop: { icon: <Store size={16} />, color: "#10B981" },
-  supermarket: { icon: <ShoppingCart size={16} />, color: "#10B981" },
-  mall: { icon: <Building2 size={16} />, color: "#6366F1" },
-  boutique: { icon: <Shirt size={16} />, color: "#EC4899" },
-  market: { icon: <Store size={16} />, color: "#F59E0B" },
-  convenience_store: { icon: <ShoppingBag size={16} />, color: "#10B981" },
-  electronics: { icon: <Laptop size={16} />, color: "#3B82F6" },
-  clothing: { icon: <Shirt size={16} />, color: "#EC4899" },
-  furniture: { icon: <Sofa size={16} />, color: "#8B5CF6" },
-  bookstore: { icon: <BookOpen size={16} />, color: "#F59E0B" },
-  hardware: { icon: <Wrench size={16} />, color: "#6B7280" },
-  florist: { icon: <Flower2 size={16} />, color: "#EC4899" },
-  jewelry: { icon: <Gem size={16} />, color: "#F59E0B" },
-  pet_store: { icon: <Dog size={16} />, color: "#8B5CF6" },
+  supermarket: { icon: <ShoppingCart size={16} />, color: "#10B981", emoji: "🛒", category: "Retail" },
+  mall: { icon: <Building2 size={16} />, color: "#6366F1", emoji: "🏬", category: "Retail" },
+  market: { icon: <Store size={16} />, color: "#F59E0B", emoji: "🏪", category: "Retail" },
+  shop: { icon: <Store size={16} />, color: "#10B981", emoji: "🛒", category: "Retail" },
+  convenience: { icon: <ShoppingBag size={16} />, color: "#10B981", emoji: "🏪", category: "Retail" },
+  department_store: { icon: <Building2 size={16} />, color: "#6366F1", emoji: "🏬", category: "Retail" },
 
-  // Finance & Services
-  bank: { icon: <Landmark size={16} />, color: "#6366F1" },
-  atm: { icon: <Wallet size={16} />, color: "#10B981" },
-  post_office: { icon: <Mail size={16} />, color: "#3B82F6" },
-  insurance: { icon: <Shield size={16} />, color: "#8B5CF6" },
-  currency_exchange: { icon: <Wallet size={16} />, color: "#F59E0B" },
-  notary: { icon: <FileText size={16} />, color: "#6B7280" },
-  legal: { icon: <Scale size={16} />, color: "#8B5CF6" },
+  // Finance
+  bank: { icon: <Landmark size={16} />, color: "#6366F1", emoji: "🏦", category: "Finance" },
+  atm: { icon: <Banknote size={16} />, color: "#10B981", emoji: "💳", category: "Finance" },
+  bureau_de_change: { icon: <Wallet size={16} />, color: "#F59E0B", emoji: "💱", category: "Finance" },
 
-  // Safety & Emergency
-  police: { icon: <Shield size={16} />, color: "#1F2937" },
-  fire_station: { icon: <Flame size={16} />, color: "#EF4444" },
-  ambulance: { icon: <Heart size={16} />, color: "#EF4444" },
+  // Transportation
+  fuel: { icon: <Fuel size={16} />, color: "#DC2626", emoji: "⛽", category: "Transportation" },
+  petrol_station: { icon: <Fuel size={16} />, color: "#DC2626", emoji: "⛽", category: "Transportation" },
+  bus_stop: { icon: <Bus size={16} />, color: "#3B82F6", emoji: "🚌", category: "Transportation" },
+  bus_station: { icon: <BusFront size={16} />, color: "#3B82F6", emoji: "🚏", category: "Transportation" },
+  taxi: { icon: <Car size={16} />, color: "#F59E0B", emoji: "🚕", category: "Transportation" },
+  parking: { icon: <ParkingCircle size={16} />, color: "#3B82F6", emoji: "🅿️", category: "Transportation" },
+  bicycle_rental: { icon: <BikeIcon size={16} />, color: "#10B981", emoji: "🚲", category: "Transportation" },
 
-  // Transportation & Mobility
-  fuel_station: { icon: <Fuel size={16} />, color: "#DC2626" },
-  bus_stop: { icon: <Bus size={16} />, color: "#3B82F6" },
-  bus_station: { icon: <BusFront size={16} />, color: "#3B82F6" },
-  train_station: { icon: <Train size={16} />, color: "#8B5CF6" },
-  airport: { icon: <Plane size={16} />, color: "#6B7280" },
-  taxi_stand: { icon: <Car size={16} />, color: "#F59E0B" },
-  parking: { icon: <ParkingCircle size={16} />, color: "#3B82F6" },
-  parking_garage: { icon: <ParkingMeter size={16} />, color: "#3B82F6" },
-  bicycle_rental: { icon: <BikeIcon size={16} />, color: "#10B981" },
-  ev_charging: { icon: <BatteryCharging size={16} />, color: "#10B981" },
+  // Emergency
+  police: { icon: <Shield size={16} />, color: "#1F2937", emoji: "👮", category: "Emergency" },
+  fire_station: { icon: <Flame size={16} />, color: "#EF4444", emoji: "🚒", category: "Emergency" },
 
-  // Religion & Culture
-  church: { icon: <Church size={16} />, color: "#8B5CF6" },
-  mosque: { icon: <Building2 size={16} />, color: "#10B981" },
-  temple: { icon: <Building2 size={16} />, color: "#F59E0B" },
-  cultural_center: { icon: <LandPlot size={16} />, color: "#8B5CF6" },
-  museum: { icon: <Landmark size={16} />, color: "#8B5CF6" },
+  // Religion
+  place_of_worship: { icon: <Church size={16} />, color: "#8B5CF6", emoji: "⛪", category: "Religion" },
+  church: { icon: <Church size={16} />, color: "#8B5CF6", emoji: "⛪", category: "Religion" },
+  mosque: { icon: <Church size={16} />, color: "#10B981", emoji: "🕌", category: "Religion" },
+  temple: { icon: <Building2 size={16} />, color: "#F59E0B", emoji: "🛕", category: "Religion" },
 
-  // Recreation & Nature
-  park: { icon: <Trees size={16} />, color: "#059669" },
-  playground: { icon: <Baby size={16} />, color: "#F59E0B" },
-  gym: { icon: <Dumbbell size={16} />, color: "#3B82F6" },
-  beach: { icon: <Waves size={16} />, color: "#3B82F6" },
-  hiking_trail: { icon: <Mountain size={16} />, color: "#059669" },
-  zoo: { icon: <Dog size={16} />, color: "#F59E0B" },
+  // Recreation
+  park: { icon: <Trees size={16} />, color: "#059669", emoji: "🌳", category: "Recreation" },
+  playground: { icon: <Baby size={16} />, color: "#F59E0B", emoji: "🛝", category: "Recreation" },
+  gym: { icon: <Dumbbell size={16} />, color: "#3B82F6", emoji: "💪", category: "Recreation" },
+  fitness_centre: { icon: <Dumbbell size={16} />, color: "#3B82F6", emoji: "🏋️", category: "Recreation" },
+  sports_centre: { icon: <Dumbbell size={16} />, color: "#3B82F6", emoji: "⚽", category: "Recreation" },
+  stadium: { icon: <Building2 size={16} />, color: "#3B82F6", emoji: "🏟️", category: "Recreation" },
 
-  // Tourism & Hospitality
-  hotel: { icon: <Hotel size={16} />, color: "#6366F1" },
-  hostel: { icon: <Building size={16} />, color: "#F59E0B" },
-  resort: { icon: <Building2 size={16} />, color: "#10B981" },
-  tourist_info: { icon: <Info size={16} />, color: "#3B82F6" },
+  // Tourism
+  hotel: { icon: <Hotel size={16} />, color: "#6366F1", emoji: "🏨", category: "Tourism" },
+  hostel: { icon: <Building size={16} />, color: "#F59E0B", emoji: "🏠", category: "Tourism" },
+  guest_house: { icon: <Building size={16} />, color: "#10B981", emoji: "🏡", category: "Tourism" },
+  tourist_info: { icon: <Info size={16} />, color: "#3B82F6", emoji: "ℹ️", category: "Tourism" },
+  landmark: { icon: <Landmark size={16} />, color: "#8B5CF6", emoji: "🗽", category: "Tourism" },
+  monument: { icon: <Landmark size={16} />, color: "#8B5CF6", emoji: "🗿", category: "Tourism" },
 
-  // Technology & Work
-  internet_cafe: { icon: <Wifi size={16} />, color: "#3B82F6" },
-  coworking_space: { icon: <Laptop size={16} />, color: "#8B5CF6" },
-  office: { icon: <Building2 size={16} />, color: "#6B7280" },
-  printing_center: { icon: <Printer size={16} />, color: "#F59E0B" },
-
-  // Others
-  car_repair: { icon: <Wrench size={16} />, color: "#6B7280" },
-  laundromat: { icon: <WashingMachine size={16} />, color: "#3B82F6" },
-  theater: { icon: <Theater size={16} />, color: "#EC4899" },
-  cinema: { icon: <Film size={16} />, color: "#8B5CF6" },
-
-  // Roads
-  main_road: { icon: <Car size={16} />, color: "#374151" },
-  highway: { icon: <Car size={16} />, color: "#1F2937" },
+  // Government & Public Services
+  town_hall: { icon: <Building2 size={16} />, color: "#374151", emoji: "🏛️", category: "Government" },
+  post_office: { icon: <Mail size={16} />, color: "#3B82F6", emoji: "📮", category: "Government" },
+  courthouse: { icon: <Scale size={16} />, color: "#8B5CF6", emoji: "⚖️", category: "Government" },
+  prison: { icon: <Building2 size={16} />, color: "#374151", emoji: "🏛️", category: "Government" },
 
   // Default
-  default: { icon: <MapPin size={16} />, color: "#6B7280" },
+  default: { icon: <MapPin size={16} />, color: "#6B7280", emoji: "📍", category: "Other" },
 };
 
 /* =========================
@@ -339,8 +424,9 @@ const createPoiIcon = (type: string, isSelected: boolean = false) => {
       color: white;
       border: ${isSelected ? '3px solid white' : '2px solid white'};
       box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+      font-size: ${isSelected ? 16 : 12}px;
       transition: all 0.2s;
-    ">${React.createElement(poi.icon.type, { size: isSelected ? 16 : 12, color: 'white' })}</div>`,
+    ">${poi.emoji}</div>`,
     className: 'custom-poi-icon',
     iconSize: [isSelected ? 32 : 24, isSelected ? 32 : 24],
     iconAnchor: [isSelected ? 16 : 12, isSelected ? 16 : 12],
@@ -632,7 +718,7 @@ function getCenter(coords: [number, number][]): [number, number] {
    DISTANCE CALCULATOR
 ========================= */
 function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371e3; // Earth's radius in meters
+  const R = 6371e3;
   const φ1 = lat1 * Math.PI/180;
   const φ2 = lat2 * Math.PI/180;
   const Δφ = (lat2-lat1) * Math.PI/180;
@@ -655,122 +741,90 @@ function getParcelColor(status: ParcelStatus, overlapping: boolean): string {
   if (status.underMortgage) return "#F59E0B";
   if (status.hasCaveat) return "#8B5CF6";
   if (status.isProvisional) return "#6B7280";
+  if (status.status === 'published') return "var(--color-primary)";
+  if (status.status === 'pending') return "#F59E0B";
+  if (status.status === 'draft') return "#6B7280";
   return "var(--color-primary)";
 }
 
 /* =========================
-   GENERATE NEARBY PLACES BASED ON COORDINATES
+   PRICE MARKER COMPONENT
 ========================= */
-function generateNearbyPlaces(lat: number, lng: number, parcelId: string): { places: NearbyPlace[], mainRoad: Road | null } {
-  // Use the parcel coordinates to generate unique nearby places
-  // This ensures different parcels show different nearby places
+function PriceMarker({ position, price }: { position: [number, number]; price?: number }) {
+  const formattedPrice = formatPrice(price);
   
-  // Create a deterministic but varied set of places based on coordinates
-  const seed = (lat * 100 + lng * 100).toFixed(2);
-  const hash = parseInt(seed.replace(/[^0-9]/g, '')) || 1;
+  if (!formattedPrice) return null;
   
-  const placeNames = [
-    ['Pharmacy', 'Clinic', 'Hospital', 'Dental Clinic', 'Eye Care'],
-    ['School', 'Library', 'University', 'Training Center', 'Kindergarten'],
-    ['Restaurant', 'Cafe', 'Bakery', 'Fast Food', 'Ice Cream'],
-    ['Supermarket', 'Shop', 'Mall', 'Market', 'Bookstore'],
-    ['Bank', 'ATM', 'Post Office', 'Insurance', 'Currency Exchange'],
-    ['Police', 'Fire Station', 'Ambulance', 'Security Office'],
-    ['Fuel Station', 'Bus Stop', 'Taxi Stand', 'Parking', 'EV Charging'],
-    ['Church', 'Mosque', 'Temple', 'Cultural Center', 'Museum'],
-    ['Park', 'Gym', 'Playground', 'Sports Complex', 'Hiking Trail'],
-    ['Hotel', 'Hostel', 'Resort', 'Tourist Info', 'Spa'],
-  ];
-  
-  const categories = [
-    'Healthcare', 'Education', 'Food & Dining', 'Retail & Commerce', 
-    'Finance & Services', 'Safety & Emergency', 'Transportation & Mobility',
-    'Religion & Culture', 'Recreation & Nature', 'Tourism & Hospitality'
-  ];
-  
-  const types = [
-    ['pharmacy', 'clinic', 'hospital', 'dental', 'eye_care'],
-    ['school', 'library', 'university', 'training_center', 'kindergarten'],
-    ['restaurant', 'cafe', 'bakery', 'fast_food', 'ice_cream'],
-    ['supermarket', 'shop', 'mall', 'market', 'bookstore'],
-    ['bank', 'atm', 'post_office', 'insurance', 'currency_exchange'],
-    ['police', 'fire_station', 'ambulance', 'security_office'],
-    ['fuel_station', 'bus_stop', 'taxi_stand', 'parking', 'ev_charging'],
-    ['church', 'mosque', 'temple', 'cultural_center', 'museum'],
-    ['park', 'gym', 'playground', 'sports_complex', 'hiking_trail'],
-    ['hotel', 'hostel', 'resort', 'tourist_info', 'spa'],
-  ];
+  const markerIcon = L.divIcon({
+    html: `<div style="
+      background-color: white;
+      color: var(--color-primary);
+      padding: 4px 8px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      border: 2px solid var(--color-primary);
+      white-space: nowrap;
+    ">${formattedPrice}</div>`,
+    className: 'price-marker',
+    iconSize: [60, 30],
+    iconAnchor: [30, 15],
+  });
 
-  const places: NearbyPlace[] = [];
-  
-  // Generate 15-25 places based on the parcel coordinates
-  const numPlaces = 15 + (hash % 10);
-  
-  for (let i = 0; i < numPlaces; i++) {
-    const categoryIndex = i % categories.length;
-    const nameIndex = (i + hash) % placeNames[categoryIndex].length;
-    const typeIndex = (i + hash) % types[categoryIndex].length;
-    
-    // Calculate position within 100m radius
-    const angle = (i * 137.5 * hash) % 360; // Golden angle approximation for even distribution
-    const distance = 20 + (hash * i % 80); // 20-100m range
-    const rad = angle * Math.PI / 180;
-    
-    // Convert meters to degrees (approximately)
-    const latOffset = (distance / 111320) * Math.cos(rad);
-    const lngOffset = (distance / (111320 * Math.cos(lat * Math.PI / 180))) * Math.sin(rad);
-    
-    const placeLat = lat + latOffset;
-    const placeLng = lng + lngOffset;
-    
-    // Generate rating between 3.5 and 5.0
-    const rating = 3.5 + (hash * i % 15) / 10;
-    
-    places.push({
-      id: `${parcelId}_${categories[categoryIndex]}_${i}`,
-      name: `${placeNames[categoryIndex][nameIndex]} ${i + 1}`,
-      category: categories[categoryIndex],
-      type: types[categoryIndex][typeIndex],
-      distance: Math.round(distance),
-      position: [placeLat, placeLng],
-      address: `KK ${Math.floor(10 + (hash % 20))} Rd, Kigali`,
-      phone: `+250 78${Math.floor(8 + (hash % 2))} ${Math.floor(100 + (hash % 900))} ${Math.floor(100 + (hash % 900))}`,
-      hours: ['8AM - 8PM', '24/7', '9AM - 6PM', '7AM - 10PM', '10AM - 11PM'][hash % 5],
-      rating: Math.round(rating * 10) / 10,
-    });
-  }
-  
-  // Generate main roads
-  const roadNames = ['KK 15 Road', 'KN 5 Road', 'KK 14 Road', 'KN 3 Road', 'KK 20 Road', 'KN 8 Ave'];
-  const roadTypes: ('main' | 'highway')[] = ['main', 'highway'];
-  
-  const roads: Road[] = [];
-  const numRoads = 2 + (hash % 2);
-  
-  for (let i = 0; i < numRoads; i++) {
-    const roadDistance = 20 + (hash * (i + 1) % 150);
-    const angle = (i * 90 + hash) % 360;
-    const rad = angle * Math.PI / 180;
-    
-    const latOffset = (roadDistance / 111320) * Math.cos(rad);
-    const lngOffset = (roadDistance / (111320 * Math.cos(lat * Math.PI / 180))) * Math.sin(rad);
-    
-    roads.push({
-      id: `road_${parcelId}_${i}`,
-      name: roadNames[(hash + i) % roadNames.length],
-      type: roadTypes[i % roadTypes.length],
-      distance: roadDistance,
-      position: [lat + latOffset, lng + lngOffset],
-    });
-  }
-  
-  // Find closest main road
-  const mainRoads = roads.filter(r => r.type === 'main' || r.type === 'highway');
-  const closestMainRoad = mainRoads.length > 0 
-    ? mainRoads.reduce((prev, curr) => prev.distance < curr.distance ? prev : curr)
-    : null;
-  
-  return { places, mainRoad: closestMainRoad };
+  return (
+    <Marker position={position} icon={markerIcon} />
+  );
+}
+
+/* =========================
+   ERROR BANNER COMPONENT
+========================= */
+function ErrorBanner({ 
+  type, 
+  message 
+}: { 
+  type: 'warning' | 'error' | 'info';
+  message: string;
+}) {
+  const colors = {
+    warning: {
+      bg: '#FFFBEB',
+      border: '#F59E0B',
+      text: '#92400E',
+      icon: <AlertCircle size={16} color="#F59E0B" />
+    },
+    error: {
+      bg: '#FEF2F2',
+      border: '#EF4444',
+      text: '#991B1B',
+      icon: <XCircle size={16} color="#EF4444" />
+    },
+    info: {
+      bg: '#EFF6FF',
+      border: '#3B82F6',
+      text: '#1E40AF',
+      icon: <Info size={16} color="#3B82F6" />
+    }
+  };
+
+  const style = colors[type];
+
+  return (
+    <div style={{
+      padding: '12px',
+      backgroundColor: style.bg,
+      border: `1px solid ${style.border}`,
+      borderRadius: 8,
+      marginBottom: 16,
+      display: 'flex',
+      alignItems: 'center',
+      gap: 8,
+    }}>
+      {style.icon}
+      <span style={{ fontSize: 13, color: style.text }}>{message}</span>
+    </div>
+  );
 }
 
 /* =========================
@@ -792,6 +846,7 @@ export default function ParcelMap({
   const [parcelInfo, setParcelInfo] = useState<ParcelInfo | null>(null);
   const [loadingMap, setLoadingMap] = useState(true);
   const [loadingInfo, setLoadingInfo] = useState(false);
+  const [loadingNearby, setLoadingNearby] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [mapStyle, setMapStyle] = useState<"osm" | "satellite" | "dark" | "streets">("streets");
   const [filter, setFilter] = useState<FilterState>({
@@ -801,7 +856,7 @@ export default function ParcelMap({
     ownership: "all",
     nearbyCategories: [],
     nearbyTypes: [],
-    searchRadius: 100,
+    searchRadius: 500, // 100 meters radius
   });
   const [showFilters, setShowFilters] = useState(false);
   const [enable3D, setEnable3D] = useState(false);
@@ -811,7 +866,6 @@ export default function ParcelMap({
   const [initialLoadDone, setInitialLoadDone] = useState(false);
   const [clickedParcel, setClickedParcel] = useState<string | null>(null);
   const [nearbyPlaces, setNearbyPlaces] = useState<NearbyPlace[]>([]);
-  const [mainRoad, setMainRoad] = useState<Road | null>(null);
   const [showNearby, setShowNearby] = useState(true);
   const [selectedPlace, setSelectedPlace] = useState<NearbyPlace | null>(null);
 
@@ -913,41 +967,189 @@ export default function ParcelMap({
   );
 
   /* =========================
-     GENERATE NEARBY PLACES WHEN PARCEL CHANGES
+     FETCH NEARBY PLACES (OSM Overpass API)
   ========================== */
   useEffect(() => {
-    if (!selectedParcel || !showNearby) {
-      setNearbyPlaces([]);
-      setMainRoad(null);
-      return;
-    }
-    
-    // Generate places based on the selected parcel's coordinates
-    const { places, mainRoad: road } = generateNearbyPlaces(
-      selectedParcel.center[0], 
-      selectedParcel.center[1],
-      selectedParcel.upi
-    );
-    
-    setNearbyPlaces(places);
-    setMainRoad(road);
-    
-    // Update parcel info with main road details
-    if (road) {
-      setParcelInfo(prev => prev ? {
-        ...prev,
-        location: {
-          ...prev.location,
-          mainRoad: road.name,
-          mainRoadDistance: Math.round(road.distance),
+    async function fetchNearbyPlaces() {
+      if (!selectedParcel || !showNearby) return;
+      
+      setLoadingNearby(true);
+      
+      try {
+        const [lat, lng] = selectedParcel.center;
+        const radius = filter.searchRadius;
+        
+        // Query Overpass API for nearby amenities
+        const overpassUrl = 'https://overpass-api.de/api/interpreter';
+        
+        // Comprehensive query for all amenity types
+        const query = `
+          [out:json];
+          (
+            node["amenity"](around:${radius},${lat},${lng});
+            way["amenity"](around:${radius},${lat},${lng});
+            node["shop"](around:${radius},${lat},${lng});
+            way["shop"](around:${radius},${lat},${lng});
+            node["leisure"](around:${radius},${lat},${lng});
+            way["leisure"](around:${radius},${lat},${lng});
+            node["tourism"](around:${radius},${lat},${lng});
+            way["tourism"](around:${radius},${lat},${lng});
+            node["highway"="bus_stop"](around:${radius},${lat},${lng});
+            node["public_transport"](around:${radius},${lat},${lng});
+            node["healthcare"](around:${radius},${lat},${lng});
+            node["education"](around:${radius},${lat},${lng});
+            node["place_of_worship"](around:${radius},${lat},${lng});
+          );
+          out body;
+          >;
+          out skel qt;
+        `;
+
+        const response = await fetch(overpassUrl, {
+          method: 'POST',
+          body: query,
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded'
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to fetch nearby places');
         }
-      } : null);
+
+        const data = await response.json();
+        
+        const places: NearbyPlace[] = data.elements
+          .filter((element: any) => element.lat && element.lon)
+          .map((element: any) => {
+            const tags = element.tags || {};
+            
+            // Determine type and category
+            let type = 'default';
+            let category = 'Other';
+            
+            if (tags.amenity) {
+              type = tags.amenity;
+              category = poiIcons[type]?.category || 'Amenity';
+            } else if (tags.shop) {
+              type = tags.shop;
+              category = 'Retail';
+            } else if (tags.leisure) {
+              type = tags.leisure;
+              category = 'Recreation';
+            } else if (tags.tourism) {
+              type = tags.tourism;
+              category = 'Tourism';
+            } else if (tags.highway === 'bus_stop') {
+              type = 'bus_stop';
+              category = 'Transportation';
+            } else if (tags.healthcare) {
+              type = tags.healthcare;
+              category = 'Healthcare';
+            } else if (tags.education) {
+              type = tags.education;
+              category = 'Education';
+            } else if (tags.place_of_worship) {
+              type = 'place_of_worship';
+              category = 'Religion';
+            }
+            
+            // Get name or fallback
+            let name = tags.name || tags.brand || tags.operator;
+            if (!name) {
+              // Generate a readable name from type
+              name = type.split('_').map((word: string) => 
+                word.charAt(0).toUpperCase() + word.slice(1)
+              ).join(' ');
+            }
+            
+            return {
+              id: element.id.toString(),
+              name,
+              category,
+              type,
+              distance: calculateDistance(lat, lng, element.lat, element.lon),
+              position: [element.lat, element.lon],
+              address: tags['addr:full'] || tags['addr:street'] || tags['addr:city'],
+              phone: tags.phone,
+              hours: tags.opening_hours,
+              website: tags.website,
+              road: tags['addr:street'],
+              rating: tags.rating ? parseFloat(tags.rating) : undefined,
+            };
+          })
+          .filter((place: NearbyPlace) => place.distance <= radius)
+          .sort((a: NearbyPlace, b: NearbyPlace) => a.distance - b.distance);
+
+        setNearbyPlaces(places);
+
+        // Find the nearest road for accessibility info
+        const roadQuery = `
+          [out:json];
+          (
+            way["highway"](around:${radius},${lat},${lng});
+          );
+          out body geom;
+        `;
+
+        const roadResponse = await fetch(overpassUrl, {
+          method: 'POST',
+          body: roadQuery
+        });
+
+        const roadData = await roadResponse.json();
+        
+        if (roadData.elements.length > 0) {
+          // Find the closest road segment
+          let closestRoad = null;
+          let minDistance = Infinity;
+
+          roadData.elements.forEach((element: any) => {
+            if (element.geometry) {
+              element.geometry.forEach((point: any) => {
+                const distance = calculateDistance(lat, lng, point.lat, point.lon);
+                if (distance < minDistance) {
+                  minDistance = distance;
+                  closestRoad = {
+                    name: element.tags?.name || 
+                          (element.tags?.highway ? 
+                            element.tags.highway.split('_').map((w: string) => 
+                              w.charAt(0).toUpperCase() + w.slice(1)
+                            ).join(' ') : 
+                            'Road'),
+                    distance: minDistance,
+                  };
+                }
+              });
+            }
+          });
+
+          if (closestRoad) {
+            setParcelInfo(prev => prev ? {
+              ...prev,
+              location: {
+                ...prev.location,
+                mainRoad: closestRoad.name,
+                mainRoadDistance: Math.round(closestRoad.distance),
+                road: closestRoad.name,
+              }
+            } : null);
+          }
+        }
+
+      } catch (error) {
+        console.error("Error fetching nearby places:", error);
+        setNearbyPlaces([]);
+      } finally {
+        setLoadingNearby(false);
+      }
     }
     
-  }, [selectedParcel, showNearby]);
+    fetchNearbyPlaces();
+  }, [selectedParcel, showNearby, filter.searchRadius]);
 
   /* =========================
-     FETCH PARCEL INFO
+     FETCH PARCEL INFO (MULTI-SOURCE)
   ========================== */
   const handleParcelClick = useCallback(async (upi: string) => {
     if (clickedParcel === upi && loadingInfo) return;
@@ -958,47 +1160,186 @@ export default function ParcelMap({
     setClickedParcel(upi);
     setSelectedPlace(null);
     
+    // Initialize with basic info from parsed parcels
+    const basicParcel = parsedParcels.find((p) => p.upi === upi);
+    
+    let mergedInfo: ParcelInfo = {
+      upi: upi,
+      area: basicParcel?.status_details?.area,
+      owners: [],
+      images: [],
+      transactionStatus: {
+        inTransaction: false,
+        underMortgage: false,
+        hasCaveat: false,
+      },
+      location: {},
+      overlapping: basicParcel?.overlapping,
+      coordinates: basicParcel?.coordinates,
+    };
+    
+    let externalDataError = false;
+    let propertyDataError = false;
+    let verificationFailed = false;
+    let dataSource: 'external' | 'property' | 'both' | 'none' = 'none';
+    
     try {
-      const [externalRes, propertyRes] = await Promise.all([
-        api.get(`/api/external/title_data?upi=${upi}&language=english`),
-        api.get(`/api/property/properties/by-upi/${encodeURIComponent(upi)}`),
-      ]);
+      // Try external API first (new endpoint)
+      try {
+        const externalResponse = await api.post('/api/external/parcel', {
+          upi: upi,
+          owner_id: "string" // You might want to make this dynamic
+        });
+        
+        const externalData = externalResponse.data;
+        
+        if (externalData) {
+          dataSource = 'external';
+          
+          // Map external data to our format
+          mergedInfo = {
+            ...mergedInfo,
+            area: externalData.size || externalData.area || mergedInfo.area,
+            size: externalData.size,
+            landUse: externalData.landUseNameEnglish || externalData.landUse,
+            landUseNameEnglish: externalData.landUseNameEnglish,
+            landUseNameKinyarwanda: externalData.landUseNameKinyarwanda,
+            landUseCode: externalData.landUseCode,
+            rightType: externalData.rightType,
+            coordinateReferenceSystem: externalData.coordinateReferenceSystem,
+            xCoordinate: externalData.xCoordinate,
+            yCoordinate: externalData.yCoordinate,
+            remainingLeaseTerm: externalData.remainingLeaseTerm,
+            owners: externalData.owners?.map((owner: any) => ({
+              fullName: owner.fullName,
+              sharePercentage: owner.sharePercentage,
+              idNo: owner.idNo,
+              idTypeName: owner.idTypeName,
+              countryName: owner.countryName,
+              gender: owner.gender,
+              maritalStatus: owner.maritalStatus,
+            })) || [],
+            representative: externalData.representative ? {
+              foreNames: externalData.representative.foreNames,
+              surname: externalData.representative.surname,
+              idNo: externalData.representative.idNo,
+              idTypeName: externalData.representative.idTypeName,
+              countryName: externalData.representative.countryName,
+              gender: externalData.representative.gender,
+              maritalStatus: externalData.representative.maritalStatus,
+              address: externalData.representative.address,
+            } : undefined,
+            transactionStatus: {
+              ...mergedInfo.transactionStatus,
+              inProcess: externalData.inProcess,
+              isUnderMortgage: externalData.isUnderMortgage,
+              isUnderRestriction: externalData.isUnderRestriction,
+              underMortgage: externalData.isUnderMortgage || false,
+              hasCaveat: externalData.isUnderRestriction || false,
+            },
+            location: {
+              ...mergedInfo.location,
+              parcelLocation: externalData.parcelLocation || externalData.parcel_location,
+              village: externalData.parcelLocation?.village?.villageName || 
+                       externalData.parcel_location?.village?.villageName,
+              cell: externalData.parcelLocation?.cell?.cellName || 
+                    externalData.parcel_location?.cell?.cellName,
+              sector: externalData.parcelLocation?.sector?.sectorName || 
+                      externalData.parcel_location?.sector?.sectorName,
+              district: externalData.parcelLocation?.district?.districtName || 
+                        externalData.parcel_location?.district?.districtName,
+              province: externalData.parcelLocation?.province?.provinceName || 
+                        externalData.parcel_location?.province?.provinceName,
+            },
+            coordinates: externalData.coordinates || mergedInfo.coordinates,
+            plannedLandUses: externalData.plannedLandUses,
+            valuation: externalData.valuationValue ? {
+              minPrice: externalData.valuationValue.minPrice,
+              maxPrice: externalData.valuationValue.maxPrice,
+              amount: parseFloat(externalData.valuationValue.maxPrice || '0'),
+              date: new Date().toISOString(),
+              valuator: 'External System',
+            } : undefined,
+            estimatedAmount: externalData.valuationValue?.maxPrice ? 
+              parseFloat(externalData.valuationValue.maxPrice) : undefined,
+          };
+        }
+      } catch (externalErr) {
+        console.warn("External API failed:", externalErr);
+        externalDataError = true;
+      }
       
-      const externalData = externalRes.data.data?.parcelDetails || {};
-      const propertyData = propertyRes.data || {};
-
-      const merged: ParcelInfo = {
-        upi: upi,
-        area: externalData.area || propertyData.size,
-        rightType: externalData.rightTypeName || propertyData.right_type,
-        landUse: externalData.landUse?.landUseTypeNameEnglish || propertyData.land_use,
-        owners: externalData.owners || propertyData.parcel_information?.owners || [],
-        representative: externalData.parcelRepresentative || propertyData.parcel_information?.representative,
-        estimatedAmount: propertyData.estimated_amount,
-        images: propertyData.images || [],
-        documents: propertyData.documents || [],
-        remainingLeaseTerm: externalData.remainingLeaseTerm || propertyData.parcel_information?.remaining_lease_term,
-        transactionStatus: {
-          inTransaction: propertyData.details?.inTransaction || externalData.inTransaction || false,
-          underMortgage: propertyData.details?.underMortgage || externalData.underMortgage || false,
-          hasCaveat: propertyData.details?.hasCaveat || externalData.hasCaveat || false,
-        },
-        location: {
-          village: externalData.villageName || propertyData.village,
-          cell: externalData.cellName || propertyData.cell,
-          sector: externalData.sectorName || propertyData.sector,
-          district: externalData.districtName || propertyData.district,
-          province: externalData.provinceName || propertyData.provinceNameEnglish,
-        },
-        overlapping: parsedParcels.find((p) => p.upi === upi)?.overlapping,
-        valuation: propertyData.valuation,
-        coordinates: parsedParcels.find((p) => p.upi === upi)?.positions,
-      };
-
-      setParcelInfo(merged);
+      // Try property API (existing endpoint)
+      try {
+        const propertyResponse = await api.get(`/api/property/properties/by-upi/${encodeURIComponent(upi)}`);
+        const propertyData = propertyResponse.data;
+        
+        if (propertyData) {
+          dataSource = dataSource === 'external' ? 'both' : 'property';
+          
+          // Check if property is published
+          const isPublished = propertyData.status === 'published';
+          
+          if (!isPublished) {
+            verificationFailed = true;
+          }
+          
+          // Merge property data (prefer property data for certain fields)
+          mergedInfo = {
+            ...mergedInfo,
+            area: propertyData.size || mergedInfo.area,
+            landUse: propertyData.land_use || mergedInfo.landUse,
+            rightType: propertyData.right_type || mergedInfo.rightType,
+            estimatedAmount: propertyData.estimated_amount || mergedInfo.estimatedAmount,
+            images: propertyData.images || mergedInfo.images,
+            documents: propertyData.documents || mergedInfo.documents,
+            owners: propertyData.parcel_information?.owners?.length ? 
+              propertyData.parcel_information.owners : mergedInfo.owners,
+            representative: propertyData.parcel_information?.representative || mergedInfo.representative,
+            remainingLeaseTerm: propertyData.parcel_information?.remaining_lease_term || mergedInfo.remainingLeaseTerm,
+            transactionStatus: {
+              ...mergedInfo.transactionStatus,
+              inTransaction: propertyData.details?.inTransaction || mergedInfo.transactionStatus.inTransaction,
+              underMortgage: propertyData.details?.underMortgage || mergedInfo.transactionStatus.underMortgage,
+              hasCaveat: propertyData.details?.hasCaveat || mergedInfo.transactionStatus.hasCaveat,
+              status: propertyData.status,
+              isPublished: propertyData.status === 'published',
+            },
+            location: {
+              ...mergedInfo.location,
+              village: propertyData.village || mergedInfo.location.village,
+              cell: propertyData.cell || mergedInfo.location.cell,
+              sector: propertyData.sector || mergedInfo.location.sector,
+              district: propertyData.district || mergedInfo.location.district,
+              province: propertyData.provinceNameEnglish || mergedInfo.location.province,
+            },
+            valuation: propertyData.valuation || mergedInfo.valuation,
+          };
+        }
+      } catch (propertyErr) {
+        console.warn("Property API failed:", propertyErr);
+        propertyDataError = true;
+      }
+      
+      // Set error flags
+      mergedInfo.externalDataError = externalDataError;
+      mergedInfo.propertyDataError = propertyDataError;
+      mergedInfo.verificationFailed = verificationFailed;
+      mergedInfo.dataSource = dataSource;
+      
+      setParcelInfo(mergedInfo);
       setCurrentImageIndex(0);
+      
     } catch (err) {
-      console.error("Failed to load parcel info", err);
+      console.error("Failed to load parcel info:", err);
+      // Show basic info with error state
+      setParcelInfo({
+        ...mergedInfo,
+        externalDataError: true,
+        propertyDataError: true,
+        verificationFailed: true,
+        dataSource: 'none',
+      });
     } finally {
       setLoadingInfo(false);
       setClickedParcel(null);
@@ -1012,8 +1353,6 @@ export default function ParcelMap({
     setSelectedUPI(null);
     setParcelInfo(null);
     setSelectedPlace(null);
-    setNearbyPlaces([]);
-    setMainRoad(null);
     setAutoZoom(false);
   }, []);
 
@@ -1294,44 +1633,6 @@ export default function ParcelMap({
             )}
           </AnimatePresence>
 
-          {/* Main Road Info */}
-          {showNearby && selectedParcel && mainRoad && (
-            <div style={{ 
-              padding: '12px',
-              backgroundColor: '#F0F9FF',
-              margin: '0 12px 12px',
-              borderRadius: 8,
-              border: '1px solid #BAE6FD',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-                <Car size={14} color="#0284C7" />
-                <h4 style={{ fontSize: 13, fontWeight: 600, margin: 0, color: '#0369A1' }}>
-                  Main Road Access
-                </h4>
-              </div>
-              
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: 16,
-                  backgroundColor: mainRoad.type === 'highway' ? '#1F2937' : '#374151',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}>
-                  <Car size={16} color="white" />
-                </div>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 500 }}>{mainRoad.name}</div>
-                  <div style={{ fontSize: 12, color: '#6B7280' }}>
-                    {Math.round(mainRoad.distance)} meters away
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
           {/* Nearby Places Panel */}
           {showNearby && selectedParcel && (
             <div style={{ 
@@ -1348,13 +1649,17 @@ export default function ParcelMap({
                     Nearby Places (100m)
                   </h4>
                 </div>
+                {loadingNearby && <Loader2 size={12} className="animate-spin" color="var(--color-primary)" />}
               </div>
               
-              {nearbyPlaces.length === 0 ? (
-                <div style={{ padding: '16px', textAlign: 'center', color: '#6B7280', fontSize: 12 }}>
-                  No places found within 100m
+              {loadingNearby ? (
+                <div style={{ padding: '16px', textAlign: 'center' }}>
+                  <Loader2 size={24} className="animate-spin" color="var(--color-primary)" />
+                  <div style={{ fontSize: 12, color: '#6B7280', marginTop: 8 }}>
+                    Discovering nearby places...
+                  </div>
                 </div>
-              ) : (
+              ) : nearbyPlaces.length > 0 ? (
                 <div style={{ maxHeight: 300, overflowY: 'auto' }}>
                   {Object.entries(groupedPlaces).map(([category, places]) => (
                     <div key={category} style={{ marginBottom: 12 }}>
@@ -1392,21 +1697,16 @@ export default function ParcelMap({
                                 alignItems: 'center',
                                 justifyContent: 'center',
                                 color: 'white',
+                                fontSize: 12,
                               }}>
-                                {React.createElement(poiIcons[place.type]?.icon.type || MapPin, { size: 12, color: 'white' })}
+                                {poiIcons[place.type]?.emoji || '📍'}
                               </div>
                               <div style={{ flex: 1 }}>
                                 <div style={{ fontSize: 12, fontWeight: 500 }}>{place.name}</div>
                                 <div style={{ fontSize: 11, color: '#6B7280' }}>
-                                  {Math.round(place.distance)}m away
+                                  {formatDistance(place.distance)}
                                 </div>
                               </div>
-                              {place.rating && (
-                                <div style={{ fontSize: 11, color: '#F59E0B', display: 'flex', alignItems: 'center', gap: 2 }}>
-                                  <Star size={10} fill="#F59E0B" color="#F59E0B" />
-                                  {place.rating}
-                                </div>
-                              )}
                             </div>
                           </div>
                         ))}
@@ -1418,6 +1718,10 @@ export default function ParcelMap({
                       </div>
                     </div>
                   ))}
+                </div>
+              ) : (
+                <div style={{ padding: '16px', textAlign: 'center', fontSize: 12, color: '#6B7280' }}>
+                  No nearby places found within 100m
                 </div>
               )}
             </div>
@@ -1469,10 +1773,9 @@ export default function ParcelMap({
                     <div style={{ fontSize: 12, color: '#6B7280' }}>
                       Area: {parcel.status_details?.area || 'N/A'} m²
                     </div>
-                    {selectedUPI === parcel.upi && mainRoad && (
-                      <div style={{ fontSize: 11, color: 'var(--color-primary)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <Car size={10} />
-                        {mainRoad.name} ({Math.round(mainRoad.distance)}m)
+                    {selectedUPI === parcel.upi && parcelInfo?.location?.mainRoad && (
+                      <div style={{ fontSize: 11, color: 'var(--color-primary)', marginTop: 2 }}>
+                        🛣️ {parcelInfo.location.mainRoad} ({formatDistance(parcelInfo.location.mainRoadDistance || 0)})
                       </div>
                     )}
                   </div>
@@ -1648,7 +1951,7 @@ export default function ParcelMap({
         {/* Map Container */}
         <MapContainer
           center={selectedParcel?.center || mapCenter}
-          zoom={17}
+          zoom={15}
           style={{ height: '100%', width: '100%' }}
           zoomControl={false}
           scrollWheelZoom={true}
@@ -1670,7 +1973,7 @@ export default function ParcelMap({
 
           <MapClickHandler onEmptyClick={handleEmptyClick} />
 
-          {/* Search Radius Circle - 100m */}
+          {/* Search Radius Circle - 100 meters */}
           {selectedParcel && showNearby && (
             <Circle
               center={selectedParcel.center}
@@ -1722,33 +2025,124 @@ export default function ParcelMap({
             </Polygon>
           ))}
 
+          {/* Price Markers on Selected Parcel */}
+          {selectedParcel && parcelInfo?.estimatedAmount && (
+            <PriceMarker 
+              position={selectedParcel.center} 
+              price={parcelInfo.estimatedAmount} 
+            />
+          )}
+
           {/* Selected Parcel Marker */}
           {selectedParcel && (
             <Marker position={selectedParcel.center}>
               <Popup>
-                <div style={{ minWidth: '250px' }}>
+                <div style={{ minWidth: '250px', maxHeight: '300px', overflowY: 'auto' }}>
                   <h4 style={{ margin: '0 0 8px 0', color: 'var(--color-primary)' }}>
                     {selectedParcel.upi}
                   </h4>
+                  
+                  {/* Data Source Indicators */}
+                  {parcelInfo?.dataSource && (
+                    <div style={{ marginBottom: 8, fontSize: 11 }}>
+                      {parcelInfo.dataSource === 'both' && (
+                        <span style={{ color: '#10B981' }}>✅ Verified (Multiple Sources)</span>
+                      )}
+                      {parcelInfo.dataSource === 'external' && (
+                        <span style={{ color: '#3B82F6' }}>ℹ️ External Registry Data</span>
+                      )}
+                      {parcelInfo.dataSource === 'property' && (
+                        <span style={{ color: '#F59E0B' }}>⚠️ Local Property Data</span>
+                      )}
+                      {parcelInfo.dataSource === 'none' && (
+                        <span style={{ color: '#EF4444' }}>❌ Verification Failed</span>
+                      )}
+                    </div>
+                  )}
+                  
+                  {/* Error Messages */}
+                  {parcelInfo?.externalDataError && (
+                    <div style={{ marginBottom: 8, padding: 4, backgroundColor: '#FEF2F2', borderRadius: 4, fontSize: 11, color: '#991B1B' }}>
+                      ⚠️ Failed to verify with external registry
+                    </div>
+                  )}
+                  
+                  {parcelInfo?.propertyDataError && (
+                    <div style={{ marginBottom: 8, padding: 4, backgroundColor: '#FEF2F2', borderRadius: 4, fontSize: 11, color: '#991B1B' }}>
+                      ⚠️ Property data unavailable
+                    </div>
+                  )}
+                  
+                  {parcelInfo?.verificationFailed && (
+                    <div style={{ marginBottom: 8, padding: 4, backgroundColor: '#FEF2F2', borderRadius: 4, fontSize: 11, color: '#991B1B' }}>
+                      ⚠️ This property does not appear to be on the market
+                    </div>
+                  )}
+                  
                   <div style={{ fontSize: 12 }}>
-                    <div><strong>Area:</strong> {selectedParcel.status_details?.area || 'N/A'} m²</div>
-                    {mainRoad && (
+                    <div><strong>Area:</strong> {parcelInfo?.area || selectedParcel.status_details?.area || 'N/A'} m²</div>
+                    {parcelInfo?.landUse && <div><strong>Land Use:</strong> {parcelInfo.landUse}</div>}
+                    {parcelInfo?.rightType && <div><strong>Right Type:</strong> {parcelInfo.rightType}</div>}
+                    {parcelInfo?.estimatedAmount && (
+                      <div><strong>Est. Price:</strong> RWF {parcelInfo.estimatedAmount.toLocaleString()}</div>
+                    )}
+                    {parcelInfo?.valuation?.minPrice && parcelInfo?.valuation?.maxPrice && (
+                      <div><strong>Valuation Range:</strong> RWF {parseFloat(parcelInfo.valuation.minPrice).toLocaleString()} - {parseFloat(parcelInfo.valuation.maxPrice).toLocaleString()}</div>
+                    )}
+                    {parcelInfo?.remainingLeaseTerm && (
+                      <div><strong>Lease Term:</strong> {parcelInfo.remainingLeaseTerm} years</div>
+                    )}
+                    {parcelInfo?.location?.mainRoad && (
                       <>
-                        <div><strong>Main Road:</strong> {mainRoad.name}</div>
-                        <div><strong>Distance to Road:</strong> {Math.round(mainRoad.distance)}m</div>
+                        <div><strong>Main Road:</strong> {parcelInfo.location.mainRoad}</div>
+                        <div><strong>Distance to Road:</strong> {formatDistance(parcelInfo.location.mainRoadDistance || 0)}</div>
                       </>
                     )}
-                    <div style={{ marginTop: 8 }}>
-                      <strong>Nearby ({nearbyPlaces.length} places within 100m):</strong>
-                      <ul style={{ margin: '4px 0 0 0', paddingLeft: 16, maxHeight: 150, overflowY: 'auto' }}>
-                        {nearbyPlaces.slice(0, 5).map(place => (
-                          <li key={place.id} style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}>
-                            {React.createElement(poiIcons[place.type]?.icon.type || MapPin, { size: 10 })}
-                            {place.name} ({Math.round(place.distance)}m)
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
+                    
+                    {/* Location Info */}
+                    {(parcelInfo?.location?.village || parcelInfo?.location?.cell || parcelInfo?.location?.sector) && (
+                      <div style={{ marginTop: 8 }}>
+                        <strong>Location:</strong>
+                        <ul style={{ margin: '4px 0 0 0', paddingLeft: 16 }}>
+                          {parcelInfo.location.village && <li>Village: {parcelInfo.location.village}</li>}
+                          {parcelInfo.location.cell && <li>Cell: {parcelInfo.location.cell}</li>}
+                          {parcelInfo.location.sector && <li>Sector: {parcelInfo.location.sector}</li>}
+                          {parcelInfo.location.district && <li>District: {parcelInfo.location.district}</li>}
+                          {parcelInfo.location.province && <li>Province: {parcelInfo.location.province}</li>}
+                        </ul>
+                      </div>
+                    )}
+                    
+                    {/* Owners */}
+                    {parcelInfo?.owners && parcelInfo.owners.length > 0 && (
+                      <div style={{ marginTop: 8 }}>
+                        <strong>Owners:</strong>
+                        <ul style={{ margin: '4px 0 0 0', paddingLeft: 16 }}>
+                          {parcelInfo.owners.slice(0, 2).map((owner, idx) => (
+                            <li key={idx} style={{ fontSize: 11 }}>
+                              {owner.fullName} {owner.sharePercentage ? `(${owner.sharePercentage})` : ''}
+                            </li>
+                          ))}
+                          {parcelInfo.owners.length > 2 && (
+                            <li style={{ fontSize: 11 }}>+{parcelInfo.owners.length - 2} more</li>
+                          )}
+                        </ul>
+                      </div>
+                    )}
+                    
+                    {/* Nearby Places */}
+                    {nearbyPlaces.length > 0 && (
+                      <div style={{ marginTop: 8 }}>
+                        <strong>Nearby ({nearbyPlaces.length} places within 100m):</strong>
+                        <ul style={{ margin: '4px 0 0 0', paddingLeft: 16, maxHeight: 100, overflowY: 'auto' }}>
+                          {nearbyPlaces.slice(0, 3).map(place => (
+                            <li key={place.id} style={{ fontSize: 11 }}>
+                              {poiIcons[place.type]?.emoji || '📍'} {place.name} ({formatDistance(place.distance)})
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </div>
                 </div>
               </Popup>
@@ -1789,25 +2183,20 @@ export default function ParcelMap({
                       alignItems: 'center',
                       justifyContent: 'center',
                       color: 'white',
+                      fontSize: 14,
                     }}>
-                      {React.createElement(poiIcons[place.type]?.icon.type || MapPin, { size: 14, color: 'white' })}
+                      {poiIcons[place.type]?.emoji || '📍'}
                     </div>
                     <h4 style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{place.name}</h4>
                   </div>
                   <div style={{ fontSize: 12 }}>
                     <div><strong>Category:</strong> {place.category}</div>
                     <div><strong>Type:</strong> {place.type.replace('_', ' ')}</div>
-                    <div><strong>Distance:</strong> {Math.round(place.distance)}m</div>
+                    <div><strong>Distance:</strong> {formatDistance(place.distance)}</div>
                     {place.address && <div><strong>Address:</strong> {place.address}</div>}
                     {place.phone && <div><strong>Phone:</strong> {place.phone}</div>}
                     {place.hours && <div><strong>Hours:</strong> {place.hours}</div>}
-                    {place.rating && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <strong>Rating:</strong> 
-                        <Star size={12} fill="#F59E0B" color="#F59E0B" />
-                        {place.rating}/5
-                      </div>
-                    )}
+                    {place.rating && <div><strong>Rating:</strong> ⭐ {place.rating}/5</div>}
                   </div>
                 </div>
               </Popup>
@@ -1832,32 +2221,96 @@ export default function ParcelMap({
         >
           {parcelInfo && !loadingInfo && (
             <div>
-              {/* Location Header with Road Info */}
-              <div style={{ 
-                marginBottom: 16,
-                padding: 12,
-                backgroundColor: '#F0F9FF',
-                borderRadius: 8,
-                border: '1px solid #BAE6FD',
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                  <MapPin size={14} color="#0284C7" />
-                  <span style={{ fontSize: 13, fontWeight: 600, color: '#0369A1' }}>
-                    Location & Accessibility
+              {/* Data Source & Error Banners */}
+              {parcelInfo.dataSource === 'none' && (
+                <ErrorBanner 
+                  type="error" 
+                  message="Verification failed. Unable to fetch property data from any source." 
+                />
+              )}
+              
+              {parcelInfo.externalDataError && (
+                <ErrorBanner 
+                  type="warning" 
+                  message="External registry verification failed. Showing available local data." 
+                />
+              )}
+              
+              {parcelInfo.propertyDataError && (
+                <ErrorBanner 
+                  type="warning" 
+                  message="Property data unavailable. Showing external registry data only." 
+                />
+              )}
+              
+              {parcelInfo.verificationFailed && (
+                <ErrorBanner 
+                  type="info" 
+                  message="This property does not appear to be on the market." 
+                />
+              )}
+
+              {/* Data Source Badge */}
+              {parcelInfo.dataSource && parcelInfo.dataSource !== 'none' && (
+                <div style={{ 
+                  marginBottom: 16,
+                  padding: '8px 12px',
+                  backgroundColor: parcelInfo.dataSource === 'both' ? '#F0FDF4' :
+                                  parcelInfo.dataSource === 'external' ? '#EFF6FF' :
+                                  '#FFFBEB',
+                  borderRadius: 8,
+                  border: `1px solid ${
+                    parcelInfo.dataSource === 'both' ? '#86EFAC' :
+                    parcelInfo.dataSource === 'external' ? '#93C5FD' :
+                    '#FCD34D'
+                  }`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                }}>
+                  {parcelInfo.dataSource === 'both' && <CheckCircle2 size={16} color="#10B981" />}
+                  {parcelInfo.dataSource === 'external' && <Info size={16} color="#3B82F6" />}
+                  {parcelInfo.dataSource === 'property' && <AlertCircle size={16} color="#F59E0B" />}
+                  <span style={{ fontSize: 12, fontWeight: 500 }}>
+                    {parcelInfo.dataSource === 'both' && 'Data verified from multiple sources'}
+                    {parcelInfo.dataSource === 'external' && 'Data from external registry'}
+                    {parcelInfo.dataSource === 'property' && 'Data from local property records'}
                   </span>
                 </div>
-                {mainRoad && (
-                  <div style={{ fontSize: 12, color: '#075985', marginLeft: 20, display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <Car size={12} />
-                    Main Road: {mainRoad.name} ({Math.round(mainRoad.distance)}m)
+              )}
+
+              {/* Location Header with Road Info */}
+              {(parcelInfo.location.mainRoad || parcelInfo.location.road || parcelInfo.location.neighborhood) && (
+                <div style={{ 
+                  marginBottom: 16,
+                  padding: 12,
+                  backgroundColor: '#F0F9FF',
+                  borderRadius: 8,
+                  border: '1px solid #BAE6FD',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                    <MapPin size={14} color="#0284C7" />
+                    <span style={{ fontSize: 13, fontWeight: 600, color: '#0369A1' }}>
+                      Location & Accessibility
+                    </span>
                   </div>
-                )}
-                {parcelInfo.location.village && (
-                  <div style={{ fontSize: 12, color: '#075985', marginLeft: 20 }}>
-                    📍 {parcelInfo.location.village}, {parcelInfo.location.sector}
-                  </div>
-                )}
-              </div>
+                  {parcelInfo.location.mainRoad && (
+                    <div style={{ fontSize: 12, color: '#075985', marginLeft: 20 }}>
+                      🛣️ Main Road: {parcelInfo.location.mainRoad} ({formatDistance(parcelInfo.location.mainRoadDistance || 0)})
+                    </div>
+                  )}
+                  {parcelInfo.location.road && (
+                    <div style={{ fontSize: 12, color: '#075985', marginLeft: 20 }}>
+                      📍 Nearest Road: {parcelInfo.location.road}
+                    </div>
+                  )}
+                  {parcelInfo.location.neighborhood && (
+                    <div style={{ fontSize: 12, color: '#075985', marginLeft: 20 }}>
+                      🏘️ Neighborhood: {parcelInfo.location.neighborhood}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Image Gallery */}
               {parcelInfo.images && parcelInfo.images.length > 0 && (
@@ -1876,6 +2329,9 @@ export default function ParcelMap({
                         width: '100%',
                         height: '100%',
                         objectFit: 'cover',
+                      }}
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).src = 'https://via.placeholder.com/400x225?text=No+Image';
                       }}
                     />
                     {parcelInfo.images.length > 1 && (
@@ -1940,12 +2396,15 @@ export default function ParcelMap({
                   <div>
                     <div style={{ fontSize: 11, color: '#6B7280' }}>Area</div>
                     <div style={{ fontSize: 14, fontWeight: 600 }}>
-                      {parcelInfo.area ? `${parcelInfo.area.toLocaleString()} m²` : 'N/A'}
+                      {parcelInfo.area ? `${parcelInfo.area.toLocaleString()} m²` : 
+                       parcelInfo.size ? `${parcelInfo.size.toLocaleString()} m²` : 'N/A'}
                     </div>
                   </div>
                   <div>
                     <div style={{ fontSize: 11, color: '#6B7280' }}>Land Use</div>
-                    <div style={{ fontSize: 14, fontWeight: 600 }}>{parcelInfo.landUse || 'N/A'}</div>
+                    <div style={{ fontSize: 14, fontWeight: 600 }}>
+                      {parcelInfo.landUseNameEnglish || parcelInfo.landUse || 'N/A'}
+                    </div>
                   </div>
                   <div>
                     <div style={{ fontSize: 11, color: '#6B7280' }}>Right Type</div>
@@ -1960,29 +2419,67 @@ export default function ParcelMap({
                 </div>
               </div>
 
-              {/* Administrative Location */}
-              <div style={{ marginBottom: 16 }}>
-                <h4 style={{ fontSize: 13, fontWeight: 600, margin: '0 0 8px 0' }}>Administrative Location</h4>
-                <div style={{ 
-                  backgroundColor: '#F9FAFB',
-                  padding: 12,
-                  borderRadius: 8,
-                  fontSize: 12,
-                }}>
-                  {parcelInfo.location.village && <div>Village: {parcelInfo.location.village}</div>}
-                  {parcelInfo.location.cell && <div>Cell: {parcelInfo.location.cell}</div>}
-                  {parcelInfo.location.sector && <div>Sector: {parcelInfo.location.sector}</div>}
-                  {parcelInfo.location.district && <div>District: {parcelInfo.location.district}</div>}
-                  {parcelInfo.location.province && <div>Province: {parcelInfo.location.province}</div>}
+              {/* Price Info */}
+              {parcelInfo.estimatedAmount && (
+                <div style={{ marginBottom: 16 }}>
+                  <h4 style={{ fontSize: 13, fontWeight: 600, margin: '0 0 8px 0' }}>Estimated Price</h4>
+                  <div style={{
+                    padding: 12,
+                    backgroundColor: 'rgba(var(--color-primary), 0.05)',
+                    borderRadius: 8,
+                  }}>
+                    <div style={{ fontSize: 18, fontWeight: 600 }}>
+                      RWF {parcelInfo.estimatedAmount.toLocaleString()}
+                    </div>
+                    <div style={{ fontSize: 12, color: '#6B7280', marginTop: 4 }}>
+                      {formatPrice(parcelInfo.estimatedAmount)} on map
+                    </div>
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {/* Valuation Range */}
+              {parcelInfo.valuation?.minPrice && parcelInfo.valuation?.maxPrice && (
+                <div style={{ marginBottom: 16 }}>
+                  <h4 style={{ fontSize: 13, fontWeight: 600, margin: '0 0 8px 0' }}>Valuation Range</h4>
+                  <div style={{
+                    padding: 12,
+                    backgroundColor: '#F9FAFB',
+                    borderRadius: 8,
+                  }}>
+                    <div style={{ fontSize: 14, fontWeight: 600 }}>
+                      RWF {parseFloat(parcelInfo.valuation.minPrice).toLocaleString()} - {parseFloat(parcelInfo.valuation.maxPrice).toLocaleString()}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Administrative Location */}
+              {(parcelInfo.location.village || parcelInfo.location.cell || parcelInfo.location.sector || 
+                parcelInfo.location.district || parcelInfo.location.province) && (
+                <div style={{ marginBottom: 16 }}>
+                  <h4 style={{ fontSize: 13, fontWeight: 600, margin: '0 0 8px 0' }}>Administrative Location</h4>
+                  <div style={{ 
+                    backgroundColor: '#F9FAFB',
+                    padding: 12,
+                    borderRadius: 8,
+                    fontSize: 12,
+                  }}>
+                    {parcelInfo.location.village && <div>Village: {parcelInfo.location.village}</div>}
+                    {parcelInfo.location.cell && <div>Cell: {parcelInfo.location.cell}</div>}
+                    {parcelInfo.location.sector && <div>Sector: {parcelInfo.location.sector}</div>}
+                    {parcelInfo.location.district && <div>District: {parcelInfo.location.district}</div>}
+                    {parcelInfo.location.province && <div>Province: {parcelInfo.location.province}</div>}
+                  </div>
+                </div>
+              )}
 
               {/* Nearby Places Summary */}
               {nearbyPlaces.length > 0 && (
                 <div style={{ marginBottom: 16 }}>
                   <h4 style={{ fontSize: 13, fontWeight: 600, margin: '0 0 8px 0', display: 'flex', alignItems: 'center', gap: 4 }}>
                     <MapPin size={14} />
-                    Nearby Places (within 100m)
+                    Nearby Places ({nearbyPlaces.length})
                   </h4>
                   <div style={{ 
                     backgroundColor: '#F9FAFB',
@@ -2006,22 +2503,29 @@ export default function ParcelMap({
                             borderRadius: 4,
                             marginBottom: 2,
                           }}>
-                            <div style={{
-                              width: 20,
-                              height: 20,
-                              borderRadius: 10,
-                              backgroundColor: poiIcons[place.type]?.color || '#6B7280',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              color: 'white',
-                            }}>
-                              {React.createElement(poiIcons[place.type]?.icon.type || MapPin, { size: 10, color: 'white' })}
-                            </div>
+                            <span style={{ fontSize: 14 }}>{poiIcons[place.type]?.emoji || '📍'}</span>
                             <span style={{ fontSize: 11, flex: 1 }}>{place.name}</span>
-                            <span style={{ fontSize: 10, color: '#6B7280' }}>{Math.round(place.distance)}m</span>
+                            <span style={{ fontSize: 10, color: '#6B7280' }}>{formatDistance(place.distance)}</span>
                           </div>
                         ))}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Planned Land Uses */}
+              {parcelInfo.plannedLandUses && parcelInfo.plannedLandUses.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <h4 style={{ fontSize: 13, fontWeight: 600, margin: '0 0 8px 0' }}>Planned Land Uses</h4>
+                  <div style={{ 
+                    backgroundColor: '#F9FAFB',
+                    padding: 12,
+                    borderRadius: 8,
+                  }}>
+                    {parcelInfo.plannedLandUses.map((use, idx) => (
+                      <div key={idx} style={{ fontSize: 12, marginBottom: idx < parcelInfo.plannedLandUses!.length - 1 ? 4 : 0 }}>
+                        • {use.landUseName} {use.area ? `(${use.area} m²)` : ''}
                       </div>
                     ))}
                   </div>
@@ -2037,20 +2541,43 @@ export default function ParcelMap({
                     borderRadius: 8,
                     overflow: 'hidden',
                   }}>
-                    {parcelInfo.owners.slice(0, 2).map((owner, index) => (
+                    {parcelInfo.owners.slice(0, 3).map((owner, index) => (
                       <div key={index} style={{ 
                         padding: '8px 12px',
-                        borderBottom: index < Math.min(parcelInfo.owners.length, 2) - 1 ? '1px solid #E5E7EB' : 'none',
+                        borderBottom: index < Math.min(parcelInfo.owners.length, 3) - 1 ? '1px solid #E5E7EB' : 'none',
                       }}>
                         <div style={{ fontSize: 12, fontWeight: 500 }}>{owner.fullName}</div>
                         <div style={{ fontSize: 11, color: '#6B7280' }}>
-                          Share: {owner.sharePercentage || 'N/A'}
+                          {owner.sharePercentage ? `Share: ${owner.sharePercentage}` : ''}
+                          {owner.idNo ? ` • ID: ${owner.idNo}` : ''}
+                          {owner.countryName ? ` • ${owner.countryName}` : ''}
                         </div>
                       </div>
                     ))}
-                    {parcelInfo.owners.length > 2 && (
+                    {parcelInfo.owners.length > 3 && (
                       <div style={{ padding: '8px 12px', fontSize: 11, color: '#6B7280' }}>
-                        +{parcelInfo.owners.length - 2} more
+                        +{parcelInfo.owners.length - 3} more
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Representative */}
+              {parcelInfo.representative && (
+                <div style={{ marginBottom: 16 }}>
+                  <h4 style={{ fontSize: 13, fontWeight: 600, margin: '0 0 8px 0' }}>Representative</h4>
+                  <div style={{ 
+                    backgroundColor: '#F9FAFB',
+                    padding: 12,
+                    borderRadius: 8,
+                  }}>
+                    <div style={{ fontSize: 12, fontWeight: 500 }}>
+                      {parcelInfo.representative.foreNames} {parcelInfo.representative.surname}
+                    </div>
+                    {parcelInfo.representative.idNo && (
+                      <div style={{ fontSize: 11, color: '#6B7280' }}>
+                        ID: {parcelInfo.representative.idNo} ({parcelInfo.representative.idTypeName})
                       </div>
                     )}
                   </div>
@@ -2068,7 +2595,17 @@ export default function ParcelMap({
                   )}
                   {parcelInfo.transactionStatus.underMortgage && (
                     <span style={{ padding: '4px 8px', backgroundColor: '#FFFBEB', color: '#F59E0B', borderRadius: 12, fontSize: 11 }}>
-                      Mortgage
+                      Under Mortgage
+                    </span>
+                  )}
+                  {parcelInfo.transactionStatus.hasCaveat && (
+                    <span style={{ padding: '4px 8px', backgroundColor: '#F3E8FF', color: '#8B5CF6', borderRadius: 12, fontSize: 11 }}>
+                      Has Caveat
+                    </span>
+                  )}
+                  {parcelInfo.transactionStatus.inProcess && (
+                    <span style={{ padding: '4px 8px', backgroundColor: '#EFF6FF', color: '#3B82F6', borderRadius: 12, fontSize: 11 }}>
+                      In Process
                     </span>
                   )}
                   {parcelInfo.overlapping && (
@@ -2076,21 +2613,27 @@ export default function ParcelMap({
                       Overlapping
                     </span>
                   )}
+                  {parcelInfo.transactionStatus.isPublished === false && (
+                    <span style={{ padding: '4px 8px', backgroundColor: '#F3F4F6', color: '#6B7280', borderRadius: 12, fontSize: 11 }}>
+                      Not on Market
+                    </span>
+                  )}
                 </div>
               </div>
 
-              {/* Valuation */}
-              {parcelInfo.estimatedAmount && (
-                <div>
-                  <h4 style={{ fontSize: 13, fontWeight: 600, margin: '0 0 8px 0' }}>Valuation</h4>
-                  <div style={{
+              {/* Technical Info */}
+              {(parcelInfo.coordinateReferenceSystem || parcelInfo.xCoordinate || parcelInfo.yCoordinate) && (
+                <div style={{ marginBottom: 16 }}>
+                  <h4 style={{ fontSize: 13, fontWeight: 600, margin: '0 0 8px 0' }}>Technical Information</h4>
+                  <div style={{ 
+                    backgroundColor: '#F9FAFB',
                     padding: 12,
-                    backgroundColor: 'rgba(var(--color-primary), 0.05)',
                     borderRadius: 8,
+                    fontSize: 11,
                   }}>
-                    <div style={{ fontSize: 18, fontWeight: 600 }}>
-                      RWF {parcelInfo.estimatedAmount.toLocaleString()}
-                    </div>
+                    {parcelInfo.coordinateReferenceSystem && <div>CRS: {parcelInfo.coordinateReferenceSystem}</div>}
+                    {parcelInfo.xCoordinate && parcelInfo.xCoordinate !== 'N/A' && <div>X: {parcelInfo.xCoordinate}</div>}
+                    {parcelInfo.yCoordinate && parcelInfo.yCoordinate !== 'N/A' && <div>Y: {parcelInfo.yCoordinate}</div>}
                   </div>
                 </div>
               )}

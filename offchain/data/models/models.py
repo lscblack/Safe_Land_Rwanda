@@ -1,42 +1,42 @@
-# Utility: Build SQLAlchemy where clause for Property from filter dict
-from sqlalchemy import and_, or_
-def build_property_where_clause(filters: dict):
-    """
-    Given a dict of filters, return a list of SQLAlchemy expressions for Property columns.
-    Only includes filters for columns that exist on the Property model.
-    Handles exact match, ilike for strings, and range for numeric fields.
-    """
-    clauses = []
-    # Map of column names to their types for special handling
-    str_fields = [
-        'upi', 'owner_id', 'owner_name', 'parcel_id', 'location', 'district', 'sector', 'cell', 'village',
-        'land_use', 'status', 'right_type', 'gis_coordinates', 'video_link', 'uploader_type'
-    ]
-    float_fields = ['size', 'estimated_amount', 'latitude', 'longitude', 'amount_paid']
-    int_fields = ['id', 'category_id', 'subcategory_id', 'new_owner_id', 'uploaded_by_user_id']
-    for key, value in filters.items():
-        if value is None:
-            continue
-        col = getattr(Property, key, None)
-        if col is not None:
-            if key in str_fields:
-                # Use ilike for partial string match
-                clauses.append(col.ilike(f"%{value}%"))
-            elif key in float_fields or key in int_fields:
-                # Support range queries if value is a dict with min/max
-                if isinstance(value, dict):
-                    if 'min' in value:
-                        clauses.append(col >= value['min'])
-                    if 'max' in value:
-                        clauses.append(col <= value['max'])
-                else:
-                    clauses.append(col == value)
-            else:
-                clauses.append(col == value)
-    return clauses
-"""
-Database models for SafeLand API
-"""
+# # Utility: Build SQLAlchemy where clause for Property from filter dict
+# from sqlalchemy import and_, or_
+# def build_property_where_clause(filters: dict):
+#     """
+#     Given a dict of filters, return a list of SQLAlchemy expressions for Property columns.
+#     Only includes filters for columns that exist on the Property model.
+#     Handles exact match, ilike for strings, and range for numeric fields.
+#     """
+#     clauses = []
+#     # Map of column names to their types for special handling
+#     str_fields = [
+#         'upi', 'owner_id', 'owner_name', 'parcel_id', 'location', 'district', 'sector', 'cell', 'village',
+#         'land_use', 'status', 'right_type', 'gis_coordinates', 'video_link', 'uploader_type'
+#     ]
+#     float_fields = ['size', 'estimated_amount', 'latitude', 'longitude', 'amount_paid']
+#     int_fields = ['id', 'category_id', 'subcategory_id', 'new_owner_id', 'uploaded_by_user_id']
+#     for key, value in filters.items():
+#         if value is None:
+#             continue
+#         col = getattr(Property, key, None)
+#         if col is not None:
+#             if key in str_fields:
+#                 # Use ilike for partial string match
+#                 clauses.append(col.ilike(f"%{value}%"))
+#             elif key in float_fields or key in int_fields:
+#                 # Support range queries if value is a dict with min/max
+#                 if isinstance(value, dict):
+#                     if 'min' in value:
+#                         clauses.append(col >= value['min'])
+#                     if 'max' in value:
+#                         clauses.append(col <= value['max'])
+#                 else:
+#                     clauses.append(col == value)
+#             else:
+#                 clauses.append(col == value)
+#     return clauses
+# """
+# Database models for SafeLand API
+# """
 
 
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, Float, ForeignKey

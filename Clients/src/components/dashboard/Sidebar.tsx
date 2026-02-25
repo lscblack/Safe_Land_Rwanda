@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { LayoutDashboard, Building2, Users, BarChart3, Settings, LogOut, Timer, Building, Map } from 'lucide-react';
+import { LayoutDashboard, Building2, Users, BarChart3, Settings, LogOut, Timer, Building, Map, Plus } from 'lucide-react';
 import { clsx } from 'clsx';
 
 // Define all possible views (sync with Dashboard)
@@ -46,7 +46,14 @@ const MENU_CONFIG = [
         place: 'main',
         icon: Map,
         labelKey: 'GIS Map',
-        roles: ['admin'],
+        roles: ['super_admin'],
+    },
+    {
+        id: 'gis_pdf',
+        place: 'main',
+        icon: Plus,
+        labelKey: 'GIS Registry',
+        roles: ['moderator', 'super_admin'],
     },
     {
         id: 'category',
@@ -90,7 +97,7 @@ const MENU_CONFIG = [
         place: 'main',
         icon: BarChart3,
         labelKey: 'Market Analytics',
-        roles: ['admin', 'seller', 'buyer'],
+        roles: ['admin', 'seller', 'buyer','moderator','super_admin'],
     },
 
     {

@@ -31,13 +31,14 @@ interface User {
 }
 
 // --- CONFIG ---
-const AVAILABLE_ROLES = ['admin', 'agent', 'broker', 'buyer', 'seller', 'moderator'];
+const AVAILABLE_ROLES = ['admin', 'agent', 'broker', 'buyer', 'seller', 'moderator','super_admin'];
 
 const ROLE_STYLES: Record<string, { icon: any, color: string, bg: string, border: string }> = {
     admin: { icon: Shield, color: 'text-red-500', bg: 'bg-red-500/10', border: 'border-red-500/20' },
     agent: { icon: Briefcase, color: 'text-purple-500', bg: 'bg-purple-500/10', border: 'border-purple-500/20' },
     broker: { icon: Building2, color: 'text-blue-500', bg: 'bg-blue-500/10', border: 'border-blue-500/20' },
     user: { icon: UserIcon, color: 'text-gray-500', bg: 'bg-gray-500/10', border: 'border-gray-500/20' },
+    super_admin: { icon: Shield, color: 'text-green-500', bg: 'bg-green-500/10', border: 'border-green-500/20' },
     default: { icon: UserIcon, color: 'text-slate-500', bg: 'bg-slate-500/10', border: 'border-slate-500/20' }
 };
 
@@ -196,7 +197,7 @@ export const UserManagement = () => {
                         <FilterSelect 
                             value={roleFilter} 
                             onChange={setRoleFilter} 
-                            options={['All', 'Admin', 'Agent', 'Broker', 'User']} 
+                            options={['All', 'Admin', 'Agent', 'Broker', 'User','super_admin']} 
                         />
                         <FilterSelect 
                             value={statusFilter} 
@@ -411,7 +412,7 @@ const RolesModal = ({ user, onClose, onSaved }: any) => {
                     <button onClick={onClose} className="p-2 hover:bg-gray-200 dark:hover:bg-white/10 rounded-full text-gray-500"><X size={20}/></button>
                 </div>
 
-                <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8 h-[400px]">
+                <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8 h-[500px] overflow-y-auto">
                     
                     {/* AVAILABLE COLUMN */}
                     <div 

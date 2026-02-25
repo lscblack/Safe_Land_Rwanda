@@ -16,6 +16,7 @@ import { PropertyManagement } from '../components/dashboard/Properties/ManageAll
 import { AgencyManagement } from '../components/dashboard/agents/AgencyManagement';
 import { UserManagement } from '../components/dashboard/agents/UsersMAnag';
 import ParcelMap from '../components/maps_comp/Main_Map';
+import RegisterMap from '../components/maps_comp/registerMap';
 
 
 type ViewState =
@@ -239,6 +240,7 @@ export const DashboardLayout = () => {
                                 {activeView === 'analytics' && <EmptyWidget title="Analytics Center" />}
                                 {activeView === 'settings' && <EmptyWidget title="System Settings" />}
                                 {activeView === 'maps' && <ParcelMap/>}
+                                {activeView === 'gis_pdf' && <RegisterMap/>}
                             </motion.div>
                         </AnimatePresence>
                     </div>
