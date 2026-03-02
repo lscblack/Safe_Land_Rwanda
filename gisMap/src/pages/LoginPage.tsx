@@ -414,7 +414,7 @@ export const LoginPage = () => {
 
                         {loginStep === 'credentials' && (
                             <>
-                                <div className="flex items-center justify-between rounded-xl border border-gray-200 dark:border-gray-700 px-4 py-3">
+                                <div className="flex hidden items-center justify-between rounded-xl border border-gray-200 dark:border-gray-700 px-4 py-3">
                                     <div>
                                         <p className="text-sm font-semibold text-gray-700 dark:text-gray-300">Use LIIP Login</p>
                                         <p className="text-xs text-gray-500 dark:text-gray-400">LIIP login uses OTP</p>

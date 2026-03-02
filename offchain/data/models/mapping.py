@@ -90,6 +90,9 @@ class Mapping(Base):
     # RELATIONSHIPS
     # --------------------------------
     property = relationship("Property", backref="mappings")
+    ##------------------------------
+    for_sale = Column(Boolean, default=False)
+    price = Column(Float, nullable=True)
 
 
 class UpiBackup(Base):

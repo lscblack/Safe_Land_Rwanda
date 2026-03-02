@@ -71,7 +71,7 @@ const MENU_CONFIG = [
         place: 'main',
         icon: Plus,
         labelKey: 'GIS Registry',
-        roles: ['moderator'],
+        roles: ['seller'],
     },
     {
         id: 'category',
@@ -86,7 +86,7 @@ const MENU_CONFIG = [
         place: 'main',
         icon: LayoutDashboard,
         labelKey: 'My Properties',
-        roles: ['seller', 'buyer', 'blocker'],
+        roles: ['buyer', 'blocker'],
     },
     {
         id: 'properties',
@@ -108,7 +108,7 @@ const MENU_CONFIG = [
         place: 'main',
         icon: Building2,
         labelKey: 'Agencies&Brokers',
-        roles: ['admin',"buyer"],
+        roles: ['admin'],
     },
     {
         id: 'analytics',
@@ -129,7 +129,7 @@ const MENU_CONFIG = [
         id: 'history',
         icon: Timer,
         place: 'management',
-        labelKey: 'History',
+        labelKey: 'verify E-Title',
         roles: ['admin', 'seller', 'buyer', 'blocker'],
     },
 ];

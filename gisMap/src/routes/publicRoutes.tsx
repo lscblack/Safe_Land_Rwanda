@@ -4,6 +4,7 @@ import SafeLandLoader from "../loaders/fullpageloader";
 import { useOnboardingCheck } from "../components/security/useOnboardingCheck";
 import MainAppGis from "../components/maps_comp/Main_Map";
 import { GeoGuardLanding } from "../pages/HomePageSecond";
+import ParcelVerificationMap from "../components/maps_comp/mainM";
 
 
 // Lazy Imports
@@ -46,7 +47,7 @@ const AppRoutes = () => {
         <Route path="/dashboard" element={isLoggedIn ? <DashboardLayout /> : <LoginPage />} />
         <Route path="/properties" element={<MarketplaceIndex />} />
         <Route path="/properties/single" element={<PropertyListingPage />} />
-        <Route path="/map" element={<MainAppGis />} />
+        <Route path="/map" element={<ParcelVerificationMap />} />
         <Route path="/about" element={<AboutPage />} />
         <Route path="/our-agents" element={<PartnersPage />} />
         <Route path="/market-trends" element={<MarketTrendsPage />} />

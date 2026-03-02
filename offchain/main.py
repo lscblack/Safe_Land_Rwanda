@@ -1,6 +1,18 @@
 """
 SafeLand API - FastAPI Backend
 Main application entry point with Professional Landing Page
+GOAL:
+Create a full GeoAI pipeline that can answer:
+
+What will this land be worth next year?
+
+Is this parcel a good investment?
+
+Which neighborhood will grow fastest?
+
+Which parcels are risky despite no overlap?
+
+Where should banks lend money?
 """
 
 import os
@@ -23,7 +35,8 @@ from api.routes import (
     notification_routes, 
     property_routes, 
     agency_routes,
-    mapping_routes
+    mapping_routes,
+    geoai_routes
 )
 
 # --- Configuration ---
@@ -85,6 +98,7 @@ app.include_router(external_routes.router, prefix="/api/external", tags=["Extern
 # app.include_router(liip_routes.router, prefix="/api/liip", tags=["LIIP Systems"])
 app.include_router(notification_routes.router, prefix="/api/notifications", tags=["Notification Center"])
 app.include_router(otp_routes.router, prefix="/otp", tags=["Security & OTP"])
+app.include_router(geoai_routes.router, prefix="/api/geoai", tags=["GeoAI"])
 
 # --- Root Landing Page ---
 @app.get("/", response_class=HTMLResponse, tags=["General"])

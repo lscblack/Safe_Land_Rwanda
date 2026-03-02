@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Trash2,
@@ -28,6 +28,10 @@ import {
 import api from '../../instance/mainAxios';
 
 interface Mapping {
+  land_use_type: ReactNode;
+  size: any;
+  village: ReactNode;
+  cell: ReactNode;
   id: number;
   upi: string;
   official_registry_polygon: string;
@@ -414,7 +418,7 @@ function PdfUploader({ onUploadComplete }: PdfUploaderProps) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
-    
+
     if (isProcessing) {
       setUploadFiles([]);
       setCurrentIndex(-1);
@@ -436,7 +440,7 @@ function PdfUploader({ onUploadComplete }: PdfUploaderProps) {
   const processFile = async (file: UploadFile, index: number): Promise<void> => {
     // Create new abort controller for this request
     abortControllerRef.current = new AbortController();
-    
+
     setUploadFiles(prev => prev.map((f, i) =>
       i === index ? { ...f, status: 'processing', progress: 0 } : f
     ));
@@ -446,7 +450,7 @@ function PdfUploader({ onUploadComplete }: PdfUploaderProps) {
 
     try {
       let progressInterval: ReturnType<typeof setInterval> | null = null;
-      
+
       // Only start progress interval if request hasn't been aborted
       if (!abortControllerRef.current.signal.aborted) {
         progressInterval = setInterval(() => {
@@ -524,11 +528,11 @@ function PdfUploader({ onUploadComplete }: PdfUploaderProps) {
       setUploadFiles(prev => prev.map((f, i) =>
         i === index
           ? {
-              ...f,
-              status: 'error',
-              error:error.status == 403 ? "You don't have permission to upload other peoples E-titles." : error.response?.data?.message || error.message || "Upload failed",
-              progress: undefined,
-            }
+            ...f,
+            status: 'error',
+            error: error.status == 403 ? "You don't have permission to upload other peoples E-titles." : error.response?.data?.message || error.message || "Upload failed",
+            progress: undefined,
+          }
           : f
       ));
 
@@ -560,7 +564,7 @@ function PdfUploader({ onUploadComplete }: PdfUploaderProps) {
     setIsProcessing(true);
     processingRef.current = true;
     setCurrentIndex(firstPendingIndex);
-    
+
     // Start processing the first pending file
     await processFile(uploadFiles[firstPendingIndex], firstPendingIndex);
   };
@@ -591,11 +595,11 @@ function PdfUploader({ onUploadComplete }: PdfUploaderProps) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
-    
+
     setIsProcessing(false);
     processingRef.current = false;
     setCurrentIndex(-1);
-    
+
     // Reset any processing files back to pending
     setUploadFiles(prev => prev.map(f =>
       f.status === 'processing' ? { ...f, status: 'pending', progress: undefined } : f
@@ -866,7 +870,7 @@ function PdfUploader({ onUploadComplete }: PdfUploaderProps) {
 /* =========================
    MAIN COMPONENT
 ========================= */
-export default function MappingsManagerUser({}) {
+export default function MappingsManagerUser({ }) {
   const [mappings, setMappings] = useState<Mapping[]>([]);
   const [filteredMappings, setFilteredMappings] = useState<Mapping[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1179,6 +1183,9 @@ export default function MappingsManagerUser({}) {
                 UPI
               </th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
+                Location
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
                 Status
               </th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
@@ -1191,7 +1198,7 @@ export default function MappingsManagerUser({}) {
                 Overlaps
               </th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
-                Property
+                Land Use
               </th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
                 Actions
@@ -1201,15 +1208,15 @@ export default function MappingsManagerUser({}) {
           <tbody className="divide-y divide-gray-200">
             {paginatedMappings.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-4 py-8 text-center text-gray-500">
+                <td colSpan={10} className="px-4 py-8 text-center text-gray-500">
                   No mappings found
                 </td>
               </tr>
             ) : (
-              paginatedMappings.map((mapping,index) => {
+              paginatedMappings.map((mapping, index) => {
                 let statusDetails: StatusDetails | null = null;
                 try {
-                  statusDetails = JSON.parse(mapping.status_details);
+                  statusDetails = mapping.status_details ? JSON.parse(mapping.status_details) : null;
                 } catch {
                   // Ignore parsing errors
                 }
@@ -1229,10 +1236,15 @@ export default function MappingsManagerUser({}) {
                       </button>
                     </td>
                     <td className="px-4 py-3 text-sm font-medium text-gray-900">
-                      {index + 1}
+                      {((pagination.page - 1) * pagination.limit) + index + 1}
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-600 font-mono">
+                    <td className="px-4 py-3 text-sm text-gray-600 font-mono max-w-[150px] truncate">
                       {mapping.upi}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-600">
+                      <div className="truncate max-w-[150px]">
+                        {mapping.village}, {mapping.cell}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1">
@@ -1261,7 +1273,7 @@ export default function MappingsManagerUser({}) {
                       </div>
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600">
-                      {statusDetails?.area ? `${statusDetails.area} m²` : 'N/A'}
+                      {statusDetails?.area ? `${statusDetails.area} m²` : mapping.size ? `${mapping.size} m²` : 'N/A'}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600">
                       {mapping.year_of_record}
@@ -1275,13 +1287,9 @@ export default function MappingsManagerUser({}) {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600">
-                      {mapping.property_id ? (
-                        <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs">
-                          #{mapping.property_id}
-                        </span>
-                      ) : (
-                        <span className="text-gray-400">—</span>
-                      )}
+                      <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs">
+                        {mapping.land_use_type}
+                      </span>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
