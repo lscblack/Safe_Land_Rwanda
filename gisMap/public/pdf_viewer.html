@@ -1,0 +1,86 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PDF Viewer</title>
+  <style>
+    html,body{height:100%;margin:0}
+    #toolbar{height:48px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;background:#f3f4f6;border-bottom:1px solid #e5e7eb}
+    #viewerContainer{height:calc(100% - 48px);overflow:auto;background:#444;display:flex;align-items:center;justify-content:center}
+    canvas{background:#fff;max-width:100%;height:auto}
+    .controls{display:flex;gap:8px;align-items:center}
+    a.button{background:#fff;padding:6px 10px;border-radius:6px;text-decoration:none;color:#111;border:1px solid #ddd}
+  </style>
+</head>
+<body>
+  <div id="toolbar">
+    <div class="controls">
+      <button id="prev" class="button">Prev</button>
+      <button id="next" class="button">Next</button>
+      <button id="zoomOut" class="button">-</button>
+      <button id="zoomIn" class="button">+</button>
+      <span id="pageInfo"></span>
+    </div>
+    <div class="controls">
+      <a id="openExternal" class="button" href="#" target="_blank" rel="noreferrer">Open</a>
+      <a id="closeBtn" class="button" href="#">Close</a>
+    </div>
+  </div>
+  <div id="viewerContainer"><canvas id="pdf-canvas"></canvas></div>
+
+  <script src="https://unpkg.com/pdfjs-dist@3.9.179/build/pdf.min.js"></script>
+  <script>
+    // Disable download/printing UI by not providing such controls.
+    (function(){
+      const params = new URLSearchParams(window.location.search);
+      const file = params.get('file');
+      if (!file) {
+        document.getElementById('viewerContainer').innerHTML = '<div style="color:#fff">No file specified</div>';
+        return;
+      }
+      const openExternal = document.getElementById('openExternal');
+      openExternal.href = file;
+
+      const closeBtn = document.getElementById('closeBtn');
+      closeBtn.addEventListener('click', (e)=>{ e.preventDefault(); window.close(); });
+
+      const canvas = document.getElementById('pdf-canvas');
+      const ctx = canvas.getContext('2d');
+      let pdfDoc = null;
+      let pageNum = 1;
+      let scale = 1.0;
+
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://unpkg.com/pdfjs-dist@3.9.179/build/pdf.worker.min.js';
+
+      function renderPage(num) {
+        pdfDoc.getPage(num).then(function(page) {
+          const viewport = page.getViewport({ scale: scale });
+          canvas.height = viewport.height;
+          canvas.width = viewport.width;
+          const renderContext = { canvasContext: ctx, viewport: viewport };
+          page.render(renderContext);
+          document.getElementById('pageInfo').textContent = `Page ${pageNum} / ${pdfDoc.numPages}`;
+        });
+      }
+
+      pdfjsLib.getDocument(file).promise.then(function(pdf) {
+        pdfDoc = pdf;
+        renderPage(pageNum);
+      }).catch(function(err){
+        document.getElementById('viewerContainer').innerHTML = '<div style="color:#fff">Failed to load PDF</div>';
+        console.error(err);
+      });
+
+      document.getElementById('prev').addEventListener('click', ()=>{ if (pageNum <=1) return; pageNum--; renderPage(pageNum); });
+      document.getElementById('next').addEventListener('click', ()=>{ if (!pdfDoc || pageNum >= pdfDoc.numPages) return; pageNum++; renderPage(pageNum); });
+      document.getElementById('zoomIn').addEventListener('click', ()=>{ scale = Math.min(scale + 0.25, 3); renderPage(pageNum); });
+      document.getElementById('zoomOut').addEventListener('click', ()=>{ scale = Math.max(scale - 0.25, 0.5); renderPage(pageNum); });
+
+      // Prevent right-click menu in viewer
+      document.addEventListener('contextmenu', (e)=>{ e.preventDefault(); });
+
+    })();
+  </script>
+</body>
+</html>

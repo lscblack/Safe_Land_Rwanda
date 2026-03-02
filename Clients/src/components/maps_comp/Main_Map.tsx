@@ -876,7 +876,7 @@ export default function ParcelMap({
     async function loadParcels() {
       setLoadingMap(true);
       try {
-        const res = await api.get("/api/mapping/mappings");
+        const res = await api.get("/api/mappings");
         setParcels(res.data);
         
         if (res.data.length > 0) {

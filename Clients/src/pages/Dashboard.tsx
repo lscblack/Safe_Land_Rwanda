@@ -1,8 +1,8 @@
-import  { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
- 
-    Bell, Search, Menu,  Globe, Sun, Moon, Home, Briefcase
+
+    Bell, Search, Menu, Globe, Sun, Moon, Home, Briefcase
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import axios from 'axios';
@@ -17,6 +17,10 @@ import { AgencyManagement } from '../components/dashboard/agents/AgencyManagemen
 import { UserManagement } from '../components/dashboard/agents/UsersMAnag';
 import ParcelMap from '../components/maps_comp/Main_Map';
 import RegisterMap from '../components/maps_comp/registerMap';
+import ParcelMapUser from '../components/maps_comp/Main_Map_for_users';
+import MappingsManagerUser from '../components/maps_comp/RegisterMapUser';
+import { handleLogout } from '../utils/logout';
+import api from '../instance/mainAxios';
 
 
 type ViewState =
@@ -29,6 +33,8 @@ type ViewState =
     | 'property-categories'
     | 'agencies'
     | 'agency-users'
+    | 'Usermaps'
+    | 'maps'
     | 'rdb-certificate';
 
 type LoggedUser = {
@@ -91,12 +97,13 @@ export const DashboardLayout = () => {
                 return;
             }
             try {
-                const response = await axios.get(`${import.meta.env.VITE_BASE_URL}/api/user/profile`, {
+                const response = await api.get(`/api/user/profile`, {
                     headers: { Authorization: `Bearer ${userToken}` },
                 });
                 console.log("Fetched User Profile:", response.data);
                 setLoggedUser(response.data);
             } catch {
+                handleLogout();
                 // window.location.href = '/login';
             }
         };
@@ -107,11 +114,7 @@ export const DashboardLayout = () => {
     useEffect(() => { try { localStorage.setItem('activeView', activeView); } catch (e) { } }, [activeView]);
     useEffect(() => { try { localStorage.setItem('propertiesView', propertiesView); } catch (e) { } }, [propertiesView]);
 
-    const handleLogout = () => {
-        localStorage.removeItem('user_access_token');
-        localStorage.removeItem('user_refresh_token');
-        window.location.href = '/login';
-    };
+
 
     // --- SUB-COMPONENTS ---
 
@@ -232,15 +235,17 @@ export const DashboardLayout = () => {
 
                                 {activeView === 'properties' && propertiesView === 'record' && <RecordPropertyPage />}
                                 {activeView === 'properties' && propertiesView === 'manage' && <PropertyManagement />}
-                                {activeView === 'category' && <CategoryManagement/>}
-                                {activeView === 'agencies' && <AgencyManagement/>}
+                                {activeView === 'category' && <CategoryManagement />}
+                                {activeView === 'agencies' && <AgencyManagement />}
                                 {activeView === 'apply-agency' && <AgencyManagement initialOpen initialType="agency" />}
                                 {activeView === 'apply-broker' && <AgencyManagement initialOpen initialType="broker" />}
                                 {activeView === 'users' && <UserManagement />}
                                 {activeView === 'analytics' && <EmptyWidget title="Analytics Center" />}
                                 {activeView === 'settings' && <EmptyWidget title="System Settings" />}
-                                {activeView === 'maps' && <ParcelMap/>}
-                                {activeView === 'gis_pdf' && <RegisterMap/>}
+                                {activeView === 'maps' && <ParcelMap />}
+                                {activeView === 'Usermaps' && <ParcelMapUser loggedUser={loggedUser} />}
+                                {activeView === 'gis_pdf' && <RegisterMap />}
+                                {activeView === 'gis_pdf_user' && <MappingsManagerUser />}
                             </motion.div>
                         </AnimatePresence>
                     </div>

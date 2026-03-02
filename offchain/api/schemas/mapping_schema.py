@@ -14,6 +14,7 @@ class MappingSchema(BaseModel):
     property_id: Optional[int] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    uploaded_by: Optional[str] = None
 
     class Config:
         from_attributes = True

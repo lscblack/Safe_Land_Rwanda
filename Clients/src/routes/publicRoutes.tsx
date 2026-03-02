@@ -3,6 +3,7 @@ import { Routes, Route } from "react-router-dom";
 import SafeLandLoader from "../loaders/fullpageloader";
 import { useOnboardingCheck } from "../components/security/useOnboardingCheck";
 import MainAppGis from "../components/maps_comp/Main_Map";
+import { GeoGuardLanding } from "../pages/HomePageSecond";
 
 
 // Lazy Imports
@@ -35,6 +36,8 @@ const AppRoutes = () => {
         {/* New Onboarding Route */}
         <Route path="/onboarding" element={<OnboardingPage />} />
 
+        {/* <Route path="/" element={<GeoGuardLanding />} />
+        <Route path="/home" element={<GeoGuardLanding />} /> */}
         <Route path="/" element={<Home />} />
         <Route path="/home" element={<Home />} />
         <Route path="/login" element={isLoggedIn ? <DashboardLayout /> : <LoginPage />} />

@@ -12,19 +12,21 @@ import httpx
 
 from api.middlewares.auth import verify_token, get_optional_user
 from fastapi import Request
-from fastapi.responses import JSONResponse
-from fastapi.responses import Response
-
-
-logger = logging.getLogger(__name__)
-
-router = APIRouter()
-
 from data.models.models import Property, PropertySubCategory, PropertyCategory
 from data.database.database import get_db
 from sqlalchemy.future import select
 from sqlalchemy import or_, and_
 from api.ml.search.search import parse_search_ollama_enhanced
+from data.models.mapping import UpiBackup
+from sqlalchemy.future import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi.responses import JSONResponse, Response
+
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
 
 
 class NLPPropertySearchRequest(BaseModel):
@@ -275,32 +277,66 @@ async def search_property_nlp(
         "results": results
     })
 
+
 @router.get("/title_data", response_model=None)
 async def get_title_data(
     upi: str = None,
     language: str = "english",
-    # token_payload: dict = Depends(verify_token)
+    db: AsyncSession = Depends(get_db)
 ):
     """
-    Get all title data by UPI and language using PARCEL_INFORMATION_IP_ADDRESS_GIS/title_data?upi={upi}&language={language}
-    Returns everything from the external endpoint.
+    Get all title data by UPI and language using PARCEL_INFORMATION_IP_ADDRESS_GIS.
+    Saves/updates backup in the local database. If the request fails, returns backup with flag='backup'.
     """
     if not upi:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="UPI is required")
     if not language:
         language = "english"
+
     endpoint = getattr(settings, "PARCEL_INFORMATION_IP_ADDRESS_GIS", None)
     if not endpoint:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="PARCEL_INFORMATION_IP_ADDRESS_GIS not configured")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                            detail="PARCEL_INFORMATION_IP_ADDRESS_GIS not configured")
+
     url = endpoint.rstrip("/") + f"?upi={upi}&language={language}"
+
     try:
+        # ...existing code...
         async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.get(url)
-        return Response(content=resp.content, status_code=resp.status_code, media_type=resp.headers.get("content-type", "application/json"))
-    except Exception as e:
-        logger.error(f"Error fetching title data: {e}")
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Failed to fetch title data: {e}")
+            resp.raise_for_status()
+            data = resp.json()
 
+        # ...existing code...
+        stmt = pg_insert(UpiBackup).values(
+            upi=upi,
+            upi_info=data
+        ).on_conflict_do_update(
+            index_elements=["upi"],
+            set_={"upi_info": data}
+        )
+        await db.execute(stmt)
+        await db.commit()
+
+        # ...existing code...
+        return Response(
+            content=resp.content,
+            status_code=resp.status_code,
+            media_type=resp.headers.get("content-type", "application/json")
+        )
+
+    except Exception as e:
+        logger.warning(f"External API failed for UPI {upi}: {e}")
+        result = await db.execute(select(UpiBackup).where(UpiBackup.upi == upi))
+        backup_record = result.scalar_one_or_none()
+        if backup_record and backup_record.upi_info:
+            # Return backup upi_info as-is, no wrapping, no extra keys
+            return JSONResponse(status_code=200, content=backup_record.upi_info)
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Failed to fetch title data and no backup found: {e}"
+            )
 
 # Request Models
 class ParcelRequest(BaseModel):
