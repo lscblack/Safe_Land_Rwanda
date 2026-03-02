@@ -513,7 +513,8 @@ function PdfUploader({ onUploadComplete }: PdfUploaderProps) {
       }
 
     } catch (error: any) {
-      console.error(`Error processing ${file.name}:`, error);
+
+      console.error(`Error processing ${file.name}:`, error.status);
 
       // Don't update if request was aborted
       if (error.name === 'CanceledError' || error.code === 'ERR_CANCELED') {
@@ -525,7 +526,7 @@ function PdfUploader({ onUploadComplete }: PdfUploaderProps) {
           ? {
               ...f,
               status: 'error',
-              error: error.response?.data?.message || error.message || "Upload failed",
+              error:error.status == 403 ? "You don't have permission to upload other peoples E-titles." : error.response?.data?.message || error.message || "Upload failed",
               progress: undefined,
             }
           : f

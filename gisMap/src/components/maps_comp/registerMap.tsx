@@ -370,12 +370,12 @@ function ViewDetailsModal({ isOpen, onClose, mapping }: ViewDetailsModalProps) {
                 </h3>
                 <div className="space-y-3">
                   <div>
-                    <h4 className="text-xs font-medium text-gray-700 mb-1">Official Registry Polygon</h4>
+                    <h4 className="text-xs font-medium text-gray-700 mb-1">Detected Polygon</h4>
                     <div className="text-xs bg-gray-100 p-2 rounded overflow-auto max-h-24">
                       <code className="text-xs break-all">{mapping.official_registry_polygon}</code>
                     </div>
                   </div>
-                  <div>
+                  <div className='hidden'>
                     <h4 className="text-xs font-medium text-gray-700 mb-1">Document Detected Polygon</h4>
                     <div className="text-xs bg-gray-100 p-2 rounded overflow-auto max-h-24">
                       <code className="text-xs break-all">{mapping.document_detected_polygon}</code>
