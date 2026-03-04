@@ -2041,7 +2041,11 @@ interface SellPropertyProps {
 }
 
 export default function SellProperty({ onComplete }: SellPropertyProps) {
-    const [activeTab, setActiveTab] = useState<TabType['id']>('upload');
+    const [activeTab, setActiveTab] = useState<TabType['id']>(() => {
+        const saved = localStorage.getItem("activeView_tab");
+        const validTabs: TabType['id'][] = ['upload', 'mappings', 'map'];
+        return (saved && validTabs.includes(saved as TabType['id'])) ? (saved as TabType['id']) : 'upload';
+    });
     const [isCreatingProperty, setIsCreatingProperty] = useState(false);
     const [selectedUpi, setSelectedUpi] = useState<string | null>(null);
     const [selectedMappingId, setSelectedMappingId] = useState<number | null>(null);

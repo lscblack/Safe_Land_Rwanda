@@ -10,10 +10,11 @@ from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends, R
 from fastapi.security.utils import get_authorization_scheme_param
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import text
+from sqlalchemy import text, func
 from api.schemas.mapping_schema import MappingSchema, MarketStatusUpdate
 from data.models.mapping import Mapping
-from data.models.models import Property,User
+from data.models.models import Property, User
+from data.models.chat import ChatSession, ChatMessage
 from data.database.database import get_db
 from datetime import datetime
 from pdf2image import convert_from_path
@@ -699,3 +700,200 @@ async def verify_pdf(
         "note": "preview only — nothing was saved to the database",
     }
 
+
+# ---------------------------------------------------------------------------
+# Individual-level statistics
+# ---------------------------------------------------------------------------
+
+@router.get("/stats/by-upi/{upi:path}", response_model=dict)
+async def stats_by_upi(upi: str, db: AsyncSession = Depends(get_db)):
+    """
+    Full hierarchical summary for a single parcel UPI.
+    Covers mapping record, linked property, legal conditions,
+    market status, and chat activity.
+    """
+    upi = upi.strip()
+
+    # -- Mapping -----------------------------------------------------------
+    m_res = await db.execute(select(Mapping).where(Mapping.upi == upi))
+    mapping = m_res.scalar_one_or_none()
+
+    mapping_data = mapping_to_dict(mapping) if mapping else None
+
+    # -- Property ----------------------------------------------------------
+    p_res = await db.execute(select(Property).where(Property.upi == upi))
+    prop = p_res.scalar_one_or_none()
+    property_data = None
+    if prop:
+        property_data = {
+            "id":               prop.id,
+            "status":           prop.status,
+            "estimated_amount": prop.estimated_amount,
+            "owner_id":         prop.owner_id,
+            "owner_name":       prop.owner_name,
+            "district":         prop.district,
+            "sector":           prop.sector,
+            "cell":             prop.cell,
+            "village":          prop.village,
+            "land_use":         prop.land_use,
+            "uploaded_by_user_id": prop.uploaded_by_user_id,
+            "uploader_type":    prop.uploader_type,
+            "created_at":       prop.created_at.isoformat() if prop.created_at else None,
+        }
+
+    # -- Legal issues summary ----------------------------------------------
+    under_mortgage  = bool(mapping.under_mortgage)  if mapping else False
+    has_caveat      = bool(mapping.has_caveat)       if mapping else False
+    in_transaction  = bool(mapping.in_transaction)   if mapping else False
+    overlaps        = bool(getattr(mapping, "overlaps", False)) if mapping else False
+    total_issues    = sum([under_mortgage, has_caveat, in_transaction, overlaps])
+
+    legal = {
+        "under_mortgage":  under_mortgage,
+        "has_caveat":      has_caveat,
+        "in_transaction":  in_transaction,
+        "overlaps":        overlaps,
+        "total_issues":    total_issues,
+        "is_clean":        total_issues == 0,
+    }
+
+    # -- Market status -----------------------------------------------------
+    market = {
+        "for_sale":      bool(mapping.for_sale)       if mapping else False,
+        "price":         mapping.price                if mapping else None,
+        "land_use_type": mapping.land_use_type        if mapping else None,
+        "district":      mapping.district             if mapping else None,
+        "sector":        mapping.sector               if mapping else None,
+        "parcel_area_sqm": mapping.parcel_area_sqm   if mapping else None,
+        "tenure_type":   mapping.tenure_type          if mapping else None,
+    }
+
+    # -- Chat activity for this UPI ----------------------------------------
+    sess_res = await db.execute(
+        select(func.count(ChatSession.id)).where(ChatSession.upi == upi)
+    )
+    session_count = sess_res.scalar() or 0
+
+    msg_res = await db.execute(
+        select(func.count(ChatMessage.id))
+        .join(ChatSession, ChatMessage.session_id == ChatSession.id)
+        .where(ChatSession.upi == upi)
+    )
+    message_count = msg_res.scalar() or 0
+
+    chat_activity = {
+        "total_sessions": session_count,
+        "total_messages": message_count,
+    }
+
+    if not mapping and not prop:
+        raise HTTPException(status_code=404, detail=f"No data found for UPI '{upi}'.")
+
+    return {
+        "upi":                  upi,
+        "found_in_mappings":   mapping is not None,
+        "found_in_properties": prop is not None,
+        "mapping":             mapping_data,
+        "property":            property_data,
+        "legal_issues":        legal,
+        "market":              market,
+        "chat_activity":       chat_activity,
+    }
+
+
+@router.get("/stats/by-uploader/{uploader_id}", response_model=dict)
+async def stats_by_uploader(uploader_id: str, db: AsyncSession = Depends(get_db)):
+    """
+    Hierarchical summary of all mappings uploaded by a given uploader_id.
+    Returns aggregate counts, breakdowns by district/land-use/status,
+    and a flat list of each parcel with its key flags.
+    """
+    uploader_id = uploader_id.strip()
+
+    m_res = await db.execute(
+        select(Mapping).where(Mapping.uploaded_by == uploader_id)
+    )
+    mappings = m_res.scalars().all()
+
+    if not mappings:
+        raise HTTPException(status_code=404, detail=f"No mappings found for uploader '{uploader_id}'.")
+
+    # -- Aggregate summary -------------------------------------------------
+    total          = len(mappings)
+    for_sale_cnt   = sum(1 for m in mappings if m.for_sale)
+    not_for_sale   = total - for_sale_cnt
+    mortgage_cnt   = sum(1 for m in mappings if m.under_mortgage)
+    caveat_cnt     = sum(1 for m in mappings if m.has_caveat)
+    transaction_cnt = sum(1 for m in mappings if m.in_transaction)
+    overlap_cnt    = sum(1 for m in mappings if getattr(m, "overlaps", False))
+    with_issues    = sum(
+        1 for m in mappings
+        if m.under_mortgage or m.has_caveat or m.in_transaction
+           or getattr(m, "overlaps", False)
+    )
+    clean_cnt      = total - with_issues
+    total_value    = sum(m.price or 0 for m in mappings if m.for_sale and m.price)
+
+    summary = {
+        "total_mappings":     total,
+        "for_sale":           for_sale_cnt,
+        "not_for_sale":       not_for_sale,
+        "with_issues":        with_issues,
+        "clean":              clean_cnt,
+        "under_mortgage":     mortgage_cnt,
+        "has_caveat":         caveat_cnt,
+        "in_transaction":     transaction_cnt,
+        "overlaps":           overlap_cnt,
+        "total_listed_value": total_value,
+    }
+
+    # -- Breakdowns --------------------------------------------------------
+    by_district: dict = {}
+    by_land_use: dict = {}
+
+    for m in mappings:
+        d = m.district or "Unknown"
+        by_district[d] = by_district.get(d, 0) + 1
+
+        lu = m.land_use_type or "Unknown"
+        by_land_use[lu] = by_land_use.get(lu, 0) + 1
+
+    breakdown = {
+        "by_district":  dict(sorted(by_district.items(), key=lambda x: -x[1])),
+        "by_land_use":  dict(sorted(by_land_use.items(), key=lambda x: -x[1])),
+    }
+
+    # -- Per-parcel list ---------------------------------------------------
+    parcels = []
+    for m in mappings:
+        has_issue = bool(
+            m.under_mortgage or m.has_caveat or m.in_transaction
+            or getattr(m, "overlaps", False)
+        )
+        parcels.append({
+            "upi":             m.upi,
+            "for_sale":        bool(m.for_sale),
+            "price":           m.price,
+            "district":        m.district,
+            "sector":          m.sector,
+            "land_use_type":   m.land_use_type,
+            "parcel_area_sqm": m.parcel_area_sqm,
+            "tenure_type":     m.tenure_type,
+            "under_mortgage":  bool(m.under_mortgage),
+            "has_caveat":      bool(m.has_caveat),
+            "in_transaction":  bool(m.in_transaction),
+            "overlaps":        bool(getattr(m, "overlaps", False)),
+            "has_issue":       has_issue,
+            "approval_date":   m.approval_date.isoformat() if m.approval_date else None,
+            "created_at":      m.created_at.isoformat() if m.created_at else None,
+        })
+
+    # Sort: issues first, then by creation date desc
+    parcels.sort(key=lambda p: (not p["has_issue"], p["created_at"] or ""), reverse=False)
+
+    return {
+        "uploader_id": uploader_id,
+        "summary":     summary,
+        "breakdown":   breakdown,
+        "parcels":     parcels,
+    }

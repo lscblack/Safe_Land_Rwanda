@@ -21,6 +21,7 @@ import ParcelMapUser from '../components/maps_comp/Main_Map_for_users';
 import MappingsManagerUser from '../components/maps_comp/RegisterMapUser';
 import { handleLogout } from '../utils/logout';
 import api from '../instance/mainAxios';
+import DashboardOverview from '../components/dashboard/DashboardOverview';
 
 
 type ViewState =
@@ -231,8 +232,11 @@ export const DashboardLayout = () => {
                                 transition={{ duration: 0.2 }}
                                 className="flex-1"
                             >
-                                {activeView === 'overview' && <EmptyWidget title="Overview Management" />}
+                                {activeView === 'overview' && <DashboardOverview
+                                    // activeView={activeView}
+                                    setActiveView={setActiveView}
 
+                                />}
                                 {activeView === 'properties' && propertiesView === 'record' && <RecordPropertyPage />}
                                 {activeView === 'properties' && propertiesView === 'manage' && <PropertyManagement />}
                                 {activeView === 'category' && <CategoryManagement />}
