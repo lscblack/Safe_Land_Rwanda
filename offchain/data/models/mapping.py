@@ -89,7 +89,10 @@ class Mapping(Base):
     # --------------------------------
     # RELATIONSHIPS
     # --------------------------------
-    property = relationship("Property", backref="mappings")
+    # lazy="noload" prevents SQLAlchemy from ever attempting an async lazy-load
+    # of this relationship in an unexpected greenlet context.
+    # Routes that need the related Property must use selectinload() explicitly.
+    property = relationship("Property", backref="mappings", lazy="noload")
     ##------------------------------
     for_sale = Column(Boolean, default=False)
     price = Column(Float, nullable=True)

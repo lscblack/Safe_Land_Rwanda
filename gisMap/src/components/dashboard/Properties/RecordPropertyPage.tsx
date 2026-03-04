@@ -1,10 +1,10 @@
 import 'leaflet/dist/leaflet.css';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 // import { MapContainer, TileLayer, Polygon } from 'react-leaflet';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     TreePine, Tractor, Home, Building2, Factory, Landmark,
-    ChevronRight, Save, ArrowLeft, CheckCircle2
+    ChevronRight, Save, ArrowLeft, CheckCircle2, Database
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useTheme } from '../../../contexts/theme-context';
@@ -12,13 +12,19 @@ import { FORM_CONFIG, type Category, type FormField, type SubCategory } from './
 import api from '../../../instance/mainAxios';
 import Select from 'react-select';
 
+// Props interface
+interface RecordPropertyPageProps {
+    initialUpi?: string;
+    mappingId?: number;
+    onSuccess?: () => void;
+}
 
 // Icon Map for Dynamic Rendering
 const IconMap: Record<string, any> = {
     TreePine, Tractor, Home, Building2, Factory, Landmark
 };
 
-const RecordPropertyPage = () => {
+const RecordPropertyPage = ({ initialUpi, mappingId, onSuccess }: RecordPropertyPageProps) => {
     const { theme } = useTheme();
     const isDark = theme === 'dark';
 
@@ -43,7 +49,12 @@ const RecordPropertyPage = () => {
     const [dbCategories, setDbCategories] = useState<any[]>([]);
     const [dbSubCategories, setDbSubCategories] = useState<any[]>([]);
     const [formCategories, setFormCategories] = useState<Category[]>(FORM_CONFIG);
-console.log(oldParcelInfo)
+    
+    // Flag to track if initial verification was auto-triggered
+    const [initialVerificationDone, setInitialVerificationDone] = useState(false);
+    // Flag to track if we're waiting for category selection after initial UPI
+    const [pendingInitialUpi, setPendingInitialUpi] = useState<string | null>(initialUpi || null);
+
     // Load taxonomy from backend and map to the static FORM_CONFIG fields
     React.useEffect(() => {
         const loadTaxonomy = async () => {
@@ -74,6 +85,27 @@ console.log(oldParcelInfo)
         loadTaxonomy();
     }, []);
 
+    // Initialize form with initialUpi if provided
+    useEffect(() => {
+        if (initialUpi && !initialVerificationDone) {
+            setFormData(prev => ({ ...prev, upi: initialUpi }));
+            setPendingInitialUpi(initialUpi);
+        }
+    }, [initialUpi]);
+
+    // Auto-verify when category is selected and we have a pending UPI
+    useEffect(() => {
+        if (selectedCategory && pendingInitialUpi && !initialVerificationDone) {
+            // Small delay to ensure everything is ready
+            const timer = setTimeout(() => {
+                handleVerifyUpi();
+                setInitialVerificationDone(true);
+                setPendingInitialUpi(null);
+            }, 500);
+            return () => clearTimeout(timer);
+        }
+    }, [selectedCategory, pendingInitialUpi]);
+
     // --- HANDLERS ---
     const handleChangeCategory = () => {
         // Reset selection and clear form + verification state
@@ -88,7 +120,10 @@ console.log(oldParcelInfo)
         setParcelAllowed(false);
         setParcelCategoryWarning(null);
         setCurrentStep(1);
+        setInitialVerificationDone(false);
+        setPendingInitialUpi(null);
     };
+    
     const handleCategorySelect = (category: any) => {
         setSelectedCategory(category);
         setSelectedSubCategory(null);
@@ -118,17 +153,21 @@ console.log(oldParcelInfo)
         setParcelInfo(null);
         setParcelStatusMessage(null);
         setParcelAllowed(false);
+        
         if (!upi) {
             setUpiError('UPI is required.');
             setIsUpiVerified(false);
             return;
         }
+        
         setIsUpiVerifying(true);
         setUpiError(null);
+        
         try {
             // Use new endpoint
             const res = await api.get(`/api/external/title_data?upi=${encodeURIComponent(upi)}&language=english`);
             const result = res.data;
+            
             if (!result.success || !result.found || !result.data || !result.data.parcelDetails) {
                 setUpiError('Parcel not found or invalid response.');
                 setIsUpiVerified(false);
@@ -136,6 +175,7 @@ console.log(oldParcelInfo)
                 setIsUpiVerifying(false);
                 return;
             }
+            
             const data = result.data.parcelDetails;
             setParcelInfo(data);
 
@@ -172,35 +212,66 @@ console.log(oldParcelInfo)
             const cell = address.cellName || data.cellName || '';
             const village = address.villageName || data.villageName || '';
 
-            // GIS coordinates
+            // GIS coordinates - FIXED: Properly extract lat/lon from various possible sources
             let lat = null, lon = null;
+            
+            // Check parcelCoordinates (most reliable)
             if (data.parcelCoordinates) {
                 lat = data.parcelCoordinates.lat;
                 lon = data.parcelCoordinates.lon;
             }
-            // fallback to geometry if needed
-            if ((lat === null || lon === null) && data.parcelGeometry?.geometry?.rings?.[0]?.[0]) {
+            // Check if coordinates are in the response directly
+            else if (data.latitude !== undefined && data.longitude !== undefined) {
+                lat = data.latitude;
+                lon = data.longitude;
+            }
+            // Try from parcelGeometry
+            else if (data.parcelGeometry?.geometry?.rings?.[0]?.[0]) {
+                // WGS84 coordinates are typically [lon, lat]
                 lon = data.parcelGeometry.geometry.rings[0][0][0];
                 lat = data.parcelGeometry.geometry.rings[0][0][1];
             }
+            // Try from coordinates array
+            else if (Array.isArray(data.coordinates) && data.coordinates.length > 0) {
+                const firstCoord = data.coordinates[0];
+                if (firstCoord.lat !== undefined && firstCoord.lon !== undefined) {
+                    lat = firstCoord.lat;
+                    lon = firstCoord.lon;
+                } else if (firstCoord.latitude !== undefined && firstCoord.longitude !== undefined) {
+                    lat = firstCoord.latitude;
+                    lon = firstCoord.longitude;
+                }
+            }
 
-            // Save all new status fields
-            setFormData(prev => ({
-                ...prev,
-                district: district || prev.district,
-                sector: sector || prev.sector,
-                cell: cell || prev.cell,
-                village: village || prev.village,
-                ...(lat !== null ? { latitude: lat } : {}),
-                ...(lon !== null ? { longitude: lon } : {}),
-                hasCaveat: data.hasCaveat,
-                underMortgage: data.underMortgage,
-                inTransaction: data.inTransaction,
-                isProvisional: data.isProvisional,
-                hasBuilding: data.hasBuilding,
-                hasInfrastructure: data.hasInfrastructure,
-                parcelCoordinates: data.parcelCoordinates,
-            }));
+            console.log('Extracted coordinates:', { lat, lon }); // Debug log
+
+            // Save all new status fields - FIXED: Ensure lat/lon are properly set and immediately visible
+            setFormData(prev => {
+                const updated = {
+                    ...prev,
+                    district: district || prev.district,
+                    sector: sector || prev.sector,
+                    cell: cell || prev.cell,
+                    village: village || prev.village,
+                    hasCaveat: data.hasCaveat,
+                    underMortgage: data.underMortgage,
+                    inTransaction: data.inTransaction,
+                    isProvisional: data.isProvisional,
+                    hasBuilding: data.hasBuilding,
+                    hasInfrastructure: data.hasInfrastructure,
+                    parcelCoordinates: data.parcelCoordinates,
+                };
+                
+                // Only add lat/lon if they exist and are valid
+                if (lat !== null && lat !== undefined && !isNaN(parseFloat(lat))) {
+                    updated.latitude = parseFloat(lat);
+                }
+                if (lon !== null && lon !== undefined && !isNaN(parseFloat(lon))) {
+                    updated.longitude = parseFloat(lon);
+                }
+                
+                return updated;
+            });
 
             // Determine ownership: prefer parcelRepresentative, else first owner
             let ownerId = '';
@@ -232,20 +303,23 @@ console.log(oldParcelInfo)
                 setParcelStatusMessage('Parcel OK for upload.');
                 setParcelAllowed(true);
                 setIsUpiVerified(true);
-                // Check land-use vs selected category (warn if mismatch)
-                try {
-                    const parcelUseRaw = (data.landUseTypeNameEnglish || data.landUseTypeNameKinyarwanda || data.landUseTypeNameFrench || '').toString();
-                    const catLabelRaw = (selectedCategory?.label || selectedCategory?.name || '').toString();
-                    const normalize = (s: string) => s.toLowerCase().replace(/[^a-z]/g, '');
-                    const p = normalize(parcelUseRaw);
-                    const c = normalize(catLabelRaw);
-                    if (p && c && !(p.includes(c) || c.includes(p))) {
-                        setParcelCategoryWarning(`Parcel land use (${parcelUseRaw || 'N/A'}) does not match selected category (${catLabelRaw || 'N/A'}). Your property may not be approved.`);
-                    } else {
+                
+                // Check land-use vs selected category (warn if mismatch) - only if category is selected
+                if (selectedCategory) {
+                    try {
+                        const parcelUseRaw = (data.landUseTypeNameEnglish || data.landUseTypeNameKinyarwanda || data.landUseTypeNameFrench || '').toString();
+                        const catLabelRaw = (selectedCategory?.label || selectedCategory?.name || '').toString();
+                        const normalize = (s: string) => s.toLowerCase().replace(/[^a-z]/g, '');
+                        const p = normalize(parcelUseRaw);
+                        const c = normalize(catLabelRaw);
+                        if (p && c && !(p.includes(c) || c.includes(p))) {
+                            setParcelCategoryWarning(`Parcel land use (${parcelUseRaw || 'N/A'}) does not match selected category (${catLabelRaw || 'N/A'}). Your property may not be approved.`);
+                        } else {
+                            setParcelCategoryWarning(null);
+                        }
+                    } catch (e) {
                         setParcelCategoryWarning(null);
                     }
-                } catch (e) {
-                    setParcelCategoryWarning(null);
                 }
             }
         } catch (err: any) {
@@ -319,6 +393,20 @@ console.log(oldParcelInfo)
 
             const res = await api.post('/api/property/properties', payload);
             const created = res.data;
+            
+            // If mappingId was provided, update the mapping with the new property ID
+            if (mappingId && created && created.id) {
+                try {
+                    await api.patch(`/api/mappings/${mappingId}`, {
+                        property_id: created.id,
+                        for_sale: true,
+                        price: formData.estimated_amount
+                    });
+                } catch (err) {
+                    console.error('Failed to update mapping with property ID:', err);
+                }
+            }
+
             // If images exist, upload each one
             const imgs = formData.images || [];
             if (created && created.id && imgs.length > 0) {
@@ -336,9 +424,16 @@ console.log(oldParcelInfo)
             }
 
             setToast({ type: 'success', message: 'Property Recorded Successfully!' });
-            setSelectedCategory(null);
-            setSelectedSubCategory(null);
-            setFormData({});
+            
+            // Call onSuccess callback if provided
+            if (onSuccess) {
+                onSuccess();
+            } else {
+                // Only reset form if not using callback (parent will handle closing)
+                setSelectedCategory(null);
+                setSelectedSubCategory(null);
+                setFormData({});
+            }
         } catch (err: any) {
             console.error('Create property failed', err);
             const detail = err?.response?.data?.detail ?? err?.message ?? err;
@@ -650,7 +745,7 @@ console.log(oldParcelInfo)
                         <h1 className="text-3xl font-bold tracking-tight mb-2">Record Property</h1>
                         <p className="text-gray-500 dark:text-gray-400">Add new land or building assets to the registry.</p>
                     </div>
-                    {selectedCategory && (
+                    {selectedCategory && !mappingId && (
                         <button
                             onClick={handleChangeCategory}
                             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white dark:bg-[#112240] border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-sm font-bold shadow-sm"
@@ -658,6 +753,11 @@ console.log(oldParcelInfo)
                             <ArrowLeft size={16} />
                             Change Category
                         </button>
+                    )}
+                    {mappingId && (
+                        <div className="text-sm text-gray-500 bg-blue-50 dark:bg-blue-900/10 px-3 py-1 rounded-full">
+                            Mapping ID: {mappingId}
+                        </div>
                     )}
                 </div>
 
@@ -742,13 +842,34 @@ console.log(oldParcelInfo)
                                                     <div className="col-span-1 md:col-span-2 grid grid-cols-3 gap-2 items-center">
                                                         <div className="col-span-2">
                                                             <label className="block text-xs font-bold text-gray-500 uppercase mb-2">UPI</label>
-                                                            <input type="text" value={formData.upi || ''} onChange={(e) => { setFormData(prev => ({ ...prev, upi: e.target.value })); setIsUpiVerified(false); setUpiError(null); }} placeholder="Enter UPI (e.g. 5/07/08/01/6464)" className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#112240]" />
+                                                            <input 
+                                                                type="text" 
+                                                                value={formData.upi || ''} 
+                                                                onChange={(e) => { 
+                                                                    setFormData(prev => ({ ...prev, upi: e.target.value })); 
+                                                                    setIsUpiVerified(false); 
+                                                                    setUpiError(null); 
+                                                                }} 
+                                                                placeholder="Enter UPI (e.g. 5/07/08/01/6464)" 
+                                                                className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#112240]" 
+                                                                disabled={isUpiVerified} // Disable after verification
+                                                            />
                                                             {upiError && <p className="text-xs text-red-500 mt-1">{upiError}</p>}
                                                         </div>
                                                         <div className="col-span-1">
                                                             <label className="block text-xs font-bold text-gray-500 uppercase mb-2">&nbsp;</label>
-                                                            <button type="button" onClick={handleVerifyUpi} disabled={isUpiVerifying} className="w-full px-3 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#112240] text-sm font-bold">
-                                                                {isUpiVerifying ? 'Verifying...' : isUpiVerified ? 'Verified' : 'Verify'}
+                                                            <button 
+                                                                type="button" 
+                                                                onClick={handleVerifyUpi} 
+                                                                disabled={isUpiVerifying || isUpiVerified} 
+                                                                className={clsx(
+                                                                    "w-full px-3 py-3 rounded-xl border text-sm font-bold transition-colors",
+                                                                    isUpiVerified 
+                                                                        ? "bg-green-600 text-white border-green-600" 
+                                                                        : "bg-white dark:bg-[#112240] border-gray-200 dark:border-gray-700 hover:bg-primary hover:text-white"
+                                                                )}
+                                                            >
+                                                                {isUpiVerifying ? 'Verifying...' : isUpiVerified ? 'Verified ✓' : 'Verify'}
                                                             </button>
                                                         </div>
                                                     </div>
@@ -761,6 +882,7 @@ console.log(oldParcelInfo)
                                                         <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Owner Name</label>
                                                         <input type="text" readOnly={true} value={formData.owner_name || ''} onChange={(e) => setFormData(prev => ({ ...prev, owner_name: e.target.value }))} className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#112240]" disabled={formLocked} />
                                                     </div>
+                                                    
                                                     {/* Parcel status & quick info (colored) */}
                                                     <div className="col-span-1 md:col-span-2 text-sm mt-2">
                                                         {parcelStatusMessage && (
@@ -775,22 +897,54 @@ console.log(oldParcelInfo)
                                                             </div>
                                                         )}
                                                         {parcelInfo && (
-                                                            <div className="mt-2 font-bold text-xs text-gray-400">
-                                                                <div className="font-bold text-primary mb-1">Parcel Data (Status)</div>
-                                                                <div>Land use: {parcelInfo.landUseTypeNameEnglish || parcelInfo.landUseTypeNameKinyarwanda || parcelInfo.landUseTypeNameFrench || 'N/A'}</div>
-                                                                <div>Size: {parcelInfo.area || parcelInfo.size || 'N/A'} ㎡</div>
-                                                                <div>Status:</div>
-                                                                <ul className="ml-4 list-disc">
-                                                                    <li>Has Caveat: <span className={parcelInfo.hasCaveat ? 'text-red-600' : 'text-green-600'}>{parcelInfo.hasCaveat ? 'Yes' : 'No'}</span></li>
-                                                                    <li>Under Mortgage: <span className={parcelInfo.underMortgage ? 'text-red-600' : 'text-green-600'}>{parcelInfo.underMortgage ? 'Yes' : 'No'}</span></li>
-                                                                    <li>In Transaction: <span className={parcelInfo.inTransaction ? 'text-red-600' : 'text-green-600'}>{parcelInfo.inTransaction ? 'Yes' : 'No'}</span></li>
-                                                                    <li>Is Provisional: <span className={parcelInfo.isProvisional ? 'text-yellow-600' : 'text-green-600'}>{parcelInfo.isProvisional ? 'Yes' : 'No'}</span></li>
-                                                                    <li>Has Building: <span className={parcelInfo.hasBuilding ? 'text-blue-600' : 'text-gray-600'}>{parcelInfo.hasBuilding ? 'Yes' : 'No'}</span></li>
-                                                                    <li>Has Infrastructure: <span className={parcelInfo.hasInfrastructure ? 'text-blue-600' : 'text-gray-600'}>{parcelInfo.hasInfrastructure ? 'Yes' : 'No'}</span></li>
-                                                                </ul>
+                                                            <div className="mt-4 p-3 bg-gray-50 dark:bg-[#112240] rounded-lg border border-gray-200 dark:border-gray-700">
+                                                                <div className="font-bold text-primary mb-2 flex items-center gap-2">
+                                                                    <Database size={14} />
+                                                                    Parcel Data (from Registry)
+                                                                </div>
+                                                                <div className="grid grid-cols-2 gap-2 text-xs">
+                                                                    <div>
+                                                                        <span className="text-gray-500">Land use:</span>
+                                                                        <div className="font-medium">{parcelInfo.landUseTypeNameEnglish || parcelInfo.landUseTypeNameKinyarwanda || parcelInfo.landUseTypeNameFrench || 'N/A'}</div>
+                                                                    </div>
+                                                                    <div>
+                                                                        <span className="text-gray-500">Size:</span>
+                                                                        <div className="font-medium">{parcelInfo.area || parcelInfo.size || 'N/A'} m²</div>
+                                                                    </div>
+                                                                    <div>
+                                                                        <span className="text-gray-500">Latitude:</span>
+                                                                        <div className="font-medium">{formData.latitude?.toFixed(6) || 'N/A'}</div>
+                                                                    </div>
+                                                                    <div>
+                                                                        <span className="text-gray-500">Longitude:</span>
+                                                                        <div className="font-medium">{formData.longitude?.toFixed(6) || 'N/A'}</div>
+                                                                    </div>
+                                                                </div>
+                                                                <div className="mt-2">
+                                                                    <span className="text-gray-500">Status:</span>
+                                                                    <ul className="mt-1 grid grid-cols-2 gap-1">
+                                                                        <li className="flex items-center gap-1">
+                                                                            <span className={parcelInfo.hasCaveat ? 'text-red-600' : 'text-green-600'}>●</span>
+                                                                            Caveat: {parcelInfo.hasCaveat ? 'Yes' : 'No'}
+                                                                        </li>
+                                                                        <li className="flex items-center gap-1">
+                                                                            <span className={parcelInfo.underMortgage ? 'text-red-600' : 'text-green-600'}>●</span>
+                                                                            Mortgage: {parcelInfo.underMortgage ? 'Yes' : 'No'}
+                                                                        </li>
+                                                                        <li className="flex items-center gap-1">
+                                                                            <span className={parcelInfo.inTransaction ? 'text-red-600' : 'text-green-600'}>●</span>
+                                                                            In Transaction: {parcelInfo.inTransaction ? 'Yes' : 'No'}
+                                                                        </li>
+                                                                        <li className="flex items-center gap-1">
+                                                                            <span className={parcelInfo.isProvisional ? 'text-yellow-600' : 'text-green-600'}>●</span>
+                                                                            Provisional: {parcelInfo.isProvisional ? 'Yes' : 'No'}
+                                                                        </li>
+                                                                    </ul>
+                                                                </div>
                                                             </div>
                                                         )}
                                                     </div>
+                                                    
                                                     {selectedSubCategory.fields.map((field: any) => (
                                                         <div
                                                             key={field.name}
@@ -876,20 +1030,42 @@ console.log(oldParcelInfo)
                                                             )}
                                                         </div>
 
-                                                        {/* UPI verifier moved to Owner section in Step 1 */}
-
-
-                                                        {/* Location */}
-                                                        <label className="text-xs font-bold text-gray-500 uppercase mb-2 block mt-4">Location (Latitude / Longitude)</label>
-                                                        <div className="grid grid-cols-2 gap-2">
-                                                            <input type="number" disabled={true} step="any" value={formData.latitude || ''} onChange={(e) => setFormData(prev => ({ ...prev, latitude: e.target.value }))} placeholder="Latitude" className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#112240]" />
-                                                            <input type="number" disabled={true} step="any" value={formData.longitude || ''} onChange={(e) => setFormData(prev => ({ ...prev, longitude: e.target.value }))} placeholder="Longitude" className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#112240]" />
+                                                        {/* Location - Show lat/long from verification */}
+                                                        <label className="text-xs font-bold text-gray-500 uppercase mb-2 block mt-4">Location Coordinates (from Registry)</label>
+                                                        <div className="grid grid-cols-2 gap-4">
+                                                            <div>
+                                                                <label className="text-xs text-gray-500 mb-1 block">Latitude</label>
+                                                                <input 
+                                                                    type="number" 
+                                                                    step="any" 
+                                                                    value={formData.latitude || ''} 
+                                                                    readOnly
+                                                                    className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-[#112240] text-slate-900 dark:text-white cursor-not-allowed" 
+                                                                />
+                                                            </div>
+                                                            <div>
+                                                                <label className="text-xs text-gray-500 mb-1 block">Longitude</label>
+                                                                <input 
+                                                                    type="number" 
+                                                                    step="any" 
+                                                                    value={formData.longitude || ''} 
+                                                                    readOnly
+                                                                    className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-[#112240] text-slate-900 dark:text-white cursor-not-allowed" 
+                                                                />
+                                                            </div>
                                                         </div>
-                                                        {/* Location should be filled from parcel endpoint; manual location removed */}
 
                                                         {/* Estimated Amount */}
-                                                        <label className="text-xs font-bold text-gray-500 uppercase mb-2 block mt-4">Estimated Amount</label>
-                                                        <input type="number" step="0.01" value={formData.estimated_amount || ''} onChange={(e) => setFormData(prev => ({ ...prev, estimated_amount: e.target.value }))} placeholder="Estimated value in RWF" className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#112240]" disabled={formLocked} />
+                                                        <label className="text-xs font-bold text-gray-500 uppercase mb-2 block mt-6">Estimated Amount (RWF)</label>
+                                                        <input 
+                                                            type="number" 
+                                                            step="0.01" 
+                                                            value={formData.estimated_amount || ''} 
+                                                            onChange={(e) => setFormData(prev => ({ ...prev, estimated_amount: e.target.value }))} 
+                                                            placeholder="Enter estimated value" 
+                                                            className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#112240] text-slate-900 dark:text-white focus:ring-2 focus:ring-primary focus:border-transparent outline-none" 
+                                                            disabled={formLocked} 
+                                                        />
                                                     </div>
                                                 </div>
 
@@ -897,7 +1073,7 @@ console.log(oldParcelInfo)
                                                     <button
                                                         type="button"
                                                         onClick={() => setCurrentStep(1)}
-                                                        className="px-6 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#112240] text-sm font-bold"
+                                                        className="px-6 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#112240] text-sm font-bold hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
                                                     >
                                                         Back
                                                     </button>
@@ -932,4 +1108,5 @@ console.log(oldParcelInfo)
         </div>
     );
 };
+
 export default RecordPropertyPage;

@@ -1404,7 +1404,7 @@ export const PropertyManagement = () => {
 
                         <button
                             onClick={() => setIsCreating(true)}
-                            className="px-4 py-2 bg-primary text-white rounded-xl text-sm font-bold hover:bg-primary/90 transition-colors flex items-center gap-2"
+                            className="px-4 hidden py-2 bg-primary text-white rounded-xl text-sm font-bold hover:bg-primary/90 transition-colors flex items-center gap-2"
                         >
                             <Plus size={16} />
                             New Property
@@ -1425,7 +1425,7 @@ export const PropertyManagement = () => {
                 </div>
 
                 {/* --- PAGINATION INFO (TOP) --- */}
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between hidden">
                     <div className="text-sm text-gray-500">
                         Showing {Math.min(skip + 1, total || 0)} - {Math.min(skip + limit, total || 0)} of {total} properties
                     </div>

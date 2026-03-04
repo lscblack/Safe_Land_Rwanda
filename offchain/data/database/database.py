@@ -57,7 +57,8 @@ async def init_db():
         async with engine.begin() as conn:
             # Import all models here to ensure they're registered
             from data.models import models
-            
+            from data.models import chat  # noqa: F401 — registers chat_sessions / chat_messages
+
             # Create all tables
             await conn.run_sync(Base.metadata.create_all)
             logger.info("Database tables created successfully")

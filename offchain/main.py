@@ -36,7 +36,8 @@ from api.routes import (
     property_routes, 
     agency_routes,
     mapping_routes,
-    geoai_routes
+    geoai_routes,
+    chat_routes,
 )
 
 # --- Configuration ---
@@ -99,6 +100,7 @@ app.include_router(external_routes.router, prefix="/api/external", tags=["Extern
 app.include_router(notification_routes.router, prefix="/api/notifications", tags=["Notification Center"])
 app.include_router(otp_routes.router, prefix="/otp", tags=["Security & OTP"])
 app.include_router(geoai_routes.router, prefix="/api/geoai", tags=["GeoAI"])
+app.include_router(chat_routes.router, prefix="/api/chat", tags=["Land Assistant"])
 
 # --- Root Landing Page ---
 @app.get("/", response_class=HTMLResponse, tags=["General"])

@@ -71,6 +71,7 @@ import 'leaflet/dist/leaflet.css';
 import api from '../../instance/mainAxios';
 import parse from 'wellknown';
 import * as turf from '@turf/turf';
+import SimpleAiChatbot from '../ml/Chatbot';
 
 // Fix for default markers
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -264,6 +265,10 @@ interface StepTwoProps {
   viewMode: 'district' | 'all';
   setViewMode: (mode: 'district' | 'all') => void;
   onRefreshParcels: () => Promise<void>;
+  /** UPI coming from the chatbot — triggers an auto-zoom on the map */
+  chatHighlightUPI?: string | null;
+  /** UPI coming from the chatbot chip click — triggers zoom + opens the DetailPopup */
+  chatDetailUPI?: string | null;
 }
 
 interface VerificationResult {
@@ -300,7 +305,7 @@ function formatArea(area?: number): string {
 
 function formatPrice(price?: number | null): string {
   if (!price) return 'Not for sale';
-  
+
   // Format large numbers with commas
   if (price >= 1000000000) {
     return `${(price / 1000000000).toFixed(2)}B RWF`;
@@ -373,10 +378,10 @@ function Map3DView({ enabled }: { enabled: boolean }) {
 
 function ZoomToParcel({ parcel, shouldZoom }: { parcel: ParcelData; shouldZoom: boolean }) {
   const map = useMap();
-  
+
   useEffect(() => {
     if (!parcel || !shouldZoom) return;
-    
+
     // Fly to the parcel bounds
     map.flyToBounds(parcel.positions, {
       padding: [60, 60],
@@ -384,7 +389,7 @@ function ZoomToParcel({ parcel, shouldZoom }: { parcel: ParcelData; shouldZoom: 
       duration: 1.5,
     });
   }, [parcel, map, shouldZoom]);
-  
+
   return null;
 }
 
@@ -394,12 +399,12 @@ function ZoomToParcel({ parcel, shouldZoom }: { parcel: ParcelData; shouldZoom: 
 function AreaLabel({ parcel }: { parcel: ParcelData }) {
   const map = useMap();
   const zoom = map.getZoom();
-  
+
   // Only show label at zoom level 15 and above
   if (zoom < 15) return null;
-  
+
   const areaText = formatArea(parcel.area);
-  
+
   return (
     <Marker
       position={parcel.center}
@@ -454,8 +459,8 @@ function OwnerCard({ owner }: { owner: Owner }) {
                 {getMaritalStatusIcon(owner.maritalStatus || '')}
                 {owner.maritalStatus === 'M' ? 'Married' :
                   owner.maritalStatus === 'S' ? 'Single' :
-                  owner.maritalStatus === 'D' ? 'Divorced' :
-                  owner.maritalStatus === 'W' ? 'Widowed' : 'Unknown'}
+                    owner.maritalStatus === 'D' ? 'Divorced' :
+                      owner.maritalStatus === 'W' ? 'Widowed' : 'Unknown'}
               </span>
             </div>
           </div>
@@ -970,41 +975,41 @@ function ParcelPolygon({ parcel, isSelected, onClick }: { parcel: ParcelData; is
               <MapPin size={10} className="text-gray-500" />
               <span>Area: {formatArea(parcel.area)}</span>
             </div>
-            
+
             {parcel.price && parcel.price > 0 && (
               <div className="flex items-center gap-1 mt-1 text-green-600 font-medium">
                 <DollarSign size={10} />
                 <span>{formatPrice(parcel.price)}</span>
               </div>
             )}
-            
+
             {parcel.village && (
               <div className="text-gray-600 dark:text-gray-400 mt-1 text-[10px]">
                 {parcel.village}, {parcel.cell}
               </div>
             )}
-            
+
             {parcel.isVerified && (
               <div className="text-green-600 flex items-center gap-1 mt-1 font-medium">
                 <CheckCircle2 size={12} />
                 Your Verified Land
               </div>
             )}
-            
+
             {!parcel.isVerified && parcel.forSale === true && (
               <div className="text-green-600 flex items-center gap-1 mt-1">
                 <DollarSign size={12} />
                 For Sale
               </div>
             )}
-            
+
             {!parcel.isVerified && parcel.forSale === false && (
               <div className="text-red-700 flex items-center gap-1 mt-1 font-medium">
                 <Ban size={12} />
                 Not Available
               </div>
             )}
-            
+
             {parcel.hasOverlap && (
               <div className="text-red-600 flex items-center gap-1 mt-1">
                 <AlertTriangle size={12} />
@@ -1224,16 +1229,18 @@ function StepOne({ onVerify, isVerifying, verificationResult, onReset }: StepOne
 /* =========================
    STEP 2: MAP VIEW
 ========================= */
-function StepTwo({ 
-  parcels, 
-  verifiedUPI, 
-  onBack, 
-  onVerifyAnother, 
-  filterAvailable, 
+function StepTwo({
+  parcels,
+  verifiedUPI,
+  onBack,
+  onVerifyAnother,
+  filterAvailable,
   setFilterAvailable,
   viewMode,
   setViewMode,
-  onRefreshParcels
+  onRefreshParcels,
+  chatHighlightUPI,
+  chatDetailUPI,
 }: StepTwoProps) {
   const [selectedParcel, setSelectedParcel] = useState<ParcelData | null>(null);
   const [mapStyle, setMapStyle] = useState<'streets' | 'satellite' | 'dark'>('streets');
@@ -1245,16 +1252,16 @@ function StepTwo({
   const [refreshing, setRefreshing] = useState(false);
   const [mapCenter] = useState<[number, number]>([-1.9403, 29.8739]);
 
-  const verifiedParcel = useMemo(() => 
+  const verifiedParcel = useMemo(() =>
     parcels.find(p => p.upi === verifiedUPI),
     [parcels, verifiedUPI]
   );
 
   const displayedParcels = useMemo(() => {
     if (viewMode === 'all') return parcels;
-    
+
     if (!filterAvailable) return parcels;
-    return parcels.filter(p => 
+    return parcels.filter(p =>
       p.isVerified || // Always show verified parcels
       p.forSale === true // Show only parcels for sale
     );
@@ -1266,6 +1273,16 @@ function StepTwo({
       setSelectedParcel(verifiedParcel);
     }
   }, [verifiedParcel, autoZoom]);
+
+  // Auto-zoom when chatbot highlights a UPI
+  useEffect(() => {
+    if (!chatHighlightUPI) return;
+    const target = parcels.find(p => p.upi === chatHighlightUPI);
+    if (target) {
+      setSelectedParcel(target);
+      setAutoZoom(true);
+    }
+  }, [chatHighlightUPI, parcels]);
 
   const handleParcelClick = async (parcel: ParcelData) => {
     // Only open popup if parcel is for sale or is verified
@@ -1326,6 +1343,17 @@ function StepTwo({
       setLoadingDetails(false);
     }
   };
+
+  // Open DetailPopup when user clicks a parcel chip in the chatbot
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!chatDetailUPI) return;
+    const target = parcels.find(p => p.upi === chatDetailUPI);
+    if (target) {
+      handleParcelClick(target);
+    }
+  // handleParcelClick is stable within each render; chatDetailUPI drives the trigger
+  }, [chatDetailUPI]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -1389,21 +1417,19 @@ function StepTwo({
             <div className="bg-white/90 backdrop-blur rounded-lg flex p-1 shadow-lg">
               <button
                 onClick={() => setViewMode('district')}
-                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                  viewMode === 'district' 
-                    ? 'bg-primary text-white' 
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${viewMode === 'district'
+                    ? 'bg-primary text-white'
                     : 'text-gray-700 hover:bg-gray-200'
-                }`}
+                  }`}
               >
                 District View
               </button>
               <button
                 onClick={() => setViewMode('all')}
-                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                  viewMode === 'all' 
-                    ? 'bg-primary text-white' 
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${viewMode === 'all'
+                    ? 'bg-primary text-white'
                     : 'text-gray-700 hover:bg-gray-200'
-                }`}
+                  }`}
               >
                 All Parcels
               </button>
@@ -1415,8 +1441,8 @@ function StepTwo({
                 onClick={() => setFilterAvailable(!filterAvailable)}
                 className={`
                   backdrop-blur rounded-lg px-4 py-2 flex items-center gap-2 shadow-lg transition-colors
-                  ${filterAvailable 
-                    ? 'bg-green-600 text-white' 
+                  ${filterAvailable
+                    ? 'bg-green-600 text-white'
                     : 'bg-white/90 text-foreground hover:bg-white'
                   }
                 `}
@@ -1594,8 +1620,8 @@ function StepTwo({
             exit={{ opacity: 0, scale: 0.9 }}
             className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-[2000] bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full max-h-[80vh] overflow-hidden border border-gray-200 dark:border-gray-700"
           >
-            <DetailPopup 
-              parcel={selectedParcel} 
+            <DetailPopup
+              parcel={selectedParcel}
               onClose={() => {
                 setShowPopup(false);
                 setSelectedParcel(null);
@@ -1642,6 +1668,10 @@ export default function ParcelVerificationFlow() {
   const [verificationResult, setVerificationResult] = useState<VerificationResult | null>(null);
   const [filterAvailable, setFilterAvailable] = useState(false);
   const [viewMode, setViewMode] = useState<'district' | 'all'>('district');
+  /** UPI set by the chatbot — consumed by StepTwo to auto-zoom the map */
+  const [chatHighlightUPI, setChatHighlightUPI] = useState<string | null>(null);
+  /** UPI set when user clicks a parcel chip — consumed by StepTwo to open the DetailPopup */
+  const [chatDetailUPI, setChatDetailUPI] = useState<string | null>(null);
   const [initialLoading, setInitialLoading] = useState(true);
 
   // Load saved state from session storage on mount
@@ -1651,14 +1681,14 @@ export default function ParcelVerificationFlow() {
         const savedState = sessionStorage.getItem('parcelVerificationState');
         if (savedState) {
           const parsed = JSON.parse(savedState) as AppState;
-          
+
           // Only restore if not expired (24 hours)
           if (Date.now() - parsed.lastUpdated < 24 * 60 * 60 * 1000) {
             setStep(parsed.step);
             setVerifiedUPI(parsed.verifiedUPI);
             setViewMode(parsed.viewMode);
             setFilterAvailable(parsed.filterAvailable);
-            
+
             if (parsed.parcels.length > 0) {
               setParcels(parsed.parcels);
             } else {
@@ -1723,7 +1753,7 @@ export default function ParcelVerificationFlow() {
         .map((p: any) => {
           try {
             const geo = parse(p.official_registry_polygon);
-            
+
             let coordinates = [];
             if (geo.type === 'Polygon') {
               coordinates = geo.coordinates[0];
@@ -1810,7 +1840,7 @@ export default function ParcelVerificationFlow() {
             isVerified: true,
           };
         }
-        
+
         let color = '#F97316';
         if (p.hasOverlap) {
           color = '#EF4444';
@@ -1819,7 +1849,7 @@ export default function ParcelVerificationFlow() {
         } else if (p.forSale === false) {
           color = '#991B1B';
         }
-        
+
         return {
           ...p,
           color,
@@ -1845,13 +1875,13 @@ export default function ParcelVerificationFlow() {
   ========================== */
   const fetchDistrictParcels = useCallback(async (district?: string) => {
     const allParcels = await fetchAllParcels();
-    
+
     if (district && viewMode === 'district') {
-      return allParcels.filter((p: ParcelData) => 
+      return allParcels.filter((p: ParcelData) =>
         p.district?.toLowerCase() === district.toLowerCase()
       );
     }
-    
+
     return allParcels;
   }, [fetchAllParcels, viewMode]);
 
@@ -1874,12 +1904,12 @@ export default function ParcelVerificationFlow() {
         const result = response.data;
         const verifiedUpi = result.upi;
         const verifiedDistrict = result.district;
-        
+
         // Fetch parcels based on current view mode
-        const allParcels = viewMode === 'all' 
+        const allParcels = viewMode === 'all'
           ? await fetchAllParcels()
           : await fetchDistrictParcels(verifiedDistrict);
-        
+
         // Mark the verified parcel
         const updatedParcels = allParcels.map((p: ParcelData) => {
           if (p.upi === verifiedUpi) {
@@ -1895,7 +1925,7 @@ export default function ParcelVerificationFlow() {
               remaining_lease_term: result.remaining_lease_term || p.remaining_lease_term,
             };
           }
-          
+
           let color = '#F97316';
           if (p.hasOverlap) {
             color = '#EF4444';
@@ -1904,7 +1934,7 @@ export default function ParcelVerificationFlow() {
           } else if (p.forSale === false) {
             color = '#991B1B';
           }
-          
+
           return {
             ...p,
             color,
@@ -1914,7 +1944,7 @@ export default function ParcelVerificationFlow() {
 
         setParcels(updatedParcels);
         setVerifiedUPI(verifiedUpi);
-        
+
         setVerificationResult({
           success: true,
           upi: verifiedUpi,
@@ -1968,6 +1998,7 @@ export default function ParcelVerificationFlow() {
 
   return (
     <>
+
       {step === 'upload' ? (
         <StepOne
           onVerify={handleVerify}
@@ -1976,17 +2007,44 @@ export default function ParcelVerificationFlow() {
           onReset={handleReset}
         />
       ) : (
-        <StepTwo
-          parcels={parcels}
-          verifiedUPI={verifiedUPI}
-          onBack={handleBack}
-          onVerifyAnother={handleVerifyAnother}
-          filterAvailable={filterAvailable}
-          setFilterAvailable={setFilterAvailable}
-          viewMode={viewMode}
-          setViewMode={setViewMode}
-          onRefreshParcels={handleRefreshParcels}
-        />
+        <>
+          <div>
+            {/* Your other content with lower z-index */}
+            <div className="relative" style={{ zIndex: 10 }}>
+              {/* Your page content */}
+            </div>
+
+            {/* Chatbot with maximum z-index */}
+            <SimpleAiChatbot
+              position="bottom-right"
+              verifiedUPI={verifiedUPI}
+              title="Land Assistant"
+              zIndex={9999}
+              onParcelsUpdate={(parcels) => {
+                if (parcels.length > 0) {
+                  setChatHighlightUPI(parcels[0].upi);
+                }
+              }}
+              onParcelSelect={(upi) => {
+                setChatHighlightUPI(upi);
+                setChatDetailUPI(upi);
+              }}
+            />
+          </div>
+          <StepTwo
+            parcels={parcels}
+            verifiedUPI={verifiedUPI}
+            onBack={handleBack}
+            onVerifyAnother={handleVerifyAnother}
+            filterAvailable={filterAvailable}
+            setFilterAvailable={setFilterAvailable}
+            viewMode={viewMode}
+            setViewMode={setViewMode}
+            onRefreshParcels={handleRefreshParcels}
+            chatHighlightUPI={chatHighlightUPI}
+            chatDetailUPI={chatDetailUPI}
+          />
+        </>
       )}
     </>
   );

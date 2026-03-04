@@ -6,7 +6,7 @@ import numpy as np
 import cv2
 import pytesseract
 import jwt
-from fastapi import APIRouter, HTTPException, UploadFile, File, Depends, Request
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends, Request
 from fastapi.security.utils import get_authorization_scheme_param
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -20,7 +20,7 @@ from pdf2image import convert_from_path
 from shapely.geometry import Polygon
 from pyproj import Transformer
 from dotenv import load_dotenv
-from typing import List
+from typing import List, Optional
 from api.routes.external_routes import get_title_data
 import geopandas as gpd
 from shapely import wkt
@@ -114,6 +114,7 @@ def get_detected_polygon(image):
 @router.post("/extract-pdf", response_model=dict)
 async def extract_pdf_and_store(
     file: UploadFile = File(...),
+    price: Optional[float] = Form(None),
     db: AsyncSession = Depends(get_db),
     request: Request = None
 ):
@@ -219,6 +220,7 @@ async def extract_pdf_and_store(
             uploaded_by=uploaded_by,
             district=details.get("districtName"),
             for_sale=False,
+            price=price if price is not None else 0,
             sector=details.get("sectorName"),
             cell=details.get("cellName"),
             village=details.get("villageName"),
@@ -450,6 +452,67 @@ async def update_overlaps_status(mapping_id: int, overlaps: bool, db: AsyncSessi
     await db.commit()
     await db.refresh(mapping)
     return {"id": mapping.id, "overlaps": mapping.overlaps}
+
+
+@router.post("/sync-property-links", response_model=dict)
+async def sync_property_links(db: AsyncSession = Depends(get_db)):
+    """
+    Iterates every mapping record and checks whether a Property with the same UPI
+    exists.  If it does, the mapping's property_id is updated (linked).  If it
+    doesn't, property_id is cleared (unlinked).  Returns a full sync report.
+    """
+    mappings_result = await db.execute(select(Mapping))
+    mappings = mappings_result.scalars().all()
+
+    linked: list[dict] = []
+    unlinked: list[dict] = []
+    unchanged: list[dict] = []
+
+    for mapping in mappings:
+        prop_result = await db.execute(
+            select(Property).where(Property.upi == mapping.upi)
+        )
+        prop = prop_result.scalar_one_or_none()
+
+        if prop:
+            if mapping.property_id != prop.id:
+                mapping.property_id = prop.id
+                linked.append({
+                    "mapping_id": mapping.id,
+                    "upi": mapping.upi,
+                    "property_id": prop.id,
+                })
+            else:
+                unchanged.append({
+                    "mapping_id": mapping.id,
+                    "upi": mapping.upi,
+                    "property_id": prop.id,
+                })
+        else:
+            if mapping.property_id is not None:
+                mapping.property_id = None
+                unlinked.append({
+                    "mapping_id": mapping.id,
+                    "upi": mapping.upi,
+                })
+            else:
+                unchanged.append({
+                    "mapping_id": mapping.id,
+                    "upi": mapping.upi,
+                    "property_id": None,
+                })
+
+    await db.commit()
+
+    return {
+        "synced": True,
+        "total_mappings": len(mappings),
+        "newly_linked": len(linked),
+        "newly_unlinked": len(unlinked),
+        "already_correct": len(unchanged),
+        "linked": linked,
+        "unlinked": unlinked,
+    }
 
 
 @router.patch("/upi/{upi}/market-status", response_model=dict)

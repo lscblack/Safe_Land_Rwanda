@@ -781,7 +781,7 @@ function getCenter(coords: [number, number][]): [number, number] {
 function getParcelColor(status: ParcelStatus, overlapping: boolean): string {
     // Red for issues (mortgage/overlap/transaction)
     if (overlapping || status?.underMortgage || status?.inTransaction) return "#EF4444";
-    
+
     // Blue for regular parcels
     return "#3B82F6";
 }
@@ -1275,6 +1275,7 @@ export default function ParcelMap({
     }
 
     return (
+        <>
         <div style={{
             display: 'flex',
             height,
@@ -2639,5 +2640,6 @@ export default function ParcelMap({
                 )}
             </div>
         </div>
+        </>
     );
 }
