@@ -59,7 +59,7 @@ const MENU_CONFIG = [
         place: 'main',
         icon: Map,
         labelKey: 'GIS Map',
-        roles: ['buyer', 'brocker'],
+        roles: ['brocker'],
     },
     {
         id: 'gis_pdf',
@@ -117,21 +117,21 @@ const MENU_CONFIG = [
         place: 'main',
         icon: BarChart3,
         labelKey: 'Market Analytics',
-        roles: ['admin', 'seller', 'buyer', 'moderator', 'super_admin', 'brocker'],
+        roles: ['admin', 'buyer', 'moderator', 'super_admin', 'brocker'],
     },
     {
         id: 'settings',
         place: 'management',
         icon: Settings,
         labelKey: 'dash.nav.settings',
-        roles: ['admin', 'seller', 'super_admin'],
+        roles: ['admin', 'super_admin'],
     },
     {
         id: 'history',
         icon: Timer,
         place: 'management',
         labelKey: 'verify E-Title',
-        roles: ['admin', 'seller', 'buyer', 'brocker', 'super_admin'],
+        roles: ['admin', 'buyer', 'brocker', 'super_admin'],
     },
 ];
 
