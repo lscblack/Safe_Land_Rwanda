@@ -1350,9 +1350,24 @@ function StepTwo({
     if (!chatDetailUPI) return;
     const target = parcels.find(p => p.upi === chatDetailUPI);
     if (target) {
-      handleParcelClick(target);
+      // Bypass the forSale/isVerified gate — chat chip clicks always open the popup
+      setSelectedParcel(target);
+      setShowPopup(true);
+      setAutoZoom(true);
+      setLoadingDetails(true);
+      // Fetch combined details the same way handleParcelClick does
+      Promise.all([
+        api.get(`/api/property/properties/by-upi/${encodeURIComponent(target.upi)}`).catch(() => null),
+        api.get('/api/external/title_data', { params: { upi: target.upi, language: 'english' } }).catch(() => null),
+      ]).then(([propRes, extRes]) => {
+        const propertyData = propRes?.data ?? undefined;
+        const externalData = (extRes?.data?.success && extRes?.data?.found) ? extRes.data.data : undefined;
+        const source: 'property' | 'external' | 'both' =
+          propertyData && externalData ? 'both' : propertyData ? 'property' : 'external';
+        setCombinedData({ propertyData, externalData, source });
+      }).finally(() => setLoadingDetails(false));
     }
-  // handleParcelClick is stable within each render; chatDetailUPI drives the trigger
+  // chatDetailUPI drives the trigger; other deps are stable
   }, [chatDetailUPI]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleRefresh = async () => {
@@ -1611,9 +1626,9 @@ function StepTwo({
         )}
       </MapContainer>
 
-      {/* Detail Popup - Only shown for parcels that are for sale or verified */}
+      {/* Detail Popup - shown for parcels that are for sale, verified, or triggered via chat chip */}
       <AnimatePresence>
-        {showPopup && selectedParcel && (selectedParcel.forSale || selectedParcel.isVerified) && (
+        {showPopup && selectedParcel && (selectedParcel.forSale || selectedParcel.isVerified || chatDetailUPI === selectedParcel.upi) && (
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -2027,7 +2042,13 @@ export default function ParcelVerificationFlow() {
               }}
               onParcelSelect={(upi) => {
                 setChatHighlightUPI(upi);
-                setChatDetailUPI(upi);
+                // Reset to null first so the useEffect inside StepTwo always
+                // fires even when the same UPI chip is clicked again.
+                setChatDetailUPI(null);
+                setTimeout(() => setChatDetailUPI(upi), 0);
+              }}
+              onUpiChange={(upi) => {
+                setVerifiedUPI(upi);
               }}
             />
           </div>

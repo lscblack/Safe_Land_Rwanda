@@ -45,6 +45,8 @@ export interface SimpleAiChatbotProps {
     onParcelsUpdate?: (parcels: ParcelRef[]) => void;
     /** Called when the user clicks a specific parcel chip — should open the DetailPopup */
     onParcelSelect?: (upi: string) => void;
+    /** Called whenever the active/selected UPI changes (PDF upload, single chip reply, chip click) */
+    onUpiChange?: (upi: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -71,8 +73,11 @@ export const SimpleAiChatbot: React.FC<SimpleAiChatbotProps> = ({
     zIndex = 9999,
     onParcelsUpdate,
     onParcelSelect,
+    onUpiChange,
 }) => {
     const [isOpen, setIsOpen] = useState(false);
+    // activeUPI: starts from prop, gets updated whenever a new parcel is identified
+    const [activeUPI, setActiveUPI] = useState<string | null>(verifiedUPI ?? null);
     const [sessionId, setSessionId] = useState<number | null>(() => getStoredSessionId(verifiedUPI));
     const [messages, setMessages] = useState<Message[]>([
         {
@@ -103,6 +108,11 @@ export const SimpleAiChatbot: React.FC<SimpleAiChatbotProps> = ({
     useEffect(() => {
         if (isOpen) setTimeout(() => inputRef.current?.focus(), 150);
     }, [isOpen]);
+
+    // Keep activeUPI in sync if the parent changes verifiedUPI externally
+    useEffect(() => {
+        if (verifiedUPI) setActiveUPI(verifiedUPI);
+    }, [verifiedUPI]);
 
     // -----------------------------------------------------------------------
     // Create (or reuse) a backend session
@@ -170,6 +180,9 @@ export const SimpleAiChatbot: React.FC<SimpleAiChatbotProps> = ({
             }]);
             if (parcel) {
                 onParcelsUpdate?.([parcel]);
+                // PDF upload always targets a single known parcel — update selected UPI
+                setActiveUPI(parcel.upi);
+                onUpiChange?.(parcel.upi);
             }
         } catch (err: any) {
             setMessages(prev => [...prev, {
@@ -221,7 +234,14 @@ export const SimpleAiChatbot: React.FC<SimpleAiChatbotProps> = ({
             setMessages(prev => [...prev, botMsg]);
 
             // Notify parent map
-            if (parcels.length > 0) onParcelsUpdate?.(parcels);
+            if (parcels.length > 0) {
+                onParcelsUpdate?.(parcels);
+                // Single parcel reply → auto-select it as the active UPI
+                if (parcels.length === 1) {
+                    setActiveUPI(parcels[0].upi);
+                    onUpiChange?.(parcels[0].upi);
+                }
+            }
 
         } catch (err: any) {
             const detail = err?.response?.data?.detail ?? "Sorry, I'm having trouble connecting. Please try again.";
@@ -255,14 +275,14 @@ export const SimpleAiChatbot: React.FC<SimpleAiChatbotProps> = ({
         if (hasIssue)
             return 'bg-red-50 border-red-300 text-red-700 hover:bg-red-600 hover:text-white';
         if (p.property_id)
-            return 'bg-blue-50 border-blue-300 text-blue-700 hover:bg-blue-600 hover:text-white';
-        return 'bg-green-50 border-green-300 text-green-700 hover:bg-green-600 hover:text-white';
+            return 'bg-green-50 border-green-300 text-green-700 hover:bg-green-600 hover:text-white';
+        return 'bg-blue-50 border-blue-300 text-blue-700 hover:bg-blue-600 hover:text-white';
     };
 
     const formatPrice = (price: number | null | undefined): string | null => {
         if (!price) return null;
         if (price >= 1_000_000) return `${(price / 1_000_000).toFixed(1)}M RWF`;
-        if (price >= 1_000)     return `${(price / 1_000).toFixed(0)}K RWF`;
+        if (price >= 1_000) return `${(price / 1_000).toFixed(0)}K RWF`;
         return `${price} RWF`;
     };
 
@@ -318,7 +338,7 @@ export const SimpleAiChatbot: React.FC<SimpleAiChatbotProps> = ({
                                     <h3 className="font-semibold text-sm">{title}</h3>
                                     <p className="text-xs text-white/80 flex items-center gap-1">
                                         <span className="w-1.5 h-1.5 bg-green-400 rounded-full inline-block" />
-                                        {verifiedUPI ? `Parcel ${verifiedUPI}` : 'Ask me anything'}
+                                        {activeUPI ? `Parcel ${activeUPI}` : 'Ask me anything'}
                                     </p>
                                 </div>
                             </div>
@@ -342,9 +362,8 @@ export const SimpleAiChatbot: React.FC<SimpleAiChatbotProps> = ({
                             {messages.map(message => (
                                 <div
                                     key={message.id}
-                                    className={`flex gap-2 ${
-                                        message.type === 'user' ? 'justify-end' : 'justify-start'
-                                    }`}
+                                    className={`flex gap-2 ${message.type === 'user' ? 'justify-end' : 'justify-start'
+                                        }`}
                                 >
                                     {message.type === 'bot' && (
                                         <div className="w-8 h-8 rounded-full bg-[#395d91] flex items-center justify-center flex-shrink-0 mt-0.5">
@@ -355,17 +374,15 @@ export const SimpleAiChatbot: React.FC<SimpleAiChatbotProps> = ({
                                     <div className="max-w-[75%] flex flex-col gap-1.5">
                                         {/* Bubble */}
                                         <div
-                                            className={`rounded-2xl px-4 py-2 text-sm ${
-                                                message.type === 'user'
+                                            className={`rounded-2xl px-4 py-2 text-sm ${message.type === 'user'
                                                     ? 'bg-[#395d91] text-white rounded-br-none'
                                                     : 'bg-[#f1f5f9] text-gray-800 rounded-bl-none'
-                                            }`}
+                                                }`}
                                         >
                                             <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
                                             <p
-                                                className={`text-[10px] mt-1 ${
-                                                    message.type === 'user' ? 'text-white/70' : 'text-gray-400'
-                                                }`}
+                                                className={`text-[10px] mt-1 ${message.type === 'user' ? 'text-white/70' : 'text-gray-400'
+                                                    }`}
                                             >
                                                 {formatTime(message.timestamp)}
                                             </p>
@@ -384,6 +401,9 @@ export const SimpleAiChatbot: React.FC<SimpleAiChatbotProps> = ({
                                                                 onClick={() => {
                                                                     onParcelsUpdate?.([p]);
                                                                     onParcelSelect?.(p.upi);
+                                                                    // Chip click → make this the active UPI
+                                                                    setActiveUPI(p.upi);
+                                                                    onUpiChange?.(p.upi);
                                                                 }}
                                                                 title="Zoom to parcel & open details"
                                                                 className={`inline-flex items-center gap-1 px-2 py-1 border rounded-full text-[11px] font-medium transition-colors shadow-sm self-start ${chipCls}`}
@@ -404,9 +424,9 @@ export const SimpleAiChatbot: React.FC<SimpleAiChatbotProps> = ({
                                                                     {p.district && <span>{p.district}</span>}
                                                                     {priceStr && <span className="text-green-700 font-medium">{priceStr}</span>}
                                                                     {p.under_mortgage && <span className="text-red-500">🔴 Mortgage</span>}
-                                                                    {p.has_caveat     && <span className="text-red-500">⚠️ Caveat</span>}
+                                                                    {p.has_caveat && <span className="text-red-500">⚠️ Caveat</span>}
                                                                     {p.in_transaction && <span className="text-orange-500">🔄 In Transaction</span>}
-                                                                    {p.overlaps       && <span className="text-red-500">⚡ Overlaps</span>}
+                                                                    {p.overlaps && <span className="text-red-500">⚡ Overlaps</span>}
                                                                 </div>
                                                             )}
                                                         </div>
@@ -483,7 +503,7 @@ export const SimpleAiChatbot: React.FC<SimpleAiChatbotProps> = ({
                                     value={input}
                                     onChange={e => setInput(e.target.value)}
                                     onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSend()}
-                                    placeholder={verifiedUPI ? `Ask about ${verifiedUPI}…` : 'Ask about any parcel…'}
+                                    placeholder={activeUPI ? `Ask about ${activeUPI}…` : 'Ask about any parcel…'}
                                     disabled={isLoading || isUploadingPdf}
                                     className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#395d91]/20 focus:border-[#395d91] disabled:bg-gray-50"
                                 />
