@@ -517,7 +517,7 @@ function DetailPopup({ parcel, onClose, combinedData, loading }: DetailPopupProp
 
   if (loading) {
     return (
-      <div className="min-w-[320px] max-w-[400px] p-8 flex flex-col items-center justify-center">
+      <div className=" p-8 flex flex-col items-center justify-center">
         <Loader2 size={32} className="animate-spin text-primary mb-3" />
         <p className="text-sm text-gray-600">Loading property details...</p>
       </div>
@@ -528,10 +528,10 @@ function DetailPopup({ parcel, onClose, combinedData, loading }: DetailPopupProp
   const externalData = combinedData?.externalData;
 
   return (
-    <div className="min-w-[320px] max-w-[400px] max-h-[80vh] overflow-y-auto p-4">
+    <div className=" max-h-[80vh] overflow-y-auto p-4 pt-0">
       {/* Header */}
-      <div className="flex items-center justify-between mb-3 sticky top-0 bg-white dark:bg-gray-800 pt-2 pb-2 z-10 border-b border-gray-200 dark:border-gray-700">
-        <h3 className="font-semibold text-primary text-base truncate flex-1 flex items-center gap-2">
+      <div className="flex items-center justify-between mb-3 sticky top-0 bg-white dark:bg-gray-800 pb-2 z-10 border-b border-gray-200 dark:border-gray-700">
+        <h3 className="font-semibold text-primary text-base truncate flex-1 flex items-center gap-2 py-4">
           <MapPin size={16} />
           {parcel.upi}
         </h3>
@@ -1287,7 +1287,9 @@ function StepTwo({
   const handleParcelClick = async (parcel: ParcelData) => {
     // Only open popup if parcel is for sale or is verified
     if (!parcel.forSale && !parcel.isVerified) {
-      // Show a temporary message
+      // Close any currently open popup first, then show the "not available" banner
+      setShowPopup(false);
+      setCombinedData(null);
       setSelectedParcel(parcel);
       setTimeout(() => setSelectedParcel(null), 2000);
       return;
@@ -1349,24 +1351,32 @@ function StepTwo({
   useEffect(() => {
     if (!chatDetailUPI) return;
     const target = parcels.find(p => p.upi === chatDetailUPI);
-    if (target) {
-      // Bypass the forSale/isVerified gate — chat chip clicks always open the popup
+    if (!target) return;
+
+    // Same rule as handleParcelClick: not-for-sale / unverified → close popup & show banner
+    if (!target.forSale && !target.isVerified) {
+      setShowPopup(false);
+      setCombinedData(null);
       setSelectedParcel(target);
-      setShowPopup(true);
-      setAutoZoom(true);
-      setLoadingDetails(true);
-      // Fetch combined details the same way handleParcelClick does
-      Promise.all([
-        api.get(`/api/property/properties/by-upi/${encodeURIComponent(target.upi)}`).catch(() => null),
-        api.get('/api/external/title_data', { params: { upi: target.upi, language: 'english' } }).catch(() => null),
-      ]).then(([propRes, extRes]) => {
-        const propertyData = propRes?.data ?? undefined;
-        const externalData = (extRes?.data?.success && extRes?.data?.found) ? extRes.data.data : undefined;
-        const source: 'property' | 'external' | 'both' =
-          propertyData && externalData ? 'both' : propertyData ? 'property' : 'external';
-        setCombinedData({ propertyData, externalData, source });
-      }).finally(() => setLoadingDetails(false));
+      setTimeout(() => setSelectedParcel(null), 2000);
+      return;
     }
+
+    // Parcel is viewable — open the detail popup
+    setSelectedParcel(target);
+    setShowPopup(true);
+    setAutoZoom(true);
+    setLoadingDetails(true);
+    Promise.all([
+      api.get(`/api/property/properties/by-upi/${encodeURIComponent(target.upi)}`).catch(() => null),
+      api.get('/api/external/title_data', { params: { upi: target.upi, language: 'english' } }).catch(() => null),
+    ]).then(([propRes, extRes]) => {
+      const propertyData = propRes?.data ?? undefined;
+      const externalData = (extRes?.data?.success && extRes?.data?.found) ? extRes.data.data : undefined;
+      const source: 'property' | 'external' | 'both' =
+        propertyData && externalData ? 'both' : propertyData ? 'property' : 'external';
+      setCombinedData({ propertyData, externalData, source });
+    }).finally(() => setLoadingDetails(false));
   // chatDetailUPI drives the trigger; other deps are stable
   }, [chatDetailUPI]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1626,14 +1636,14 @@ function StepTwo({
         )}
       </MapContainer>
 
-      {/* Detail Popup - shown for parcels that are for sale, verified, or triggered via chat chip */}
+      {/* Detail Popup - only for parcels that are for sale or verified */}
       <AnimatePresence>
-        {showPopup && selectedParcel && (selectedParcel.forSale || selectedParcel.isVerified || chatDetailUPI === selectedParcel.upi) && (
+        {showPopup && selectedParcel && (selectedParcel.forSale || selectedParcel.isVerified) && (
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.9 }}
-            className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-[2000] bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full max-h-[80vh] overflow-hidden border border-gray-200 dark:border-gray-700"
+            className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-[2000] bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-lg w-full max-h-[80vh] overflow-hidden border border-gray-200 dark:border-gray-700"
           >
             <DetailPopup
               parcel={selectedParcel}
