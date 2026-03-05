@@ -1359,7 +1359,7 @@ function StepTwo({
         propertyData && externalData ? 'both' : propertyData ? 'property' : 'external';
       setCombinedData({ propertyData, externalData, source });
     }).finally(() => setLoadingDetails(false));
-  // chatDetailUPI drives the trigger; other deps are stable
+    // chatDetailUPI drives the trigger; other deps are stable
   }, [chatDetailUPI]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleRefresh = async () => {
@@ -1425,8 +1425,8 @@ function StepTwo({
               <button
                 onClick={() => setViewMode('district')}
                 className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${viewMode === 'district'
-                    ? 'bg-primary text-white'
-                    : 'text-gray-700 hover:bg-gray-200'
+                  ? 'bg-primary text-white'
+                  : 'text-gray-700 hover:bg-gray-200'
                   }`}
               >
                 District View
@@ -1434,8 +1434,8 @@ function StepTwo({
               <button
                 onClick={() => setViewMode('all')}
                 className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${viewMode === 'all'
-                    ? 'bg-primary text-white'
-                    : 'text-gray-700 hover:bg-gray-200'
+                  ? 'bg-primary text-white'
+                  : 'text-gray-700 hover:bg-gray-200'
                   }`}
               >
                 All Parcels
@@ -1925,8 +1925,8 @@ export default function ParcelVerificationFlow() {
           ? await fetchAllParcels()
           : await fetchDistrictParcels(verifiedDistrict);
 
-        // Mark the verified parcel
-        const updatedParcels = allParcels.map((p: ParcelData) => {
+        // Mark the verified parcel in the fetched list
+        const updatedParcels: ParcelData[] = allParcels.map((p: ParcelData) => {
           if (p.upi === verifiedUpi) {
             return {
               ...p,
@@ -1956,6 +1956,52 @@ export default function ParcelVerificationFlow() {
             isVerified: false,
           };
         });
+
+        // If the verified parcel was NOT found in the DB list (mapping not yet stored,
+        // or the DB is completely empty), build a ParcelData entry from the
+        // official_registry_polygon the verify-pdf endpoint already returned.
+        const verifiedAlreadyInList = updatedParcels.some((p) => p.upi === verifiedUpi);
+        if (!verifiedAlreadyInList && result.official_registry_polygon) {
+          try {
+            const geo = parse(result.official_registry_polygon);
+            if (geo && (geo.type === 'Polygon' || geo.type === 'MultiPolygon') && 'coordinates' in geo) {
+              const rawCoords =
+                geo.type === 'Polygon'
+                  ? (geo.coordinates as number[][][])[0]
+                  : (geo.coordinates as number[][][][])[0][0];
+              const positions: [number, number][] = rawCoords.map((coord) => [coord[1], coord[0]]);
+              const center = getCenter(positions);
+              updatedParcels.push({
+                upi: verifiedUpi,
+                positions,
+                center,
+                color: '#395d91',
+                isVerified: true,
+                hasOverlap: false,
+                overlapsWith: [],
+                district: result.district,
+                sector: result.sector,
+                cell: result.cell,
+                village: result.village,
+                province: result.province,
+                area: result.parcel_area_sqm,
+                forSale: result.for_sale || false,
+                price: result.price || null,
+                land_use_type: result.land_use_type,
+                planned_land_use: result.planned_land_use,
+                tenure_type: result.tenure_type,
+                remaining_lease_term: result.remaining_lease_term,
+                under_mortgage: result.under_mortgage,
+                has_caveat: result.has_caveat,
+                in_transaction: result.in_transaction,
+                year_of_record: result.year_of_record,
+                full_address: result.full_address,
+              });
+            }
+          } catch (e) {
+            console.warn('[handleVerify] Could not build parcel from result polygon:', e);
+          }
+        }
 
         setParcels(updatedParcels);
         setVerifiedUPI(verifiedUpi);
