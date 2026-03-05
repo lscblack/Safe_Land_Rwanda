@@ -182,9 +182,13 @@ async def extract_pdf_and_store(
         try:
             result = await get_title_data(upi=upi, language="english", db=db)
             if hasattr(result, 'body'):
-                details = json.loads(result.body)["data"]["parcelDetails"]
+                raw_data = json.loads(result.body)["data"]
             else:
-                details = result["data"]["parcelDetails"]
+                raw_data = result["data"]
+            details = raw_data["parcelDetails"]
+            # owners and parcelRepresentative live at data level, not inside parcelDetails
+            details["_owners"] = raw_data.get("owners") or []
+            details["_parcelRepresentative"] = raw_data.get("parcelRepresentative") or {}
         except Exception as e:
             # Log error and use backup
             import logging
@@ -205,12 +209,13 @@ async def extract_pdf_and_store(
         n_id_number = str(getattr(current_user, 'n_id_number', None) or '').strip() if current_user else ''
 
         # Collect all authorised NIDs from owners list + parcel representative
-        owners = details.get("owners") or []
+        # owners/parcelRepresentative are at data level (stored in _owners/_parcelRepresentative keys)
+        owners = details.get("_owners") or details.get("owners") or []
         authorised_nids = set()
         for o in owners:
             raw = o.get("idNo") or o.get("id_number") or o.get("nationalId") or ""
             authorised_nids.add(str(raw).strip())
-        rep = details.get("parcelRepresentative") or details.get("representative") or {}
+        rep = details.get("_parcelRepresentative") or details.get("parcelRepresentative") or details.get("representative") or {}
         if isinstance(rep, dict):
             raw_rep = rep.get("idNo") or rep.get("id_number") or rep.get("nationalId") or ""
             authorised_nids.add(str(raw_rep).strip())
