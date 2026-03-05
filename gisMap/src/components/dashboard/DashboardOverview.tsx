@@ -89,10 +89,13 @@ interface UploaderStatsResponse {
     summary: {
         total_mappings: number;
         for_sale: number;
+        not_for_sale: number;
         with_issues: number;
         clean: number;
         under_mortgage: number;
         has_caveat: number;
+        in_transaction: number;
+        overlaps: number;
         total_listed_value: number;
     };
     breakdown: {
@@ -439,8 +442,7 @@ const ParcelTable: React.FC<ParcelTableProps> = ({ parcels, onViewParcel }) => {
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Land Use</th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Area</th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Price</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+
                     </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -452,7 +454,7 @@ const ParcelTable: React.FC<ParcelTableProps> = ({ parcels, onViewParcel }) => {
                             transition={{ delay: index * 0.05 }}
                             className={clsx(
                                 'hover:bg-gray-50 transition-colors',
-                                parcel.has_issue && 'bg-red-50/30'
+                                parcel.has_issue && 'bg-red-200/30'
                             )}
                         >
                             <td className="px-4 py-3">
@@ -481,17 +483,7 @@ const ParcelTable: React.FC<ParcelTableProps> = ({ parcels, onViewParcel }) => {
                                     </span>
                                 )}
                             </td>
-                            <td className="px-4 py-3 text-sm font-medium">
-                                {parcel.price ? formatCurrency(parcel.price) : '—'}
-                            </td>
-                            <td className="px-4 py-3">
-                                <button
-                                    onClick={() => onViewParcel?.(parcel.upi)}
-                                    className="p-1 hover:bg-gray-200 rounded transition-colors"
-                                >
-                                    <Eye size={16} className="text-gray-600" />
-                                </button>
-                            </td>
+                     
                         </motion.tr>
                     ))}
                 </tbody>
@@ -687,7 +679,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                 </div>
 
                 {/* Stats Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
                     <StatCard
                         title="Total Parcels"
                         value={formatNumber(stats.summary.total_mappings)}
@@ -708,7 +700,14 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                         value={formatNumber(stats.summary.with_issues)}
                         icon={AlertTriangle}
                         color="warning"
-                        subtitle={`${stats.summary.under_mortgage} mortgage, ${stats.summary.has_caveat} caveat`}
+                        subtitle={`${stats.summary.under_mortgage} mortgage · ${stats.summary.has_caveat} caveat · ${stats.summary.in_transaction} txn`}
+                    />
+                    <StatCard
+                        title="Overlapping Parcels"
+                        value={formatNumber(stats.summary.overlaps)}
+                        icon={Layers}
+                        color={stats.summary.overlaps > 0 ? 'danger' : 'success'}
+                        subtitle={stats.summary.overlaps > 0 ? 'Interior area conflicts detected' : 'No area conflicts'}
                     />
                     <StatCard
                         title="Total Value"
@@ -914,12 +913,17 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                     </div>
                     <div className="bg-white rounded-lg border border-gray-200 p-4">
                         <div className="flex items-center gap-3">
-                            <div className="p-2 bg-purple-100 rounded-lg">
-                                <MessageCircle size={16} className="text-purple-600" />
+                            <div className={`p-2 rounded-lg ${stats.summary.overlaps > 0 ? 'bg-red-100' : 'bg-green-100'}`}>
+                                <Layers size={16} className={stats.summary.overlaps > 0 ? 'text-red-600' : 'text-green-600'} />
                             </div>
                             <div>
-                                <p className="text-xs text-gray-500">Chat Sessions</p>
-                                <p className="text-sm font-medium">3</p>
+                                <p className="text-xs text-gray-500">Overlap Conflicts</p>
+                                <p className="text-sm font-medium">
+                                    {stats.summary.overlaps > 0
+                                        ? `${stats.summary.overlaps} parcel${stats.summary.overlaps === 1 ? '' : 's'}`
+                                        : 'None detected'
+                                    }
+                                </p>
                             </div>
                         </div>
                     </div>

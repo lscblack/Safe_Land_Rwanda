@@ -275,7 +275,15 @@ async def extract_pdf_and_store(
         SELECT EXISTS (
             SELECT 1 FROM mappings m2
             WHERE m2.upi != :upi
-            AND ST_Intersects(ST_GeometryFromText(:polygon), ST_GeometryFromText(m2.official_registry_polygon))
+            AND m2.official_registry_polygon IS NOT NULL
+            AND ST_Intersects(
+                ST_GeometryFromText(:polygon),
+                ST_GeometryFromText(m2.official_registry_polygon)
+            )
+            AND NOT ST_Touches(
+                ST_GeometryFromText(:polygon),
+                ST_GeometryFromText(m2.official_registry_polygon)
+            )
         ) AS has_overlap;
         '''
         polygon = mapping_obj.official_registry_polygon
@@ -300,12 +308,32 @@ async def extract_pdf_and_store(
 
 @router.get("/parcel-overlaps", response_model=List[dict])
 async def get_parcel_overlaps(db: AsyncSession = Depends(get_db)):
+    """
+    Returns pairs of parcels whose interiors actually intersect (one enters another).
+    Touching edges/corners are NOT counted as overlaps.
+    Uses: ST_Intersects AND NOT ST_Touches  (= shared area, not just shared boundary).
+    """
     sql = '''
-    SELECT a.upi AS parcel_a, b.upi AS parcel_b
+    SELECT a.upi AS parcel_a, b.upi AS parcel_b,
+           ST_Area(
+               ST_Intersection(
+                   ST_GeometryFromText(a.official_registry_polygon),
+                   ST_GeometryFromText(b.official_registry_polygon)
+               )
+           ) AS overlap_area
     FROM mappings a
     JOIN mappings b
-      ON ST_Intersects(ST_GeometryFromText(a.official_registry_polygon), ST_GeometryFromText(b.official_registry_polygon))
-    WHERE a.upi != b.upi;
+      ON a.upi < b.upi
+     AND a.official_registry_polygon IS NOT NULL
+     AND b.official_registry_polygon IS NOT NULL
+     AND ST_Intersects(
+             ST_GeometryFromText(a.official_registry_polygon),
+             ST_GeometryFromText(b.official_registry_polygon)
+         )
+     AND NOT ST_Touches(
+             ST_GeometryFromText(a.official_registry_polygon),
+             ST_GeometryFromText(b.official_registry_polygon)
+         );
     '''
     result = await db.execute(text(sql))
     overlaps = [dict(row) for row in result.fetchall()]
@@ -370,7 +398,12 @@ async def get_my_mappings(
         SELECT EXISTS (
             SELECT 1 FROM mappings m2
             WHERE m2.upi != :upi
+            AND m2.official_registry_polygon IS NOT NULL
             AND ST_Intersects(
+                ST_GeometryFromText(:polygon),
+                ST_GeometryFromText(m2.official_registry_polygon)
+            )
+            AND NOT ST_Touches(
                 ST_GeometryFromText(:polygon),
                 ST_GeometryFromText(m2.official_registry_polygon)
             )
@@ -402,7 +435,15 @@ async def list_mappings(db: AsyncSession = Depends(get_db)):
         SELECT EXISTS (
             SELECT 1 FROM mappings m2
             WHERE m2.upi != :upi
-            AND ST_Intersects(ST_GeometryFromText(:polygon), ST_GeometryFromText(m2.official_registry_polygon))
+            AND m2.official_registry_polygon IS NOT NULL
+            AND ST_Intersects(
+                ST_GeometryFromText(:polygon),
+                ST_GeometryFromText(m2.official_registry_polygon)
+            )
+            AND NOT ST_Touches(
+                ST_GeometryFromText(:polygon),
+                ST_GeometryFromText(m2.official_registry_polygon)
+            )
         ) AS has_overlap;
         '''
         polygon = m.official_registry_polygon
@@ -741,20 +782,52 @@ async def stats_by_upi(upi: str, db: AsyncSession = Depends(get_db)):
             "created_at":       prop.created_at.isoformat() if prop.created_at else None,
         }
 
-    # -- Legal issues summary ----------------------------------------------
+    # -- Legal issues summary — overlaps computed live via PostGIS ----------
     under_mortgage  = bool(mapping.under_mortgage)  if mapping else False
     has_caveat      = bool(mapping.has_caveat)       if mapping else False
     in_transaction  = bool(mapping.in_transaction)   if mapping else False
-    overlaps        = bool(getattr(mapping, "overlaps", False)) if mapping else False
-    total_issues    = sum([under_mortgage, has_caveat, in_transaction, overlaps])
+
+    # Real overlap: this parcel's interior intersects another parcel's interior
+    overlapping_upis: list = []
+    if mapping and mapping.official_registry_polygon:
+        ov_sql = text("""
+            SELECT m2.upi,
+                   ST_Area(
+                       ST_Intersection(
+                           ST_GeometryFromText(:poly),
+                           ST_GeometryFromText(m2.official_registry_polygon)
+                       )
+                   ) AS overlap_area_sqm
+            FROM mappings m2
+            WHERE m2.upi != :upi
+              AND m2.official_registry_polygon IS NOT NULL
+              AND ST_Intersects(
+                      ST_GeometryFromText(:poly),
+                      ST_GeometryFromText(m2.official_registry_polygon)
+                  )
+              AND NOT ST_Touches(
+                      ST_GeometryFromText(:poly),
+                      ST_GeometryFromText(m2.official_registry_polygon)
+                  )
+        """)
+        ov_res = await db.execute(ov_sql, {
+            "poly": mapping.official_registry_polygon,
+            "upi":  upi,
+        })
+        overlapping_upis = [{"upi": r.upi, "overlap_area_sqm": r.overlap_area_sqm}
+                            for r in ov_res.fetchall()]
+
+    has_overlap  = len(overlapping_upis) > 0
+    total_issues = sum([under_mortgage, has_caveat, in_transaction, has_overlap])
 
     legal = {
-        "under_mortgage":  under_mortgage,
-        "has_caveat":      has_caveat,
-        "in_transaction":  in_transaction,
-        "overlaps":        overlaps,
-        "total_issues":    total_issues,
-        "is_clean":        total_issues == 0,
+        "under_mortgage":    under_mortgage,
+        "has_caveat":        has_caveat,
+        "in_transaction":    in_transaction,
+        "overlaps":          has_overlap,
+        "overlapping_with":  overlapping_upis,
+        "total_issues":      total_issues,
+        "is_clean":          total_issues == 0,
     }
 
     # -- Market status -----------------------------------------------------
@@ -818,21 +891,47 @@ async def stats_by_uploader(uploader_id: str, db: AsyncSession = Depends(get_db)
     if not mappings:
         raise HTTPException(status_code=404, detail=f"No mappings found for uploader '{uploader_id}'.")
 
+    # -- Real overlaps via PostGIS for all uploader parcels ----------------
+    upis_with_polygon = [
+        m.upi for m in mappings if m.official_registry_polygon
+    ]
+    overlapping_set: set = set()
+    if upis_with_polygon:
+        ov_sql = text("""
+            SELECT DISTINCT a.upi AS upi_a
+            FROM mappings a
+            JOIN mappings b
+              ON a.upi != b.upi
+             AND b.official_registry_polygon IS NOT NULL
+             AND ST_Intersects(
+                     ST_GeometryFromText(a.official_registry_polygon),
+                     ST_GeometryFromText(b.official_registry_polygon)
+                 )
+             AND NOT ST_Touches(
+                     ST_GeometryFromText(a.official_registry_polygon),
+                     ST_GeometryFromText(b.official_registry_polygon)
+                 )
+            WHERE a.upi = ANY(:upis)
+              AND a.official_registry_polygon IS NOT NULL
+        """)
+        ov_res = await db.execute(ov_sql, {"upis": upis_with_polygon})
+        overlapping_set = {r.upi_a for r in ov_res.fetchall()}
+
     # -- Aggregate summary -------------------------------------------------
-    total          = len(mappings)
-    for_sale_cnt   = sum(1 for m in mappings if m.for_sale)
-    not_for_sale   = total - for_sale_cnt
-    mortgage_cnt   = sum(1 for m in mappings if m.under_mortgage)
-    caveat_cnt     = sum(1 for m in mappings if m.has_caveat)
+    total           = len(mappings)
+    for_sale_cnt    = sum(1 for m in mappings if m.for_sale)
+    not_for_sale    = total - for_sale_cnt
+    mortgage_cnt    = sum(1 for m in mappings if m.under_mortgage)
+    caveat_cnt      = sum(1 for m in mappings if m.has_caveat)
     transaction_cnt = sum(1 for m in mappings if m.in_transaction)
-    overlap_cnt    = sum(1 for m in mappings if getattr(m, "overlaps", False))
-    with_issues    = sum(
+    overlap_cnt     = len(overlapping_set)
+    with_issues     = sum(
         1 for m in mappings
         if m.under_mortgage or m.has_caveat or m.in_transaction
-           or getattr(m, "overlaps", False)
+           or m.upi in overlapping_set
     )
-    clean_cnt      = total - with_issues
-    total_value    = sum(m.price or 0 for m in mappings if m.for_sale and m.price)
+    clean_cnt     = total - with_issues
+    total_value   = sum(m.price or 0 for m in mappings if m.for_sale and m.price)
 
     summary = {
         "total_mappings":     total,
@@ -868,7 +967,7 @@ async def stats_by_uploader(uploader_id: str, db: AsyncSession = Depends(get_db)
     for m in mappings:
         has_issue = bool(
             m.under_mortgage or m.has_caveat or m.in_transaction
-            or getattr(m, "overlaps", False)
+            or m.upi in overlapping_set
         )
         parcels.append({
             "upi":             m.upi,
@@ -882,7 +981,7 @@ async def stats_by_uploader(uploader_id: str, db: AsyncSession = Depends(get_db)
             "under_mortgage":  bool(m.under_mortgage),
             "has_caveat":      bool(m.has_caveat),
             "in_transaction":  bool(m.in_transaction),
-            "overlaps":        bool(getattr(m, "overlaps", False)),
+            "overlaps":        m.upi in overlapping_set,
             "has_issue":       has_issue,
             "approval_date":   m.approval_date.isoformat() if m.approval_date else None,
             "created_at":      m.created_at.isoformat() if m.created_at else None,
