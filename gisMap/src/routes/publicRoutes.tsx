@@ -2,7 +2,7 @@ import { Suspense, lazy } from "react";
 import { Routes, Route } from "react-router-dom";
 import SafeLandLoader from "../loaders/fullpageloader";
 import { useOnboardingCheck } from "../components/security/useOnboardingCheck";
-import MainAppGis from "../components/maps_comp/Main_Map";
+
 import { GeoGuardLanding } from "../pages/HomePageSecond";
 import ParcelVerificationMap from "../components/maps_comp/mainM";
 

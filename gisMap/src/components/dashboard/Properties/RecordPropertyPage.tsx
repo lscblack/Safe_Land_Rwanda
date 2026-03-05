@@ -49,7 +49,7 @@ const RecordPropertyPage = ({ initialUpi, mappingId, onSuccess }: RecordProperty
     const [dbCategories, setDbCategories] = useState<any[]>([]);
     const [dbSubCategories, setDbSubCategories] = useState<any[]>([]);
     const [formCategories, setFormCategories] = useState<Category[]>(FORM_CONFIG);
-    
+    oldParcelInfo ? "" : ""
     // Flag to track if initial verification was auto-triggered
     const [initialVerificationDone, setInitialVerificationDone] = useState(false);
     // Flag to track if we're waiting for category selection after initial UPI
@@ -123,7 +123,7 @@ const RecordPropertyPage = ({ initialUpi, mappingId, onSuccess }: RecordProperty
         setInitialVerificationDone(false);
         setPendingInitialUpi(null);
     };
-    
+
     const handleCategorySelect = (category: any) => {
         setSelectedCategory(category);
         setSelectedSubCategory(null);
@@ -153,21 +153,21 @@ const RecordPropertyPage = ({ initialUpi, mappingId, onSuccess }: RecordProperty
         setParcelInfo(null);
         setParcelStatusMessage(null);
         setParcelAllowed(false);
-        
+
         if (!upi) {
             setUpiError('UPI is required.');
             setIsUpiVerified(false);
             return;
         }
-        
+
         setIsUpiVerifying(true);
         setUpiError(null);
-        
+
         try {
             // Use new endpoint
             const res = await api.get(`/api/external/title_data?upi=${encodeURIComponent(upi)}&language=english`);
             const result = res.data;
-            
+
             if (!result.success || !result.found || !result.data || !result.data.parcelDetails) {
                 setUpiError('Parcel not found or invalid response.');
                 setIsUpiVerified(false);
@@ -175,7 +175,7 @@ const RecordPropertyPage = ({ initialUpi, mappingId, onSuccess }: RecordProperty
                 setIsUpiVerifying(false);
                 return;
             }
-            
+
             const data = result.data.parcelDetails;
             setParcelInfo(data);
 
@@ -214,7 +214,7 @@ const RecordPropertyPage = ({ initialUpi, mappingId, onSuccess }: RecordProperty
 
             // GIS coordinates - FIXED: Properly extract lat/lon from various possible sources
             let lat = null, lon = null;
-            
+
             // Check parcelCoordinates (most reliable)
             if (data.parcelCoordinates) {
                 lat = data.parcelCoordinates.lat;
@@ -247,7 +247,7 @@ const RecordPropertyPage = ({ initialUpi, mappingId, onSuccess }: RecordProperty
 
             // Save all new status fields - FIXED: Ensure lat/lon are properly set and immediately visible
             setFormData(prev => {
-                const updated = {
+                const updated: Record<string, any> = {
                     ...prev,
                     district: district || prev.district,
                     sector: sector || prev.sector,
@@ -261,7 +261,7 @@ const RecordPropertyPage = ({ initialUpi, mappingId, onSuccess }: RecordProperty
                     hasInfrastructure: data.hasInfrastructure,
                     parcelCoordinates: data.parcelCoordinates,
                 };
-                
+
                 // Only add lat/lon if they exist and are valid
                 if (lat !== null && lat !== undefined && !isNaN(parseFloat(lat))) {
                     updated.latitude = parseFloat(lat);
@@ -269,7 +269,7 @@ const RecordPropertyPage = ({ initialUpi, mappingId, onSuccess }: RecordProperty
                 if (lon !== null && lon !== undefined && !isNaN(parseFloat(lon))) {
                     updated.longitude = parseFloat(lon);
                 }
-                
+
                 return updated;
             });
 
@@ -303,7 +303,7 @@ const RecordPropertyPage = ({ initialUpi, mappingId, onSuccess }: RecordProperty
                 setParcelStatusMessage('Parcel OK for upload.');
                 setParcelAllowed(true);
                 setIsUpiVerified(true);
-                
+
                 // Check land-use vs selected category (warn if mismatch) - only if category is selected
                 if (selectedCategory) {
                     try {
@@ -393,7 +393,7 @@ const RecordPropertyPage = ({ initialUpi, mappingId, onSuccess }: RecordProperty
 
             const res = await api.post('/api/property/properties', payload);
             const created = res.data;
-            
+
             // If mappingId was provided, update the mapping with the new property ID
             if (mappingId && created && created.id) {
                 try {
@@ -424,7 +424,7 @@ const RecordPropertyPage = ({ initialUpi, mappingId, onSuccess }: RecordProperty
             }
 
             setToast({ type: 'success', message: 'Property Recorded Successfully!' });
-            
+
             // Call onSuccess callback if provided
             if (onSuccess) {
                 onSuccess();
@@ -842,30 +842,30 @@ const RecordPropertyPage = ({ initialUpi, mappingId, onSuccess }: RecordProperty
                                                     <div className="col-span-1 md:col-span-2 grid grid-cols-3 gap-2 items-center">
                                                         <div className="col-span-2">
                                                             <label className="block text-xs font-bold text-gray-500 uppercase mb-2">UPI</label>
-                                                            <input 
-                                                                type="text" 
-                                                                value={formData.upi || ''} 
-                                                                onChange={(e) => { 
-                                                                    setFormData(prev => ({ ...prev, upi: e.target.value })); 
-                                                                    setIsUpiVerified(false); 
-                                                                    setUpiError(null); 
-                                                                }} 
-                                                                placeholder="Enter UPI (e.g. 5/07/08/01/6464)" 
-                                                                className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#112240]" 
+                                                            <input
+                                                                type="text"
+                                                                value={formData.upi || ''}
+                                                                onChange={(e) => {
+                                                                    setFormData(prev => ({ ...prev, upi: e.target.value }));
+                                                                    setIsUpiVerified(false);
+                                                                    setUpiError(null);
+                                                                }}
+                                                                placeholder="Enter UPI (e.g. 5/07/08/01/6464)"
+                                                                className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#112240]"
                                                                 disabled={isUpiVerified} // Disable after verification
                                                             />
                                                             {upiError && <p className="text-xs text-red-500 mt-1">{upiError}</p>}
                                                         </div>
                                                         <div className="col-span-1">
                                                             <label className="block text-xs font-bold text-gray-500 uppercase mb-2">&nbsp;</label>
-                                                            <button 
-                                                                type="button" 
-                                                                onClick={handleVerifyUpi} 
-                                                                disabled={isUpiVerifying || isUpiVerified} 
+                                                            <button
+                                                                type="button"
+                                                                onClick={handleVerifyUpi}
+                                                                disabled={isUpiVerifying || isUpiVerified}
                                                                 className={clsx(
                                                                     "w-full px-3 py-3 rounded-xl border text-sm font-bold transition-colors",
-                                                                    isUpiVerified 
-                                                                        ? "bg-green-600 text-white border-green-600" 
+                                                                    isUpiVerified
+                                                                        ? "bg-green-600 text-white border-green-600"
                                                                         : "bg-white dark:bg-[#112240] border-gray-200 dark:border-gray-700 hover:bg-primary hover:text-white"
                                                                 )}
                                                             >
@@ -882,7 +882,7 @@ const RecordPropertyPage = ({ initialUpi, mappingId, onSuccess }: RecordProperty
                                                         <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Owner Name</label>
                                                         <input type="text" readOnly={true} value={formData.owner_name || ''} onChange={(e) => setFormData(prev => ({ ...prev, owner_name: e.target.value }))} className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#112240]" disabled={formLocked} />
                                                     </div>
-                                                    
+
                                                     {/* Parcel status & quick info (colored) */}
                                                     <div className="col-span-1 md:col-span-2 text-sm mt-2">
                                                         {parcelStatusMessage && (
@@ -944,7 +944,7 @@ const RecordPropertyPage = ({ initialUpi, mappingId, onSuccess }: RecordProperty
                                                             </div>
                                                         )}
                                                     </div>
-                                                    
+
                                                     {selectedSubCategory.fields.map((field: any) => (
                                                         <div
                                                             key={field.name}
@@ -1035,36 +1035,36 @@ const RecordPropertyPage = ({ initialUpi, mappingId, onSuccess }: RecordProperty
                                                         <div className="grid grid-cols-2 gap-4">
                                                             <div>
                                                                 <label className="text-xs text-gray-500 mb-1 block">Latitude</label>
-                                                                <input 
-                                                                    type="number" 
-                                                                    step="any" 
-                                                                    value={formData.latitude || ''} 
+                                                                <input
+                                                                    type="number"
+                                                                    step="any"
+                                                                    value={formData.latitude || ''}
                                                                     readOnly
-                                                                    className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-[#112240] text-slate-900 dark:text-white cursor-not-allowed" 
+                                                                    className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-[#112240] text-slate-900 dark:text-white cursor-not-allowed"
                                                                 />
                                                             </div>
                                                             <div>
                                                                 <label className="text-xs text-gray-500 mb-1 block">Longitude</label>
-                                                                <input 
-                                                                    type="number" 
-                                                                    step="any" 
-                                                                    value={formData.longitude || ''} 
+                                                                <input
+                                                                    type="number"
+                                                                    step="any"
+                                                                    value={formData.longitude || ''}
                                                                     readOnly
-                                                                    className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-[#112240] text-slate-900 dark:text-white cursor-not-allowed" 
+                                                                    className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-[#112240] text-slate-900 dark:text-white cursor-not-allowed"
                                                                 />
                                                             </div>
                                                         </div>
 
                                                         {/* Estimated Amount */}
                                                         <label className="text-xs font-bold text-gray-500 uppercase mb-2 block mt-6">Estimated Amount (RWF)</label>
-                                                        <input 
-                                                            type="number" 
-                                                            step="0.01" 
-                                                            value={formData.estimated_amount || ''} 
-                                                            onChange={(e) => setFormData(prev => ({ ...prev, estimated_amount: e.target.value }))} 
-                                                            placeholder="Enter estimated value" 
-                                                            className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#112240] text-slate-900 dark:text-white focus:ring-2 focus:ring-primary focus:border-transparent outline-none" 
-                                                            disabled={formLocked} 
+                                                        <input
+                                                            type="number"
+                                                            step="0.01"
+                                                            value={formData.estimated_amount || ''}
+                                                            onChange={(e) => setFormData(prev => ({ ...prev, estimated_amount: e.target.value }))}
+                                                            placeholder="Enter estimated value"
+                                                            className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#112240] text-slate-900 dark:text-white focus:ring-2 focus:ring-primary focus:border-transparent outline-none"
+                                                            disabled={formLocked}
                                                         />
                                                     </div>
                                                 </div>

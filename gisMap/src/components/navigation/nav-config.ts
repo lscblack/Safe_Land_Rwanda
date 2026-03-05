@@ -1,5 +1,5 @@
 // src/components/navigation/nav-config.ts
-import { Flame, Home, Info, ShieldAlert, Building2 } from "lucide-react";
+import {  Home, Info,} from "lucide-react";
 
 export interface NavItemType {
   label: string; // Keep as string for translation key

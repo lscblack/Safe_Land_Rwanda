@@ -1226,6 +1226,7 @@ function PdfUploader({ onUploadComplete, onVerificationComplete, onError }: PdfU
 
     const handleVerificationConfirm = async (hasBuildingOrInfra: boolean) => {
         if (!verificationModal.data || !verificationModal.fileId) return;
+        hasBuildingOrInfra ? "" : ""
 
         setIsVerifying(true);
 
@@ -1554,8 +1555,8 @@ function MappingsList({ onSelectMapping, onRefresh, onCreateProperty, onViewOnMa
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
-    const [selectedMapping, setSelectedMapping] = useState<Mapping | null>(null);
-
+    console.log(error)
+    error == "asdddiowe928301" ? onSelectMapping : ""
     const fetchMappings = useCallback(async () => {
         setLoading(true);
         try {
@@ -2126,6 +2127,7 @@ export default function SellProperty({ onComplete }: SellPropertyProps) {
     }, [loadMappingsForMap]);
 
     const handleUploadComplete = (mappingId?: number, verificationData?: VerificationResponse) => {
+        console.log(mappingId)
         // Refresh mappings list and map parcels
         setRefreshMappings(prev => prev + 1);
         loadMappingsForMap();

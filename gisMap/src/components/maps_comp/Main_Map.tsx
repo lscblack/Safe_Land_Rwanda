@@ -1,4 +1,4 @@
-import parse from "wellknown";
+import * as wk from "wellknown";
 import * as turf from "@turf/turf";
 import {
     MapContainer,
@@ -36,10 +36,7 @@ import {
     Film,
     AlertCircle,
     CheckCircle2,
-    Shield as ShieldIcon,
-    UserCheck,
     Menu,
-    Home,
     User,
     Users,
     UserRound,
@@ -434,19 +431,7 @@ interface DraggableModalProps {
     isLoading?: boolean;
 }
 
-/* =========================
-   PRICE FORMATTER
-========================= */
-function formatPrice(price?: number): string {
-    if (!price) return '';
-    if (price >= 1000000) {
-        return `${(price / 1000000).toFixed(1)}M`;
-    } else if (price >= 1000) {
-        return `${(price / 1000).toFixed(0)}k`;
-    } else {
-        return price.toString();
-    }
-}
+
 
 /* =========================
    AREA FORMATTER
@@ -457,17 +442,6 @@ function formatArea(area?: number): string {
         return `${(area / 10000).toFixed(2)} ha`;
     }
     return `${area.toFixed(0)} m²`;
-}
-
-/* =========================
-   DISTANCE FORMATTER
-========================= */
-function formatDistance(meters: number): string {
-    if (meters >= 1000) {
-        return `${(meters / 1000).toFixed(1)}km`;
-    } else {
-        return `${Math.round(meters)}m`;
-    }
 }
 
 /* =========================
@@ -1043,8 +1017,15 @@ export default function ParcelMap({
 
         const temp = parcels.map((p) => {
             try {
-                const geo = parse(p.official_registry_polygon);
-                const positions = geo.coordinates[0].map(([lng, lat]: [number, number]) => [lat, lng]);
+                const geo = wk.parse(p.official_registry_polygon);
+                
+                // Type-guard to ensure the geometry has coordinates
+                if (!geo || !('coordinates' in geo)) {
+                    throw new Error("Invalid geometry: missing coordinates");
+                }
+                
+                const coordinates = (geo as any).coordinates[0];
+                const positions = coordinates.map(([lng, lat]: [number, number]) => [lat, lng]);
 
                 return {
                     ...p,

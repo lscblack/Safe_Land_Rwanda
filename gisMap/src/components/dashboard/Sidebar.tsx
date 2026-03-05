@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { LayoutDashboard, Building2, Users, BarChart3, Settings, LogOut, Timer, Building, Map, Plus } from 'lucide-react';
 import { clsx } from 'clsx';

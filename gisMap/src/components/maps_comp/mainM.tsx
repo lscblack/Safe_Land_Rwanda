@@ -7,13 +7,8 @@ import {
   CheckCircle2,
   Loader2,
   X,
-  Filter,
-  Search,
   Globe,
-  Home,
-  Eye,
   ChevronDown,
-  Menu,
   Layers,
   RefreshCw,
   Map as MapIcon,
@@ -22,27 +17,16 @@ import {
   Navigation,
   Info,
   Shield,
-  FileText,
-  Download,
-  Maximize2,
-  Minimize2,
-  RotateCw,
   Trash2,
-  Check,
   AlertTriangle,
   ArrowRight,
   ArrowLeft,
   DollarSign,
   Ban,
-  Circle,
-  Square,
-  HelpCircle,
   User,
   Users,
   MapPinned,
   Building,
-  Calendar,
-  GripHorizontal,
   Heart,
   UserRound,
   UserCircle,
@@ -51,7 +35,6 @@ import {
   UserCog,
   Film,
   Globe2,
-  EyeOff,
 } from 'lucide-react';
 import {
   MapContainer,
@@ -64,12 +47,11 @@ import {
   ZoomControl,
   ScaleControl,
   useMapEvents,
-  Popup as LeafletPopup,
 } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import api from '../../instance/mainAxios';
-import parse from 'wellknown';
+import { parse } from 'wellknown';
 import * as turf from '@turf/turf';
 import SimpleAiChatbot from '../ml/Chatbot';
 
@@ -1042,7 +1024,7 @@ function ParcelPolygon({ parcel, isSelected, onClick }: { parcel: ParcelData; is
 /* =========================
    STEP 1: UPLOAD PAGE
 ========================= */
-function StepOne({ onVerify, isVerifying, verificationResult, onReset }: StepOneProps) {
+function StepOne({ onVerify, isVerifying, verificationResult }: StepOneProps) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1779,16 +1761,24 @@ export default function ParcelVerificationFlow() {
           try {
             const geo = parse(p.official_registry_polygon);
 
+            if (!geo) {
+              return null;
+            }
+
             let coordinates = [];
-            if (geo.type === 'Polygon') {
+            if (geo.type === 'Polygon' && 'coordinates' in geo) {
               coordinates = geo.coordinates[0];
-            } else if (geo.type === 'MultiPolygon') {
+            } else if (geo.type === 'MultiPolygon' && 'coordinates' in geo) {
               coordinates = geo.coordinates[0][0];
             } else {
               return null;
             }
 
-            const positions = coordinates.map(([lng, lat]: [number, number]) => [lat, lng]);
+            const positions: [number, number][] = coordinates.map((coord: any) => {
+              const lng = coord[0];
+              const lat = coord[1];
+              return [lat, lng];
+            });
 
             return {
               id: p.id,
@@ -1829,8 +1819,8 @@ export default function ParcelVerificationFlow() {
       for (let i = 0; i < parsed.length; i++) {
         for (let j = i + 1; j < parsed.length; j++) {
           try {
-            const polyA = turf.polygon([parsed[i].positions.map(([lat, lng]) => [lng, lat])]);
-            const polyB = turf.polygon([parsed[j].positions.map(([lat, lng]) => [lng, lat])]);
+            const polyA = turf.polygon([parsed[i].positions.map(([lat, lng]: [number, number]) => [lng, lat])]);
+            const polyB = turf.polygon([parsed[j].positions.map(([lat, lng]: [number, number]) => [lng, lat])]);
 
             if (turf.booleanIntersects(polyA, polyB)) {
               const intersection = turf.intersect(turf.featureCollection([polyA, polyB]));

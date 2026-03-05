@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Trash2,
-  Download,
+
   Eye,
   Search,
   ChevronLeft,
@@ -13,13 +13,9 @@ import {
   Loader2,
   RefreshCw,
   FileText,
-  Map,
-  Calendar,
-  Hash,
-  MoreVertical,
+
   X,
   CheckCircle,
-  Layers,
   Upload,
   ArrowUpCircle,
   FileWarning,
@@ -932,6 +928,7 @@ export default function MappingsManager() {
     limit: 10,
     totalPages: 1,
   });
+  console.log(error)
   const [showUploader, setShowUploader] = useState(false);
 
   /* =========================

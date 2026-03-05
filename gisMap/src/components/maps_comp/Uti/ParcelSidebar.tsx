@@ -46,9 +46,6 @@ export function ParcelSidebar({
     onViewAllParcels,
     onParcelClick,
     loggedUser,
-    formatDistance,
-    parcelInfo,
-    showNearby,
 }: ParcelSidebarProps) {
     
     // Helper function to get area from parcel

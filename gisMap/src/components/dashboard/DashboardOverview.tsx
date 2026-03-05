@@ -1,88 +1,16 @@
 // DashboardOverview.tsx
-import React, { useState, useEffect, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { useState, useEffect } from 'react';
+import { motion } from 'framer-motion';
 import {
     MapPin, AlertTriangle, CheckCircle2, Clock, DollarSign,
-    TrendingUp, TrendingDown, Shield, FileText, Users,
-    Building2, Home, Landmark, Tractor, Factory, Store,
-    BarChart3, Activity, Zap, Award,
-    AlertOctagon, ShieldAlert, Globe, Map,
-    ChevronRight, ChevronLeft, RefreshCw, Download,
-    Calendar, Filter, Search, Eye, Plus,
-    ArrowUpRight, ArrowDownRight, MinusCircle,
-    Layers, Database, Sparkles, Target, UserCheck,
-    Briefcase, UserCog, UserPlus, UserMinus,
+    TrendingUp, TrendingDown, Shield,
+    Layers, Database, Sparkles, Target,Plus,Map,Activity, Zap,Home,
     MessageCircle,
     Upload
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import api from '../../instance/mainAxios';
 
-// ============================================================================
-// TYPES
-// ============================================================================
-
-interface LegalIssues {
-    under_mortgage: boolean;
-    has_caveat: boolean;
-    in_transaction: boolean;
-    overlaps: boolean;
-    total_issues: number;
-    is_clean: boolean;
-}
-
-interface MarketInfo {
-    for_sale: boolean;
-    price: number | null;
-    land_use_type: string;
-    estimated_amount?: number;
-}
-
-interface ChatActivity {
-    total_sessions: number;
-    total_messages: number;
-}
-
-interface ParcelMapping {
-    id: number;
-    upi: string;
-    property_id: number | null;
-    uploaded_by: string;
-    official_registry_polygon: string;
-    parcel_area_sqm: number;
-    province: string;
-    district: string;
-    sector: string;
-    cell: string;
-    village: string;
-    land_use_type: string;
-    under_mortgage: boolean;
-    has_caveat: boolean;
-    in_transaction: boolean;
-    overlaps: boolean;
-    for_sale: boolean;
-    price: number | null;
-    created_at: string;
-}
-
-interface PropertyInfo {
-    id: number;
-    status: 'draft' | 'published' | 'sold';
-    estimated_amount: number;
-    owner_id: string;
-    land_use: string;
-}
-
-interface ParcelDetailResponse {
-    upi: string;
-    found_in_mappings: boolean;
-    found_in_properties: boolean;
-    mapping: ParcelMapping | null;
-    property: PropertyInfo | null;
-    legal_issues: LegalIssues;
-    market: MarketInfo;
-    chat_activity: ChatActivity;
-}
 
 interface UploaderStatsResponse {
     uploader_id: string;
@@ -432,6 +360,7 @@ interface ParcelTableProps {
 }
 
 const ParcelTable: React.FC<ParcelTableProps> = ({ parcels, onViewParcel }) => {
+    onViewParcel ? "" : ""
     return (
         <div className="overflow-x-auto">
             <table className="w-full">
@@ -483,7 +412,7 @@ const ParcelTable: React.FC<ParcelTableProps> = ({ parcels, onViewParcel }) => {
                                     </span>
                                 )}
                             </td>
-                     
+
                         </motion.tr>
                     ))}
                 </tbody>
@@ -641,7 +570,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
         );
     }
     // handelview fucniton
-    const handleView = (view:string) => {
+    const handleView = (view: string) => {
         setActiveView("gis_pdf_user");
         localStorage.setItem("activeView_tab", view);
     }
@@ -662,14 +591,14 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                     </div>
                     <div className="flex gap-3">
                         <button
-                            onClick={()=>handleView("map")}
+                            onClick={() => handleView("map")}
                             className="px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors flex items-center gap-2"
                         >
                             <Map size={16} className="text-[#395d91]" />
                             View Map
                         </button>
                         <button
-                            onClick={()=>handleView("upload")}
+                            onClick={() => handleView("upload")}
                             className="px-4 py-2 bg-[#395d91] text-white rounded-lg text-sm font-medium hover:bg-[#2d4a75] transition-colors flex items-center gap-2"
                         >
                             <Plus size={16} />
@@ -777,19 +706,19 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                     <div className="bg-white rounded-xl border border-gray-200 p-6 lg:col-span-2">
                         <h3 className="font-semibold text-gray-800 mb-4">Quick Actions</h3>
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                            <button onClick={()=>handleView("upload")} className="p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors text-center">
+                            <button onClick={() => handleView("upload")} className="p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors text-center">
                                 <Upload size={20} className="mx-auto mb-2 text-[#395d91]" />
                                 <span className="text-xs font-medium">Upload PDF</span>
                             </button>
-                            <button onClick={()=>handleView("map")} className="p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors text-center">
+                            <button onClick={() => handleView("map")} className="p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors text-center">
                                 <Map size={20} className="mx-auto mb-2 text-[#395d91]" />
                                 <span className="text-xs font-medium">View Map</span>
                             </button>
-                            <button onClick={()=>handleView("mappings")} className="p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors text-center">
+                            <button onClick={() => handleView("mappings")} className="p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors text-center">
                                 <DollarSign size={20} className="mx-auto mb-2 text-[#395d91]" />
                                 <span className="text-xs font-medium">List for Sale</span>
                             </button>
-                            <button onClick={()=>window.location.href="/map"} className="p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors text-center">
+                            <button onClick={() => window.location.href = "/map"} className="p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors text-center">
                                 <MessageCircle size={20} className="mx-auto mb-2 text-[#395d91]" />
                                 <span className="text-xs font-medium">View As User</span>
                             </button>
@@ -878,7 +807,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                                 Sorted by issues first - problem parcels shown at the top
                             </p>
                         </div>
-                        <button onClick={()=>handleView("mappings")} className="text-sm text-[#395d91] hover:underline">
+                        <button onClick={() => handleView("mappings")} className="text-sm text-[#395d91] hover:underline">
                             View All
                         </button>
                     </div>

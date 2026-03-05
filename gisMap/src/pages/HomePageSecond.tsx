@@ -1,14 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { AnimatePresence, motion, useScroll, useTransform } from 'framer-motion';
+import { AnimatePresence, motion, } from 'framer-motion';
 import {
-    ShieldCheck, Map, ScanLine, Database,
-    ArrowRight, Lock, CheckCircle2, AlertTriangle,
+    ShieldCheck, Map, ScanLine,
+     Lock, CheckCircle2, AlertTriangle,
     Building2, Briefcase, UserCheck, Layers,
-    ChevronRight, Cpu, Crosshair,
-    Sparkles, Zap, BarChart3,
-    Users, Shield, Radio, Satellite, Hexagon,
-    Brain, Network, Cloud, Radar,
-    Rocket, Menu, X
+    ChevronRight, Cpu, 
+    Sparkles, 
+     Shield, Satellite,
+    Brain, Cloud, Radar, Menu, X
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { Footer } from '../components/navigation/FooterAll';

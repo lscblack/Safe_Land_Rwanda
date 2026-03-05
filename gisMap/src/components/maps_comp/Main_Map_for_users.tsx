@@ -1,4 +1,4 @@
-import parse from "wellknown";
+import { parse } from "wellknown";
 import * as turf from "@turf/turf";
 import {
     MapContainer,
@@ -483,19 +483,7 @@ function AccessDeniedPopup({ onClose }: { onClose: () => void }) {
     );
 }
 
-/* =========================
-   PRICE FORMATTER
-========================= */
-function formatPrice(price?: number): string {
-    if (!price) return '';
-    if (price >= 1000000) {
-        return `${(price / 1000000).toFixed(1)}M`;
-    } else if (price >= 1000) {
-        return `${(price / 1000).toFixed(0)}k`;
-    } else {
-        return price.toString();
-    }
-}
+
 
 /* =========================
    AREA FORMATTER
@@ -508,16 +496,6 @@ function formatArea(area?: number): string {
     return `${area.toFixed(0)} m²`;
 }
 
-/* =========================
-   DISTANCE FORMATTER
-========================= */
-function formatDistance(meters: number): string {
-    if (meters >= 1000) {
-        return `${(meters / 1000).toFixed(1)}km`;
-    } else {
-        return `${Math.round(meters)}m`;
-    }
-}
 
 /* =========================
    GENDER ICON
@@ -1154,15 +1132,19 @@ export default function ParcelMap({
         const temp = parcelsToProcess.map((p) => {
             try {
                 const geo = parse(p.official_registry_polygon);
-                const positions = geo.coordinates[0].map(([lng, lat]: [number, number]) => [lat, lng]);
+                if (!geo || geo.type !== 'Polygon' || !('coordinates' in geo) || !Array.isArray(geo.coordinates[0])) {
+                    console.error("Invalid geometry for parcel", p.upi);
+                    return null;
+                }
+                const coordinates = (geo.coordinates[0] as [number, number][]).map(([lng, lat]: [number, number]) => [lat, lng] as [number, number]);
                 const isOwnedByUser = isParcelOwnedByUser(p);
                 const hasProperty = !!p.property_id;
 
                 return {
                     ...p,
                     geojson: geo,
-                    positions,
-                    center: getCenter(positions),
+                    positions: coordinates,
+                    center: getCenter(coordinates),
                     overlapping: false,
                     overlapsWith: [],
                     isOwnedByUser,
