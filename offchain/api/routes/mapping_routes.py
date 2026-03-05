@@ -198,14 +198,30 @@ async def extract_pdf_and_store(
         user_roles = getattr(current_user, 'role', []) if current_user else []
         is_admin = False
         if isinstance(user_roles, list):
-            is_admin = any(str(r).lower() == 'admin' or str(r).lower() == 'super_admin' for r in user_roles)
+            is_admin = any(str(r).lower() in ('admin', 'super_admin') for r in user_roles)
         elif isinstance(user_roles, str):
-            is_admin = user_roles.lower() == 'admin' or user_roles.lower() == 'super_admin'
-        n_id_number = getattr(current_user, 'n_id_number', None) if current_user else None
-        owners = details.get("owners", [])
-        owner_nids = [o.get("idNo") for o in owners if o.get("idNo")]
+            is_admin = user_roles.lower() in ('admin', 'super_admin')
+
+        n_id_number = str(getattr(current_user, 'n_id_number', None) or '').strip() if current_user else ''
+
+        # Collect all authorised NIDs from owners list + parcel representative
+        owners = details.get("owners") or []
+        authorised_nids = set()
+        for o in owners:
+            raw = o.get("idNo") or o.get("id_number") or o.get("nationalId") or ""
+            authorised_nids.add(str(raw).strip())
+        rep = details.get("parcelRepresentative") or details.get("representative") or {}
+        if isinstance(rep, dict):
+            raw_rep = rep.get("idNo") or rep.get("id_number") or rep.get("nationalId") or ""
+            authorised_nids.add(str(raw_rep).strip())
+        authorised_nids.discard("")  # remove empty strings
+
         if not is_admin:
-            if not n_id_number or n_id_number not in owner_nids:
+            if not n_id_number or n_id_number not in authorised_nids:
+                import logging
+                logging.warning(
+                    f"[extract-pdf] Access denied: user NID '{n_id_number}' not in parcel authorised NIDs {authorised_nids}"
+                )
                 # If backup, skip permission check
                 if details is not backup_details:
                     raise HTTPException(status_code=403, detail="Only people who have access to this title can upload it. Sorry.")
