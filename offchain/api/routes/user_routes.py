@@ -277,7 +277,7 @@ async def register(
         hashed_password = hash_password(request.password)
         
         # Generate user code
-        user_code = generate_user_code(roles.BUYER, request.country)
+        user_code = generate_user_code(roles.SELLER, request.country)
         
         # Ensure user code is unique
         while True:
@@ -286,7 +286,7 @@ async def register(
             )
             if not result.scalar_one_or_none():
                 break
-            user_code = generate_user_code(roles.BUYER, request.country)
+            user_code = generate_user_code(roles.SELLER, request.country)
         
         # Create new user
         new_user = User(
@@ -295,7 +295,7 @@ async def register(
             last_name=request.last_name,
             email=request.email,
             avatar=request.avatar,
-            role=[roles.BUYER],
+            role=[roles.SELLER],
             n_id_number=request.n_id_number,
             id_type=request.id_type,
             phone=request.phone,
