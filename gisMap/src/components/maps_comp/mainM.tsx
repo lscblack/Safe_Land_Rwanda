@@ -2383,6 +2383,8 @@ export default function ParcelVerificationFlow() {
               setParcels(parsed.parcels);
               setLoadedFromDbCount(parsed.parcels.length);
               setTotalParcelsCount(parsed.parcels.length);
+              setDbForSaleCount(parsed.parcels.filter((p) => p.forSale === true).length);
+              setDbOverlapCount(parsed.parcels.filter((p) => p.hasOverlap).length);
             } else {
               // Fetch parcels if none in storage
               setActiveServerFilters({});
@@ -2574,6 +2576,8 @@ export default function ParcelVerificationFlow() {
         setActiveServerFilters({});
         setLoadedFromDbCount(page.items.length);
         setTotalParcelsCount(page.total || page.items.length);
+        setDbForSaleCount(page.forSaleCount || page.items.filter((p) => p.forSale === true).length);
+        setDbOverlapCount(page.overlapCount || page.items.filter((p) => p.hasOverlap).length);
 
         // Mark the verified parcel in the fetched list
         const updatedParcels: ParcelData[] = allParcels.map((p: ParcelData) => {
@@ -2621,6 +2625,9 @@ export default function ParcelVerificationFlow() {
             console.warn('[handleVerify] Could not build parcel from result polygon:', e);
           }
         }
+
+        setDbForSaleCount(updatedParcels.filter((p) => p.forSale === true).length);
+        setDbOverlapCount(updatedParcels.filter((p) => p.hasOverlap).length);
 
         const currentVerifiedParcel = updatedParcels.find((p) => p.upi === verifiedUpi);
         if (currentVerifiedParcel) {
