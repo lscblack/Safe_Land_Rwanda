@@ -1170,9 +1170,12 @@ function StepOne({ onVerify, onViewMap, isVerifying, verificationResult }: StepO
       >
         <div className="bg-primary p-8 text-white">
           <h1 className="text-3xl font-bold mb-2">Verify Your Land Title</h1>
-          <p className="text-blue-100">
-            Upload your e-title document to verify your property
-          </p>
+          <div className="flex justify-between">
+            <p className="text-blue-100">
+              Upload your e-title document to verify your property
+            </p>
+            <button onClick={()=>window.location.href="/"} className='text-blue-100 cursor-pointer'>Goback</button>
+          </div>
         </div>
 
         <div className="p-8">
@@ -1548,15 +1551,34 @@ function StepTwo({
   }, [chatHighlightUPI, parcels]);
 
   useEffect(() => {
-    if (!verifiedParcel || viewMode === 'all') return;
+    if (!verifiedParcel) return;
     if (defaultLocationAppliedRef.current === verifiedParcel.upi) return;
 
-    setSelectedProvince(verifiedParcel.province || 'all');
-    setSelectedDistrict(verifiedParcel.district || 'all');
-    setSelectedSector(verifiedParcel.sector || 'all');
+    const hasProvince = Boolean(verifiedParcel.province);
+    const hasDistrict = Boolean(verifiedParcel.district);
+    const hasSector = Boolean(verifiedParcel.sector);
+
+    if (hasSector) {
+      setSelectedProvince(verifiedParcel.province || 'all');
+      setSelectedDistrict(verifiedParcel.district || 'all');
+      setSelectedSector(verifiedParcel.sector || 'all');
+    } else if (hasDistrict) {
+      setSelectedProvince(verifiedParcel.province || 'all');
+      setSelectedDistrict(verifiedParcel.district || 'all');
+      setSelectedSector('all');
+    } else if (hasProvince) {
+      setSelectedProvince(verifiedParcel.province || 'all');
+      setSelectedDistrict('all');
+      setSelectedSector('all');
+    } else {
+      setSelectedProvince('all');
+      setSelectedDistrict('all');
+      setSelectedSector('all');
+    }
+
     setSaleStatusFilter('all');
     defaultLocationAppliedRef.current = verifiedParcel.upi;
-  }, [verifiedParcel, viewMode]);
+  }, [verifiedParcel]);
 
   useEffect(() => {
     if (displayedParcels.length > 0) {
@@ -2563,47 +2585,49 @@ export default function ParcelVerificationFlow() {
     filters: ParcelFetchFilters = {},
     options: { batchPage?: number } = {}
   ) => {
-    const hasServerFilters = hasActiveServerFilters(filters);
     const requestedBatchPage = options.batchPage ?? 0;
-    const requestKey = JSON.stringify({ filters: filters || {}, batchPage: hasServerFilters ? 0 : requestedBatchPage });
+    const pageSize = 100;
+    const requestOffset = requestedBatchPage * pageSize;
+    const requestKey = JSON.stringify({ filters: filters || {}, offset: requestOffset, limit: pageSize });
     if (inFlightParcelsFetchRef.current?.key === requestKey) {
       return inFlightParcelsFetchRef.current.promise;
     }
 
     const fetchPromise = (async () => {
-    try {
-      const response = await api.get('/api/mappings/', {
-        params: {
-          ...filters,
-          ...(hasServerFilters ? {} : { province_batch_page: requestedBatchPage, province_batch_size: 100 }),
-        },
-      });
-      const allParcels = Array.isArray(response.data) ? response.data : response.data?.items || [];
+      try {
+        const response = await api.get('/api/mappings/', {
+          params: {
+            ...filters,
+            limit: pageSize,
+            offset: requestOffset,
+          },
+        });
+        const allParcels = Array.isArray(response.data) ? response.data : response.data?.items || [];
 
-      const total = Number(response.headers?.['x-total-count'] ?? allParcels.length ?? 0);
-      const normalized = normalizeParcels(allParcels, !hasServerFilters);
-      const fallbackForSale = normalized.filter((p) => p.forSale === true).length;
-      const fallbackOverlap = normalized.filter((p) => p.hasOverlap).length;
-      const forSaleCount = Number(response.headers?.['x-for-sale-count'] ?? fallbackForSale);
-      const overlapCount = Number(response.headers?.['x-overlap-count'] ?? fallbackOverlap);
-      const hasMoreHeader = String(response.headers?.['x-has-more'] ?? '').toLowerCase() === 'true';
-      const hasMore = hasMoreHeader || (!hasServerFilters && normalized.length >= 500);
+        const total = Number(response.headers?.['x-total-count'] ?? allParcels.length ?? 0);
+        const normalized = normalizeParcels(allParcels, requestOffset === 0);
+        const fallbackForSale = normalized.filter((p) => p.forSale === true).length;
+        const fallbackOverlap = normalized.filter((p) => p.hasOverlap).length;
+        const forSaleCount = Number(response.headers?.['x-for-sale-count'] ?? fallbackForSale);
+        const overlapCount = Number(response.headers?.['x-overlap-count'] ?? fallbackOverlap);
+        const hasMoreHeader = String(response.headers?.['x-has-more'] ?? '').toLowerCase() === 'true';
+        const hasMore = hasMoreHeader || (requestOffset + normalized.length < total);
 
-      return {
-        items: normalized,
-        total,
-        forSaleCount,
-        overlapCount,
-        hasMore,
-      };
-    } catch (error) {
-      console.error('Failed to fetch parcels:', error);
-      return { items: [], total: 0, forSaleCount: 0, overlapCount: 0, hasMore: false };
-    } finally {
-      if (inFlightParcelsFetchRef.current?.key === requestKey) {
-        inFlightParcelsFetchRef.current = null;
+        return {
+          items: normalized,
+          total,
+          forSaleCount,
+          overlapCount,
+          hasMore,
+        };
+      } catch (error) {
+        console.error('Failed to fetch parcels:', error);
+        return { items: [], total: 0, forSaleCount: 0, overlapCount: 0, hasMore: false };
+      } finally {
+        if (inFlightParcelsFetchRef.current?.key === requestKey) {
+          inFlightParcelsFetchRef.current = null;
+        }
       }
-    }
     })();
 
     inFlightParcelsFetchRef.current = { key: requestKey, promise: fetchPromise };
@@ -2656,7 +2680,7 @@ export default function ParcelVerificationFlow() {
   }, [activeServerFilters, fetchAllParcels]);
 
   const handleLoadMoreParcels = useCallback(async () => {
-    if (loadingMoreParcels || !hasMoreBatchedParcels || hasActiveServerFilters(activeServerFilters)) return;
+    if (loadingMoreParcels || !hasMoreBatchedParcels) return;
 
     const nextBatchPage = batchPage + 1;
     setLoadingMoreParcels(true);
@@ -2677,7 +2701,7 @@ export default function ParcelVerificationFlow() {
     } finally {
       setLoadingMoreParcels(false);
     }
-  }, [activeServerFilters, batchPage, fetchAllParcels, hasActiveServerFilters, hasMoreBatchedParcels, loadingMoreParcels, parcels]);
+  }, [activeServerFilters, batchPage, fetchAllParcels, hasMoreBatchedParcels, loadingMoreParcels, parcels]);
 
   /* =========================
      HANDLE VERIFICATION
@@ -2773,6 +2797,7 @@ export default function ParcelVerificationFlow() {
 
         setParcels(updatedParcels);
         setVerifiedUPI(verifiedUpi);
+        setViewMode('district');
 
         setVerificationResult({
           success: true,
@@ -2901,7 +2926,7 @@ export default function ParcelVerificationFlow() {
             dbOverlapCount={dbOverlapCount}
             isFiltering={isFiltering}
             onLoadMoreParcels={handleLoadMoreParcels}
-            canLoadMoreParcels={hasMoreBatchedParcels && !hasActiveServerFilters(activeServerFilters)}
+            canLoadMoreParcels={hasMoreBatchedParcels}
             loadingMoreParcels={loadingMoreParcels}
           />
         </>
