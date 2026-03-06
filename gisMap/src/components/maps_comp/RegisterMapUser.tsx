@@ -1567,6 +1567,7 @@ function MappingsList({ onSelectMapping: _onSelectMapping, onRefresh, onCreatePr
         for_sale: false,
         price: '',
     });
+    console.log(error)
     const [savingMarketId, setSavingMarketId] = useState<number | null>(null);
     const [marketError, setMarketError] = useState<string | null>(null);
 
