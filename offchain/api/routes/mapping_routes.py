@@ -29,6 +29,14 @@ load_dotenv()
 
 router = APIRouter()
 
+BALANCED_PROVINCE_BUCKETS: list[tuple[str, list[str]]] = [
+    ("kigali city", ["kigali city", "kigali"]),
+    ("eastern", ["eastern"]),
+    ("western", ["western"]),
+    ("northern", ["northern"]),
+    ("southern", ["southern"]),
+]
+
 
 def _normalized_province_values(province: Optional[str]) -> list[str]:
     if not province:
@@ -77,6 +85,34 @@ async def _compute_overlap_upi_set(db: AsyncSession, upis: list[str]) -> set[str
     """)
     overlap_result = await db.execute(overlap_sql, {"upis": upis})
     return {row.upi_a for row in overlap_result.fetchall()}
+
+
+async def _fetch_balanced_province_batch(
+    db: AsyncSession,
+    base_query,
+    count_query,
+    province_batch_page: int,
+    province_batch_size: int,
+):
+    offset = province_batch_page * province_batch_size
+    batch_items: list[Mapping] = []
+    has_more = False
+
+    for _, province_values in BALANCED_PROVINCE_BUCKETS:
+        province_query = base_query.where(func.lower(Mapping.province).in_(province_values))
+        province_result = await db.execute(
+            province_query.order_by(Mapping.created_at.desc()).offset(offset).limit(province_batch_size)
+        )
+        batch_items.extend(province_result.scalars().all())
+
+        province_total_result = await db.execute(
+            count_query.where(func.lower(Mapping.province).in_(province_values))
+        )
+        province_total = province_total_result.scalar() or 0
+        if province_total > offset + province_batch_size:
+            has_more = True
+
+    return batch_items, has_more
 
 def mapping_to_dict(m) -> dict:
     """Return all mapping fields as a dict."""
@@ -439,6 +475,8 @@ async def get_my_mappings(
     district: Optional[str] = Query(None),
     sector: Optional[str] = Query(None),
     sale_status: Optional[str] = Query(None, pattern="^(for_sale|not_for_sale)$"),
+    province_batch_page: int = Query(0, ge=0),
+    province_batch_size: int = Query(100, ge=1, le=500),
 ):
     uploader_id = None
 
@@ -490,8 +528,20 @@ async def get_my_mappings(
     for_sale_count_result = await db.execute(count_query.where(Mapping.for_sale.is_(True)))
     for_sale_total = for_sale_count_result.scalar() or 0
 
-    result = await db.execute(base_query.order_by(Mapping.created_at.desc()))
-    mappings = result.scalars().all()
+    should_use_balanced_batch = not province and not district and not sector
+
+    if should_use_balanced_batch:
+        mappings, has_more = await _fetch_balanced_province_batch(
+            db=db,
+            base_query=base_query,
+            count_query=count_query,
+            province_batch_page=province_batch_page,
+            province_batch_size=province_batch_size,
+        )
+    else:
+        result = await db.execute(base_query.order_by(Mapping.created_at.desc()))
+        mappings = result.scalars().all()
+        has_more = False
 
     overlap_upis = await _compute_overlap_upi_set(db, [m.upi for m in mappings if m.upi])
     for m in mappings:
@@ -500,11 +550,12 @@ async def get_my_mappings(
 
     if response is not None:
         response.headers["X-Total-Count"] = str(total)
-        response.headers["X-Limit"] = str(total)
-        response.headers["X-Offset"] = "0"
-        response.headers["X-Remaining"] = "0"
+        response.headers["X-Limit"] = str(len(mappings))
+        response.headers["X-Offset"] = str(province_batch_page * province_batch_size if should_use_balanced_batch else 0)
+        response.headers["X-Remaining"] = str(max(total - len(mappings), 0))
         response.headers["X-For-Sale-Count"] = str(for_sale_total)
         response.headers["X-Overlap-Count"] = str(overlap_total)
+        response.headers["X-Has-More"] = "true" if has_more else "false"
 
     return [mapping_to_dict(m) for m in mappings]
 
@@ -516,6 +567,8 @@ async def list_mappings(
     district: Optional[str] = Query(None),
     sector: Optional[str] = Query(None),
     sale_status: Optional[str] = Query(None, pattern="^(for_sale|not_for_sale)$"),
+    province_batch_page: int = Query(0, ge=0),
+    province_batch_size: int = Query(100, ge=1, le=500),
 ):
     base_query = select(Mapping)
     count_query = select(func.count(Mapping.id))
@@ -546,8 +599,20 @@ async def list_mappings(
     for_sale_count_result = await db.execute(count_query.where(Mapping.for_sale.is_(True)))
     for_sale_total = for_sale_count_result.scalar() or 0
 
-    result = await db.execute(base_query.order_by(Mapping.created_at.desc()))
-    mappings = result.scalars().all()
+    should_use_balanced_batch = not province and not district and not sector
+
+    if should_use_balanced_batch:
+        mappings, has_more = await _fetch_balanced_province_batch(
+            db=db,
+            base_query=base_query,
+            count_query=count_query,
+            province_batch_page=province_batch_page,
+            province_batch_size=province_batch_size,
+        )
+    else:
+        result = await db.execute(base_query.order_by(Mapping.created_at.desc()))
+        mappings = result.scalars().all()
+        has_more = False
 
     overlap_upis = await _compute_overlap_upi_set(db, [m.upi for m in mappings if m.upi])
     for m in mappings:
@@ -556,11 +621,12 @@ async def list_mappings(
 
     if response is not None:
         response.headers["X-Total-Count"] = str(total)
-        response.headers["X-Limit"] = str(total)
-        response.headers["X-Offset"] = "0"
-        response.headers["X-Remaining"] = "0"
+        response.headers["X-Limit"] = str(len(mappings))
+        response.headers["X-Offset"] = str(province_batch_page * province_batch_size if should_use_balanced_batch else 0)
+        response.headers["X-Remaining"] = str(max(total - len(mappings), 0))
         response.headers["X-For-Sale-Count"] = str(for_sale_total)
         response.headers["X-Overlap-Count"] = str(overlap_total)
+        response.headers["X-Has-More"] = "true" if has_more else "false"
 
     return [mapping_to_dict(m) for m in mappings]
 

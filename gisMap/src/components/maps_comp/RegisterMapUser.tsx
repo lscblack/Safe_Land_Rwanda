@@ -1555,6 +1555,10 @@ interface MappingsListProps {
 function MappingsList({ onSelectMapping: _onSelectMapping, onRefresh, onCreateProperty, onViewOnMap, onViewDetails }: MappingsListProps) {
     const [mappings, setMappings] = useState<Mapping[]>([]);
     const [loading, setLoading] = useState(true);
+    const [loadingMore, setLoadingMore] = useState(false);
+    const [batchPage, setBatchPage] = useState(0);
+    const [hasMore, setHasMore] = useState(false);
+    const [totalCount, setTotalCount] = useState(0);
     const [error, setError] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [editingMarketId, setEditingMarketId] = useState<number | null>(null);
@@ -1624,22 +1628,57 @@ function MappingsList({ onSelectMapping: _onSelectMapping, onRefresh, onCreatePr
         }
     };
 
-    const fetchMappings = useCallback(async () => {
-        setLoading(true);
+    const fetchMappings = useCallback(async (options?: { append?: boolean }) => {
+        const append = options?.append === true;
+        const nextPage = append ? batchPage + 1 : 0;
+
+        if (append) {
+            setLoadingMore(true);
+        } else {
+            setLoading(true);
+        }
+
         try {
-            const response = await api.get('/api/mappings/my-mappings');
+            const response = await api.get('/api/mappings/my-mappings', {
+                params: {
+                    province_batch_page: nextPage,
+                    province_batch_size: 100,
+                },
+            });
+
             const data = response.data.map((item: any) => ({
                 ...item,
                 property_status: item.property_id ? 'draft' : null
             }));
-            setMappings(data);
+
+            const total = Number(response.headers?.['x-total-count'] ?? data.length);
+            const hasMoreHeader = String(response.headers?.['x-has-more'] ?? '').toLowerCase() === 'true';
+            const hasMoreFallback = data.length >= 500;
+
+            if (append) {
+                const existingIds = new Set(mappings.map((m) => m.id));
+                const incomingUnique = data.filter((item: Mapping) => !existingIds.has(item.id));
+                const merged = [...mappings, ...incomingUnique];
+                setMappings(merged);
+                setHasMore((hasMoreHeader || hasMoreFallback || merged.length < total) && incomingUnique.length > 0);
+            } else {
+                setMappings(data);
+                setHasMore(hasMoreHeader || hasMoreFallback || data.length < total);
+            }
+
+            setTotalCount(total);
+            setBatchPage(nextPage);
         } catch (err: any) {
             console.error('Failed to fetch mappings:', err);
             setError(err.response?.data?.message || 'Failed to load mappings');
         } finally {
-            setLoading(false);
+            if (append) {
+                setLoadingMore(false);
+            } else {
+                setLoading(false);
+            }
         }
-    }, []);
+    }, [batchPage, mappings]);
 
     useEffect(() => {
         fetchMappings();
@@ -1657,8 +1696,13 @@ function MappingsList({ onSelectMapping: _onSelectMapping, onRefresh, onCreatePr
     }, [mappings, searchQuery]);
 
     const handleRefresh = () => {
-        fetchMappings();
+        fetchMappings({ append: false });
         onRefresh?.();
+    };
+
+    const handleLoadMore = () => {
+        if (loadingMore || !hasMore) return;
+        fetchMappings({ append: true });
     };
 
     if (loading) {
@@ -1676,7 +1720,7 @@ function MappingsList({ onSelectMapping: _onSelectMapping, onRefresh, onCreatePr
                 <div>
                     <h3 className="text-lg font-semibold">My Mappings</h3>
                     <p className="text-xs text-gray-500 mt-1">
-                        {filteredMappings.length} parcels mapped
+                        Showing {mappings.length}{totalCount > 0 ? ` of ${totalCount}` : ''} parcels
                     </p>
                 </div>
                 <div className="flex gap-2">
@@ -1925,6 +1969,22 @@ function MappingsList({ onSelectMapping: _onSelectMapping, onRefresh, onCreatePr
                         )}
                     </tbody>
                 </table>
+            </div>
+
+            <div className="p-3 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between gap-3">
+                <p className="text-xs text-gray-500">
+                    {hasMore ? 'More parcels available to load.' : 'All available parcels are loaded.'}
+                </p>
+                {hasMore && (
+                    <button
+                        onClick={handleLoadMore}
+                        disabled={loadingMore}
+                        className="px-3 py-2 rounded-lg bg-primary text-white text-xs hover:bg-primary/90 disabled:opacity-60 flex items-center gap-2"
+                    >
+                        {loadingMore ? <Loader2 size={13} className="animate-spin" /> : null}
+                        {loadingMore ? 'Loading...' : 'Load more parcels'}
+                    </button>
+                )}
             </div>
         </div>
     );
