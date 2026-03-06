@@ -35,6 +35,15 @@ import {
   UserCog,
   Film,
   Globe2,
+  ChevronLeft,
+  ChevronRight,
+  SlidersHorizontal,
+  Hospital,
+  GraduationCap,
+  Landmark,
+  Store,
+  Sparkles,
+  Search,
 } from 'lucide-react';
 import {
   MapContainer,
@@ -47,12 +56,12 @@ import {
   ZoomControl,
   ScaleControl,
   useMapEvents,
+  Popup,
 } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import api from '../../instance/mainAxios';
 import { parse } from 'wellknown';
-import * as turf from '@turf/turf';
 import SimpleAiChatbot from '../ml/Chatbot';
 
 // Fix for default markers
@@ -232,6 +241,7 @@ interface CombinedPropertyData {
 
 interface StepOneProps {
   onVerify: (file: File) => Promise<void>;
+  onViewMap: () => void;
   isVerifying: boolean;
   verificationResult: VerificationResult | null;
   onReset: () => void;
@@ -251,6 +261,14 @@ interface StepTwoProps {
   chatHighlightUPI?: string | null;
   /** UPI coming from the chatbot chip click — triggers zoom + opens the DetailPopup */
   chatDetailUPI?: string | null;
+  onAddOrUpdateParcel: (parcel: ParcelData) => void;
+  onApplyServerFilters: (filters: ParcelFetchFilters) => Promise<void>;
+  activeServerFilters: ParcelFetchFilters;
+  loadedFromDbCount: number;
+  totalParcelsCount: number;
+  dbForSaleCount: number;
+  dbOverlapCount: number;
+  isFiltering: boolean;
 }
 
 interface VerificationResult {
@@ -263,6 +281,30 @@ interface VerificationResult {
 interface StoredVerification {
   upi: string;
   timestamp: number;
+}
+
+interface StoredVerifiedParcel {
+  upi: string;
+  parcel: ParcelData;
+  timestamp: number;
+}
+
+interface ParcelFetchFilters {
+  province?: string;
+  district?: string;
+  sector?: string;
+  sale_status?: 'for_sale' | 'not_for_sale';
+}
+
+const PROVINCE_OPTIONS = ['Kigali City', 'Eastern', 'Western', 'Northern', 'Southern'];
+
+type PoiCategory = 'hospitals' | 'schools' | 'banks' | 'markets';
+
+interface PoiData {
+  id: string;
+  name: string;
+  category: PoiCategory;
+  position: [number, number];
 }
 
 interface AppState {
@@ -297,6 +339,62 @@ function formatPrice(price?: number | null): string {
     return `${(price / 1000).toFixed(0)}K RWF`;
   }
   return `${price.toLocaleString()} RWF`;
+}
+
+function getParcelColor(parcel: ParcelData, isVerified: boolean): string {
+  if (isVerified) return '#395d91';
+  if (parcel.hasOverlap) return '#EF4444';
+  if (parcel.forSale === true) return '#10B981';
+  if (parcel.forSale === false) return '#991B1B';
+  return '#F97316';
+}
+
+function toParcelFromMapping(mapping: any, verified = false): ParcelData | null {
+  const polygonWkt = mapping?.official_registry_polygon;
+  if (!polygonWkt) return null;
+  const geo = parse(polygonWkt);
+  if (!geo) return null;
+
+  let coordinates: any[] = [];
+  if (geo.type === 'Polygon' && 'coordinates' in geo) {
+    coordinates = geo.coordinates[0];
+  } else if (geo.type === 'MultiPolygon' && 'coordinates' in geo) {
+    coordinates = geo.coordinates[0][0];
+  } else {
+    return null;
+  }
+
+  const positions: [number, number][] = coordinates.map((coord: [number, number]) => [coord[1], coord[0]]);
+  const parcel: ParcelData = {
+    id: mapping.id,
+    upi: mapping.upi,
+    positions,
+    center: getCenter(positions),
+    color: '#F97316',
+    isVerified: verified,
+    hasOverlap: Boolean(mapping.overlaps),
+    overlapsWith: [],
+    district: mapping.district,
+    sector: mapping.sector,
+    cell: mapping.cell,
+    village: mapping.village,
+    province: mapping.province,
+    area: mapping.parcel_area_sqm || mapping.area,
+    forSale: mapping.for_sale ?? mapping.forSale ?? false,
+    price: mapping.price ?? null,
+    property_id: mapping.property_id ?? null,
+    land_use_type: mapping.land_use_type,
+    planned_land_use: mapping.planned_land_use,
+    tenure_type: mapping.tenure_type,
+    remaining_lease_term: mapping.remaining_lease_term,
+    under_mortgage: mapping.under_mortgage,
+    has_caveat: mapping.has_caveat,
+    in_transaction: mapping.in_transaction,
+    year_of_record: mapping.year_of_record,
+    full_address: mapping.full_address,
+  };
+  parcel.color = getParcelColor(parcel, verified);
+  return parcel;
 }
 
 function getCenter(coords: [number, number][]): [number, number] {
@@ -379,12 +477,6 @@ function ZoomToParcel({ parcel, shouldZoom }: { parcel: ParcelData; shouldZoom: 
    AREA LABEL COMPONENT
 ========================= */
 function AreaLabel({ parcel }: { parcel: ParcelData }) {
-  const map = useMap();
-  const zoom = map.getZoom();
-
-  // Only show label at zoom level 15 and above
-  if (zoom < 15) return null;
-
   const areaText = formatArea(parcel.area);
 
   return (
@@ -898,15 +990,15 @@ function DetailPopup({ parcel, onClose, combinedData, loading }: DetailPopupProp
 /* =========================
    POLYGON WITH LABEL
 ========================= */
-function ParcelPolygon({ parcel, isSelected, onClick }: { parcel: ParcelData; isSelected: boolean; onClick: () => void }) {
+function ParcelPolygon({ parcel, isSelected, isCompared, onClick }: { parcel: ParcelData; isSelected: boolean; isCompared: boolean; onClick: () => void }) {
   const [hovered, setHovered] = useState(false);
 
   const getPathOptions = () => {
     const baseOptions: L.PathOptions = {
       color: parcel.color,
-      weight: isSelected ? 4 : hovered ? 3 : 2,
+      weight: isSelected ? 4 : isCompared ? 4 : hovered ? 3 : 2,
       fillColor: parcel.color,
-      fillOpacity: isSelected ? 0.4 : hovered ? 0.25 : 0.15,
+      fillOpacity: isSelected ? 0.4 : isCompared ? 0.3 : hovered ? 0.25 : 0.15,
     };
 
     if (!parcel.isVerified && parcel.forSale === false) {
@@ -944,8 +1036,8 @@ function ParcelPolygon({ parcel, isSelected, onClick }: { parcel: ParcelData; is
           mouseout: (e) => {
             setHovered(false);
             e.target.setStyle({
-              weight: isSelected ? 4 : 2,
-              fillOpacity: isSelected ? 0.4 : 0.15,
+              weight: isSelected ? 4 : isCompared ? 4 : 2,
+              fillOpacity: isSelected ? 0.4 : isCompared ? 0.3 : 0.15,
             });
           },
         }}
@@ -1024,7 +1116,7 @@ function ParcelPolygon({ parcel, isSelected, onClick }: { parcel: ParcelData; is
 /* =========================
    STEP 1: UPLOAD PAGE
 ========================= */
-function StepOne({ onVerify, isVerifying, verificationResult }: StepOneProps) {
+function StepOne({ onVerify, onViewMap, isVerifying, verificationResult }: StepOneProps) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1076,6 +1168,22 @@ function StepOne({ onVerify, isVerifying, verificationResult }: StepOneProps) {
         </div>
 
         <div className="p-8">
+          <div className="mb-6 bg-gray-100 dark:bg-gray-800 rounded-lg p-1 grid grid-cols-2 gap-1">
+            <button
+              type="button"
+              className="rounded-md px-3 py-2 text-sm font-medium bg-primary text-white"
+            >
+              Upload & Verify
+            </button>
+            <button
+              type="button"
+              onClick={onViewMap}
+              className="rounded-md px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-white dark:hover:bg-gray-700"
+            >
+              View Map
+            </button>
+          </div>
+
           <div className="mb-8 bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 border border-blue-200 dark:border-blue-800">
             <h2 className="text-lg font-semibold text-primary mb-3 flex items-center gap-2">
               <Shield size={20} />
@@ -1223,6 +1331,14 @@ function StepTwo({
   onRefreshParcels,
   chatHighlightUPI,
   chatDetailUPI,
+  onAddOrUpdateParcel,
+  onApplyServerFilters,
+  activeServerFilters,
+  loadedFromDbCount,
+  totalParcelsCount,
+  dbForSaleCount,
+  dbOverlapCount,
+  isFiltering,
 }: StepTwoProps) {
   const [selectedParcel, setSelectedParcel] = useState<ParcelData | null>(null);
   const [mapStyle, setMapStyle] = useState<'streets' | 'satellite' | 'dark'>('streets');
@@ -1232,22 +1348,157 @@ function StepTwo({
   const [combinedData, setCombinedData] = useState<CombinedPropertyData | null>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [selectedProvince, setSelectedProvince] = useState<string>(activeServerFilters.province || 'all');
+  const [selectedDistrict, setSelectedDistrict] = useState<string>(activeServerFilters.district || 'all');
+  const [selectedSector, setSelectedSector] = useState<string>(activeServerFilters.sector || 'all');
+  const [saleStatusFilter, setSaleStatusFilter] = useState<'all' | 'for_sale' | 'not_for_sale'>('all');
+  const [compareMode, setCompareMode] = useState(false);
+  const [compareUpis, setCompareUpis] = useState<string[]>([]);
+  const [fetchUpi, setFetchUpi] = useState('');
+  const [fetchingUpi, setFetchingUpi] = useState(false);
+  const [fetchUpiError, setFetchUpiError] = useState<string | null>(null);
+  const [poiData, setPoiData] = useState<PoiData[]>([]);
+  const [loadingPoi, setLoadingPoi] = useState(false);
+  const [poiVisibility, setPoiVisibility] = useState<Record<PoiCategory, boolean>>({
+    hospitals: true,
+    schools: false,
+    banks: false,
+    markets: false,
+  });
   const [mapCenter] = useState<[number, number]>([-1.9403, 29.8739]);
+  const defaultLocationAppliedRef = useRef<string | null>(null);
+
+  const distanceMeters = useCallback((a: [number, number], b: [number, number]) => {
+    const toRad = (v: number) => (v * Math.PI) / 180;
+    const earthRadius = 6371000;
+    const lat1 = toRad(a[0]);
+    const lat2 = toRad(b[0]);
+    const deltaLat = toRad(b[0] - a[0]);
+    const deltaLon = toRad(b[1] - a[1]);
+    const havA = Math.sin(deltaLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLon / 2) ** 2;
+    return 2 * earthRadius * Math.atan2(Math.sqrt(havA), Math.sqrt(1 - havA));
+  }, []);
+
+  const formatDistance = useCallback((meters?: number | null) => {
+    if (!meters || !Number.isFinite(meters)) return 'N/A';
+    if (meters < 1000) return `${Math.round(meters)} m`;
+    return `${(meters / 1000).toFixed(2)} km`;
+  }, []);
+
+  const getParcelFacilityContext = useCallback((parcel: ParcelData) => {
+    if (!parcel || poiData.length === 0) return null;
+
+    const nearbyCounts: Record<PoiCategory, number> = {
+      hospitals: 0,
+      schools: 0,
+      banks: 0,
+      markets: 0,
+    };
+    const nearestByCategory: Record<PoiCategory, number | null> = {
+      hospitals: null,
+      schools: null,
+      banks: null,
+      markets: null,
+    };
+
+    let nearestPoi: PoiData | null = null;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+
+    for (const poi of poiData) {
+      const d = distanceMeters(parcel.center, poi.position);
+
+      if (d < nearestDistance) {
+        nearestDistance = d;
+        nearestPoi = poi;
+      }
+
+      if (nearestByCategory[poi.category] === null || d < (nearestByCategory[poi.category] as number)) {
+        nearestByCategory[poi.category] = d;
+      }
+
+      if (d <= 1000) {
+        nearbyCounts[poi.category] += 1;
+      }
+    }
+
+    const landUse = (parcel.land_use_type || '').toLowerCase();
+    let influenceScore = 0;
+    if (landUse.includes('residential') || landUse.includes('housing')) {
+      influenceScore = (nearbyCounts.schools * 2) + (nearbyCounts.hospitals * 2) + nearbyCounts.markets + nearbyCounts.banks;
+    } else if (landUse.includes('commercial') || landUse.includes('business')) {
+      influenceScore = (nearbyCounts.markets * 2) + (nearbyCounts.banks * 2) + nearbyCounts.schools + nearbyCounts.hospitals;
+    } else if (landUse.includes('agric')) {
+      influenceScore = (nearbyCounts.markets * 2) + nearbyCounts.hospitals + nearbyCounts.schools;
+    } else {
+      influenceScore = nearbyCounts.hospitals + nearbyCounts.schools + nearbyCounts.banks + nearbyCounts.markets;
+    }
+
+    const influenceLabel = influenceScore >= 8 ? 'High' : influenceScore >= 4 ? 'Medium' : 'Low';
+
+    return {
+      nearestPoi,
+      nearestDistance: Number.isFinite(nearestDistance) ? nearestDistance : null,
+      nearestByCategory,
+      nearbyCounts,
+      influenceScore,
+      influenceLabel,
+    };
+  }, [poiData, distanceMeters]);
 
   const verifiedParcel = useMemo(() =>
     parcels.find(p => p.upi === verifiedUPI),
     [parcels, verifiedUPI]
   );
 
-  const displayedParcels = useMemo(() => {
-    if (viewMode === 'all') return parcels;
+  const provinceOptions = PROVINCE_OPTIONS;
 
-    if (!filterAvailable) return parcels;
-    return parcels.filter(p =>
-      p.isVerified || // Always show verified parcels
-      p.forSale === true // Show only parcels for sale
-    );
+  const districtOptions = useMemo(() => {
+    const source = selectedProvince === 'all'
+      ? parcels
+      : parcels.filter((p) => p.province === selectedProvince);
+    const districts = Array.from(new Set(source.map((p) => p.district).filter(Boolean) as string[]));
+    return districts.sort((a, b) => a.localeCompare(b));
+  }, [parcels, selectedProvince]);
+
+  const sectorOptions = useMemo(() => {
+    let source = selectedProvince === 'all'
+      ? parcels
+      : parcels.filter((p) => p.province === selectedProvince);
+    if (selectedDistrict !== 'all') {
+      source = source.filter((p) => (p.district || '').toLowerCase() === selectedDistrict.toLowerCase());
+    }
+    const sectors = Array.from(new Set(source.map((p) => p.sector).filter(Boolean) as string[]));
+    return sectors.sort((a, b) => a.localeCompare(b));
+  }, [parcels, selectedProvince, selectedDistrict]);
+
+  const displayedParcels = useMemo(() => {
+    let filtered = [...parcels];
+
+    if (viewMode !== 'all' && filterAvailable) {
+      filtered = filtered.filter((p) => p.isVerified || p.forSale === true);
+    }
+
+    return filtered;
   }, [parcels, filterAvailable, viewMode]);
+
+  const compareParcels = useMemo(
+    () => parcels.filter((p) => compareUpis.includes(p.upi)),
+    [parcels, compareUpis]
+  );
+
+  const selectedParcelFacilityContext = useMemo(
+    () => (selectedParcel ? getParcelFacilityContext(selectedParcel) : null),
+    [selectedParcel, getParcelFacilityContext]
+  );
+
+  const compareFacilityContexts = useMemo(() => {
+    const entries: Record<string, ReturnType<typeof getParcelFacilityContext>> = {};
+    compareParcels.forEach((parcel) => {
+      entries[parcel.upi] = getParcelFacilityContext(parcel);
+    });
+    return entries;
+  }, [compareParcels, getParcelFacilityContext]);
 
   // Auto-zoom to verified parcel when map loads
   useEffect(() => {
@@ -1266,7 +1517,39 @@ function StepTwo({
     }
   }, [chatHighlightUPI, parcels]);
 
+  useEffect(() => {
+    if (!verifiedParcel || viewMode === 'all') return;
+    if (defaultLocationAppliedRef.current === verifiedParcel.upi) return;
+
+    setSelectedProvince(verifiedParcel.province || 'all');
+    setSelectedDistrict(verifiedParcel.district || 'all');
+    setSelectedSector(verifiedParcel.sector || 'all');
+    setSaleStatusFilter('all');
+    defaultLocationAppliedRef.current = verifiedParcel.upi;
+  }, [verifiedParcel, viewMode]);
+
+  useEffect(() => {
+    if (displayedParcels.length > 0) {
+      setSelectedParcel(displayedParcels[0]);
+      setAutoZoom(true);
+    }
+  }, [displayedParcels]);
+
+  useEffect(() => {
+    const filters: ParcelFetchFilters = {
+      province: selectedProvince !== 'all' ? selectedProvince : undefined,
+      district: selectedDistrict !== 'all' ? selectedDistrict : undefined,
+      sector: selectedSector !== 'all' ? selectedSector : undefined,
+      sale_status: saleStatusFilter !== 'all' ? saleStatusFilter : undefined,
+    };
+    onApplyServerFilters(filters);
+  }, [selectedProvince, selectedDistrict, selectedSector, saleStatusFilter, onApplyServerFilters]);
+
   const handleParcelClick = async (parcel: ParcelData) => {
+    if (compareMode) {
+      toggleCompareParcel(parcel);
+    }
+
     // Only open popup if parcel is for sale or is verified
     if (!parcel.forSale && !parcel.isVerified) {
       // Close any currently open popup first, then show the "not available" banner
@@ -1368,6 +1651,128 @@ function StepTwo({
     setRefreshing(false);
   };
 
+  const toggleCompareParcel = useCallback((parcel: ParcelData) => {
+    setCompareUpis((prev) => {
+      if (prev.includes(parcel.upi)) {
+        return prev.filter((upi) => upi !== parcel.upi);
+      }
+      return [...prev, parcel.upi];
+    });
+  }, []);
+
+  const scoreParcel = useCallback((parcel: ParcelData) => {
+    let score = 50;
+    if (parcel.forSale) score += 15;
+    if (!parcel.hasOverlap) score += 20;
+    if (!parcel.under_mortgage) score += 8;
+    if (!parcel.has_caveat) score += 8;
+    if (!parcel.in_transaction) score += 6;
+    if (parcel.area && parcel.area > 400) score += 8;
+    if (parcel.price && parcel.area && parcel.area > 0) {
+      const pricePerSqm = parcel.price / parcel.area;
+      if (pricePerSqm < 150000) score += 8;
+      if (pricePerSqm > 400000) score -= 6;
+    }
+    if (!parcel.forSale) score -= 8;
+    return Math.max(0, Math.min(100, score));
+  }, []);
+
+  const bestComparedParcel = useMemo(() => {
+    if (compareParcels.length < 2) return null;
+    const ranked = compareParcels
+      .map((parcel) => ({ parcel, score: scoreParcel(parcel) }))
+      .sort((a, b) => b.score - a.score);
+    return ranked[0];
+  }, [compareParcels, scoreParcel]);
+
+  const fetchParcelByUpi = useCallback(async () => {
+    const upi = fetchUpi.trim();
+    if (!upi) return;
+    setFetchingUpi(true);
+    setFetchUpiError(null);
+    try {
+      const res = await api.get(`/api/mappings/stats/by-upi/${encodeURIComponent(upi)}`);
+      const mapping = res?.data?.mapping;
+      const parcel = toParcelFromMapping(mapping, false);
+      if (!parcel) {
+        setFetchUpiError('Parcel found but polygon is missing.');
+        return;
+      }
+      onAddOrUpdateParcel(parcel);
+      setSelectedParcel(parcel);
+      setAutoZoom(true);
+      setFetchUpi('');
+    } catch (error: any) {
+      setFetchUpiError(error?.response?.data?.detail || 'Failed to fetch parcel by UPI.');
+    } finally {
+      setFetchingUpi(false);
+    }
+  }, [fetchUpi, onAddOrUpdateParcel]);
+
+  useEffect(() => {
+    const loadPoiData = async () => {
+      if (displayedParcels.length === 0) {
+        setPoiData([]);
+        return;
+      }
+
+      const coords = displayedParcels.flatMap((parcel) => parcel.positions);
+      const lats = coords.map((c) => c[0]);
+      const lngs = coords.map((c) => c[1]);
+      const south = Math.min(...lats);
+      const north = Math.max(...lats);
+      const west = Math.min(...lngs);
+      const east = Math.max(...lngs);
+
+      const overpassQuery = `
+        [out:json][timeout:25];
+        (
+          node["amenity"~"hospital|clinic"](${south},${west},${north},${east});
+          node["amenity"="school"](${south},${west},${north},${east});
+          node["amenity"="bank"](${south},${west},${north},${east});
+          node["shop"="supermarket"](${south},${west},${north},${east});
+        );
+        out body;
+      `;
+
+      setLoadingPoi(true);
+      try {
+        const response = await fetch('https://overpass-api.de/api/interpreter', {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain' },
+          body: overpassQuery,
+        });
+        const json = await response.json();
+        const elements = (json?.elements || []) as any[];
+
+        const points: PoiData[] = elements
+          .filter((el) => typeof el.lat === 'number' && typeof el.lon === 'number')
+          .map((el) => {
+            let category: PoiCategory = 'markets';
+            if (['hospital', 'clinic'].includes(el?.tags?.amenity)) category = 'hospitals';
+            else if (el?.tags?.amenity === 'school') category = 'schools';
+            else if (el?.tags?.amenity === 'bank') category = 'banks';
+
+            return {
+              id: `${el.type}-${el.id}`,
+              name: el?.tags?.name || 'Unnamed place',
+              category,
+              position: [el.lat, el.lon],
+            };
+          });
+
+        setPoiData(points);
+      } catch (error) {
+        console.warn('Failed to load POI details layer:', error);
+        setPoiData([]);
+      } finally {
+        setLoadingPoi(false);
+      }
+    };
+
+    loadPoiData();
+  }, [displayedParcels]);
+
   const getTileLayer = () => {
     switch (mapStyle) {
       case 'satellite':
@@ -1379,13 +1784,28 @@ function StepTwo({
     }
   };
 
+  const getPoiIcon = (category: PoiCategory) => {
+    const colorMap: Record<PoiCategory, string> = {
+      hospitals: '#DC2626',
+      schools: '#2563EB',
+      banks: '#7C3AED',
+      markets: '#059669',
+    };
+    return L.divIcon({
+      html: `<div style="width:10px;height:10px;border-radius:999px;background:${colorMap[category]};border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,0.35);"></div>`,
+      className: 'poi-marker-dot',
+      iconSize: [10, 10],
+      iconAnchor: [5, 5],
+    });
+  };
+
   const stats = {
-    total: parcels.length,
-    verified: parcels.filter(p => p.isVerified).length,
-    overlapping: parcels.filter(p => p.hasOverlap).length,
-    forSale: parcels.filter(p => p.forSale === true).length,
-    notForSale: parcels.filter(p => p.forSale === false).length,
-    district: parcels[0]?.district || 'Unknown',
+    total: totalParcelsCount,
+    verified: displayedParcels.filter(p => p.isVerified).length,
+    overlapping: dbOverlapCount,
+    forSale: dbForSaleCount,
+    notForSale: Math.max(totalParcelsCount - dbForSaleCount, 0),
+    district: displayedParcels[0]?.district || 'Unknown',
   };
 
   return (
@@ -1470,7 +1890,7 @@ function StepTwo({
             <div className="bg-white/90 backdrop-blur rounded-lg px-4 py-2 flex gap-4 shadow-lg text-foreground">
               <div className="text-sm">
                 <span className="text-gray-600 dark:text-gray-400">Parcels:</span>
-                <span className="font-semibold ml-1">{stats.total}</span>
+                <span className="font-semibold ml-1">{loadedFromDbCount}</span>
               </div>
               <div className="text-sm">
                 <span className="text-gray-600 dark:text-gray-400">For Sale:</span>
@@ -1484,6 +1904,230 @@ function StepTwo({
           </div>
         </div>
       </div>
+
+      <button
+        onClick={() => setSidebarOpen((prev) => !prev)}
+        className="absolute top-24 left-4 z-[1200] bg-white dark:bg-gray-800 rounded-lg shadow-lg p-2 hover:bg-gray-100 dark:hover:bg-gray-700"
+        title={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
+      >
+        {sidebarOpen ? <ChevronLeft size={18} /> : <ChevronRight size={18} />}
+      </button>
+
+      <AnimatePresence>
+        {sidebarOpen && (
+          <motion.div
+            initial={{ x: -20, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: -20, opacity: 0 }}
+            className="absolute top-36 left-4 z-[1200] w-90 max-h-[70vh] overflow-y-auto bg-white/95 dark:bg-gray-900/95 backdrop-blur rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 p-4"
+          >
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold flex items-center gap-2">
+                <SlidersHorizontal size={16} />
+                Parcel Controls
+              </h3>
+              <button
+                onClick={() => setCompareMode((prev) => !prev)}
+                className={`text-xs px-2 py-1 rounded-md ${compareMode ? 'bg-primary text-white' : 'bg-gray-100 dark:bg-gray-800'}`}
+              >
+                {compareMode ? 'Compare: ON' : 'Compare: OFF'}
+              </button>
+            </div>
+
+            <div className="space-y-3 mb-4">
+              {isFiltering && (
+                <div className="flex items-center gap-2 text-xs text-primary bg-primary/10 rounded-md px-2 py-1.5 border border-primary/20">
+                  <Loader2 size={12} className="animate-spin" />
+                  Applying filters...
+                </div>
+              )}
+              <div>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Province</label>
+                <select
+                  disabled={isFiltering}
+                  value={selectedProvince}
+                  onChange={(e) => {
+                    setSelectedProvince(e.target.value);
+                    setSelectedDistrict('all');
+                    setSelectedSector('all');
+                  }}
+                  className="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm"
+                >
+                  <option value="all">All provinces</option>
+                  {provinceOptions.map((province) => (
+                    <option key={province} value={province}>{province}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">District</label>
+                <select
+                  disabled={isFiltering}
+                  value={selectedDistrict}
+                  onChange={(e) => {
+                    setSelectedDistrict(e.target.value);
+                    setSelectedSector('all');
+                  }}
+                  className="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm"
+                >
+                  <option value="all">All districts</option>
+                  {districtOptions.map((district) => (
+                    <option key={district} value={district}>{district}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Sector</label>
+                <select
+                  disabled={isFiltering}
+                  value={selectedSector}
+                  onChange={(e) => setSelectedSector(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm"
+                >
+                  <option value="all">All sectors</option>
+                  {sectorOptions.map((sector) => (
+                    <option key={sector} value={sector}>{sector}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Sale Status</label>
+                <select
+                  disabled={isFiltering}
+                  value={saleStatusFilter}
+                  onChange={(e) => setSaleStatusFilter(e.target.value as 'all' | 'for_sale' | 'not_for_sale')}
+                  className="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm"
+                >
+                  <option value="all">All parcels</option>
+                  <option value="for_sale">For sale</option>
+                  <option value="not_for_sale">Not for sale</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="mb-4 rounded-lg border border-gray-200 dark:border-gray-700 p-3">
+              <div className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                Total parcels loaded: {loadedFromDbCount}
+              </div>
+              <div className="text-xs text-green-700 dark:text-green-400">All parcels loaded</div>
+            </div>
+
+            <div className="mb-4">
+              <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Fetch parcel by UPI</label>
+              <div className="flex gap-2">
+                <input
+                  value={fetchUpi}
+                  onChange={(e) => setFetchUpi(e.target.value)}
+                  placeholder="ex: 3/01/02/03/1234"
+                  className="flex-1 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm"
+                />
+                <button
+                  onClick={fetchParcelByUpi}
+                  disabled={fetchingUpi || !fetchUpi.trim()}
+                  className="px-3 py-2 rounded-lg bg-primary text-white disabled:opacity-60"
+                >
+                  {fetchingUpi ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
+                </button>
+              </div>
+              {fetchUpiError && <p className="text-xs text-red-600 mt-1">{fetchUpiError}</p>}
+            </div>
+
+            <div className="mb-4">
+              <div className="text-xs text-gray-500 dark:text-gray-400 mb-2">Map details layers</div>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                {([
+                  ['hospitals', 'Hospitals', Hospital],
+                  ['schools', 'Schools', GraduationCap],
+                  ['banks', 'Banks', Landmark],
+                  ['markets', 'Markets', Store],
+                ] as [PoiCategory, string, React.ComponentType<any>][]).map(([key, label, Icon]) => (
+                  <button
+                    key={key}
+                    onClick={() => setPoiVisibility((prev) => ({ ...prev, [key]: !prev[key] }))}
+                    className={`rounded-md px-2 py-1.5 border text-left flex items-center gap-2 ${poiVisibility[key] ? 'border-primary bg-primary/10 text-primary' : 'border-gray-300 dark:border-gray-700'}`}
+                  >
+                    <Icon size={13} />
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {loadingPoi && <p className="text-[11px] text-gray-500 mt-1">Loading places…</p>}
+            </div>
+
+            {selectedParcel && (
+              <div className="mb-4 rounded-lg border border-gray-200 dark:border-gray-700 p-3">
+                <h4 className="text-xs font-semibold uppercase text-gray-500 mb-2">Selected Plot Context</h4>
+                <p className="text-xs font-medium mb-2">{selectedParcel.upi}</p>
+
+                {selectedParcelFacilityContext?.nearestPoi ? (
+                  <>
+                    <p className="text-xs text-gray-600 dark:text-gray-300">
+                      Nearest facility: <span className="font-medium">{selectedParcelFacilityContext.nearestPoi.name}</span>
+                      {' '}({selectedParcelFacilityContext.nearestPoi.category}) • {formatDistance(selectedParcelFacilityContext.nearestDistance)}
+                    </p>
+                    <p className="text-xs text-gray-600 dark:text-gray-300 mt-1">
+                      Surroundings (≤1km): H {selectedParcelFacilityContext.nearbyCounts.hospitals}, S {selectedParcelFacilityContext.nearbyCounts.schools}, B {selectedParcelFacilityContext.nearbyCounts.banks}, M {selectedParcelFacilityContext.nearbyCounts.markets}
+                    </p>
+                    <p className="text-xs mt-1 text-primary">
+                      Land-use influence: {selectedParcelFacilityContext.influenceLabel} ({selectedParcelFacilityContext.influenceScore})
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-xs text-gray-500">No nearby facilities detected for distance analysis yet.</p>
+                )}
+              </div>
+            )}
+
+            <div className="border-t border-gray-200 dark:border-gray-700 pt-3">
+              <h4 className="text-xs font-semibold uppercase text-gray-500 mb-2">Compare Parcels ({compareParcels.length})</h4>
+              <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                {compareParcels.length === 0 && (
+                  <p className="text-xs text-gray-500">Turn compare on, then click parcels on the map.</p>
+                )}
+                {compareParcels.map((parcel) => (
+                  <div key={parcel.upi} className="rounded-md border border-gray-200 dark:border-gray-700 p-2 text-xs flex justify-between items-center">
+                    <div>
+                      <div className="font-medium">{parcel.upi}</div>
+                      <div className="text-gray-500">{parcel.district || 'Unknown'} • Score {scoreParcel(parcel)}/100</div>
+                      {compareFacilityContexts[parcel.upi]?.nearestPoi && (
+                        <div className="text-gray-500">
+                          Nearest: {compareFacilityContexts[parcel.upi]?.nearestPoi?.category} • {formatDistance(compareFacilityContexts[parcel.upi]?.nearestDistance || null)}
+                        </div>
+                      )}
+                      {compareFacilityContexts[parcel.upi] && (
+                        <div className="text-primary">
+                          Influence: {compareFacilityContexts[parcel.upi]?.influenceLabel} ({compareFacilityContexts[parcel.upi]?.influenceScore})
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      className="text-red-600 hover:text-red-700"
+                      onClick={() => toggleCompareParcel(parcel)}
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              {bestComparedParcel && (
+                <div className="mt-3 rounded-lg bg-primary/10 border border-primary/20 p-3">
+                  <div className="text-xs font-semibold text-primary flex items-center gap-1 mb-1">
+                    <Sparkles size={12} /> AI Recommendation
+                  </div>
+                  <div className="text-sm font-medium">{bestComparedParcel.parcel.upi}</div>
+                  <p className="text-xs text-gray-600 dark:text-gray-300 mt-1">
+                    Best score ({bestComparedParcel.score}/100) based on overlap risk, legal status, sale readiness, and price-to-area value.
+                  </p>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Map Controls */}
       <div className="absolute top-24 right-4 z-[1000] flex flex-col gap-2 pointer-events-auto">
@@ -1606,9 +2250,23 @@ function StepTwo({
             key={parcel.upi}
             parcel={parcel}
             isSelected={selectedParcel?.upi === parcel.upi}
+            isCompared={compareUpis.includes(parcel.upi)}
             onClick={() => handleParcelClick(parcel)}
           />
         ))}
+
+        {poiData
+          .filter((poi) => poiVisibility[poi.category])
+          .map((poi) => (
+            <Marker key={poi.id} position={poi.position} icon={getPoiIcon(poi.category)}>
+              <Popup>
+                <div className="text-xs">
+                  <div className="font-semibold">{poi.name}</div>
+                  <div className="capitalize text-gray-500">{poi.category}</div>
+                </div>
+              </Popup>
+            </Marker>
+          ))}
 
         <ZoomControl position="bottomright" />
         <ScaleControl position="bottomleft" metric={true} imperial={false} />
@@ -1674,15 +2332,40 @@ export default function ParcelVerificationFlow() {
   const [isVerifying, setIsVerifying] = useState(false);
   const [verificationResult, setVerificationResult] = useState<VerificationResult | null>(null);
   const [filterAvailable, setFilterAvailable] = useState(false);
-  const [viewMode, setViewMode] = useState<'district' | 'all'>('district');
+  const [viewMode, setViewMode] = useState<'district' | 'all'>('all');
   /** UPI set by the chatbot — consumed by StepTwo to auto-zoom the map */
   const [chatHighlightUPI, setChatHighlightUPI] = useState<string | null>(null);
   /** UPI set when user clicks a parcel chip — consumed by StepTwo to open the DetailPopup */
   const [chatDetailUPI, setChatDetailUPI] = useState<string | null>(null);
   const [initialLoading, setInitialLoading] = useState(true);
+  const [activeServerFilters, setActiveServerFilters] = useState<ParcelFetchFilters>({});
+  const [loadedFromDbCount, setLoadedFromDbCount] = useState(0);
+  const [totalParcelsCount, setTotalParcelsCount] = useState(0);
+  const [dbForSaleCount, setDbForSaleCount] = useState(0);
+  const [dbOverlapCount, setDbOverlapCount] = useState(0);
+  const [isFiltering, setIsFiltering] = useState(false);
+  const didInitRef = useRef(false);
+  const latestFilterRequestRef = useRef(0);
+  const inFlightParcelsFetchRef = useRef<{
+    key: string;
+    promise: Promise<{ items: ParcelData[]; total: number; forSaleCount: number; overlapCount: number }>;
+  } | null>(null);
+
+  const upsertParcel = useCallback((parcel: ParcelData) => {
+    setParcels((prev) => {
+      const exists = prev.some((p) => p.upi === parcel.upi);
+      if (exists) {
+        return prev.map((p) => (p.upi === parcel.upi ? { ...p, ...parcel, color: getParcelColor({ ...p, ...parcel }, parcel.isVerified) } : p));
+      }
+      return [...prev, { ...parcel, color: getParcelColor(parcel, parcel.isVerified) }];
+    });
+  }, []);
 
   // Load saved state from session storage on mount
   useEffect(() => {
+    if (didInitRef.current) return;
+    didInitRef.current = true;
+
     const loadSavedState = async () => {
       try {
         const savedState = sessionStorage.getItem('parcelVerificationState');
@@ -1698,21 +2381,27 @@ export default function ParcelVerificationFlow() {
 
             if (parsed.parcels.length > 0) {
               setParcels(parsed.parcels);
+              setLoadedFromDbCount(parsed.parcels.length);
+              setTotalParcelsCount(parsed.parcels.length);
             } else {
               // Fetch parcels if none in storage
-              await fetchAllParcelsAndUpdate();
+              setActiveServerFilters({});
+              await fetchAllParcelsAndUpdate({});
             }
           } else {
             // Expired, fetch fresh data
-            await fetchAllParcelsAndUpdate();
+            setActiveServerFilters({});
+            await fetchAllParcelsAndUpdate({});
           }
         } else {
           // No saved state, fetch fresh data
-          await fetchAllParcelsAndUpdate();
+          setActiveServerFilters({});
+          await fetchAllParcelsAndUpdate({});
         }
       } catch (error) {
         console.error('Failed to load saved state:', error);
-        await fetchAllParcelsAndUpdate();
+        setActiveServerFilters({});
+        await fetchAllParcelsAndUpdate({});
       } finally {
         setInitialLoading(false);
       }
@@ -1748,157 +2437,118 @@ export default function ParcelVerificationFlow() {
     }
   }, [verifiedUPI]);
 
+  const normalizeParcels = useCallback((rawMappings: any[], includeStoredRecords = false) => {
+    const parsed = rawMappings
+      .map((p: any) => toParcelFromMapping(p, false))
+      .filter(Boolean) as ParcelData[];
+
+    const storedVerifications: StoredVerification[] = JSON.parse(sessionStorage.getItem('verifiedParcels') || '[]');
+    const verifiedUPIs = new Set(storedVerifications.map(v => v.upi));
+    const merged = [...parsed];
+
+    if (includeStoredRecords) {
+      const storedVerifiedRecords: StoredVerifiedParcel[] = JSON.parse(sessionStorage.getItem('verifiedParcelRecords') || '[]');
+      storedVerifiedRecords.forEach((record) => {
+        if (!merged.some((p) => p.upi === record.upi)) {
+          merged.push({ ...record.parcel, isVerified: true, color: getParcelColor(record.parcel, true) });
+        }
+      });
+    }
+
+    return merged.map((p: ParcelData) => {
+      const isVerified = verifiedUPIs.has(p.upi) || p.isVerified;
+      return {
+        ...p,
+        isVerified,
+        color: getParcelColor(p, isVerified),
+      };
+    });
+  }, []);
+
   /* =========================
      FETCH ALL PARCELS
   ========================== */
-  const fetchAllParcels = useCallback(async () => {
+  const fetchAllParcels = useCallback(async (filters: ParcelFetchFilters = {}) => {
+    const requestKey = JSON.stringify(filters || {});
+    if (inFlightParcelsFetchRef.current?.key === requestKey) {
+      return inFlightParcelsFetchRef.current.promise;
+    }
+
+    const fetchPromise = (async () => {
     try {
-      const response = await api.get('/api/mappings/');
-      const allParcels = response.data;
-
-      const parsed = allParcels
-        .map((p: any) => {
-          try {
-            const geo = parse(p.official_registry_polygon);
-
-            if (!geo) {
-              return null;
-            }
-
-            let coordinates = [];
-            if (geo.type === 'Polygon' && 'coordinates' in geo) {
-              coordinates = geo.coordinates[0];
-            } else if (geo.type === 'MultiPolygon' && 'coordinates' in geo) {
-              coordinates = geo.coordinates[0][0];
-            } else {
-              return null;
-            }
-
-            const positions: [number, number][] = coordinates.map((coord: any) => {
-              const lng = coord[0];
-              const lat = coord[1];
-              return [lat, lng];
-            });
-
-            return {
-              id: p.id,
-              upi: p.upi,
-              positions,
-              center: getCenter(positions),
-              color: '#F97316', // Orange default
-              isVerified: false,
-              hasOverlap: p.overlaps || false,
-              overlapsWith: [],
-              district: p.district,
-              sector: p.sector,
-              cell: p.cell,
-              village: p.village,
-              province: p.province,
-              area: p.parcel_area_sqm || p.area,
-              forSale: p.for_sale || false,
-              price: p.price || null,
-              property_id: p.property_id,
-              land_use_type: p.land_use_type,
-              planned_land_use: p.planned_land_use,
-              tenure_type: p.tenure_type,
-              remaining_lease_term: p.remaining_lease_term,
-              under_mortgage: p.under_mortgage,
-              has_caveat: p.has_caveat,
-              in_transaction: p.in_transaction,
-              year_of_record: p.year_of_record,
-              full_address: p.full_address,
-            };
-          } catch (e) {
-            console.error('Failed to parse polygon for parcel', p.upi, e);
-            return null;
-          }
-        })
-        .filter(Boolean);
-
-      // Calculate overlaps if not provided by API
-      for (let i = 0; i < parsed.length; i++) {
-        for (let j = i + 1; j < parsed.length; j++) {
-          try {
-            const polyA = turf.polygon([parsed[i].positions.map(([lat, lng]: [number, number]) => [lng, lat])]);
-            const polyB = turf.polygon([parsed[j].positions.map(([lat, lng]: [number, number]) => [lng, lat])]);
-
-            if (turf.booleanIntersects(polyA, polyB)) {
-              const intersection = turf.intersect(turf.featureCollection([polyA, polyB]));
-              if (intersection) {
-                const overlapArea = turf.area(intersection);
-                const areaA = turf.area(polyA);
-                const areaB = turf.area(polyB);
-
-                if ((overlapArea / areaA) > 0.01 || (overlapArea / areaB) > 0.01) {
-                  parsed[i].hasOverlap = true;
-                  parsed[j].hasOverlap = true;
-                  parsed[i].overlapsWith.push(parsed[j].upi);
-                  parsed[j].overlapsWith.push(parsed[i].upi);
-                }
-              }
-            }
-          } catch (e) {
-            console.error('Error checking overlap:', e);
-          }
-        }
-      }
-
-      // Mark verified parcels from session storage
-      const storedVerifications: StoredVerification[] = JSON.parse(sessionStorage.getItem('verifiedParcels') || '[]');
-      const verifiedUPIs = new Set(storedVerifications.map(v => v.upi));
-
-      return parsed.map((p: ParcelData) => {
-        if (verifiedUPIs.has(p.upi)) {
-          return {
-            ...p,
-            color: '#395d91',
-            isVerified: true,
-          };
-        }
-
-        let color = '#F97316';
-        if (p.hasOverlap) {
-          color = '#EF4444';
-        } else if (p.forSale === true) {
-          color = '#10B981';
-        } else if (p.forSale === false) {
-          color = '#991B1B';
-        }
-
-        return {
-          ...p,
-          color,
-          isVerified: false,
-        };
+      const response = await api.get('/api/mappings/', {
+        params: { ...filters },
       });
+      const allParcels = Array.isArray(response.data) ? response.data : response.data?.items || [];
+
+      const total = Number(response.headers?.['x-total-count'] ?? allParcels.length ?? 0);
+      const hasServerFilters = Boolean(filters?.province || filters?.district || filters?.sector || filters?.sale_status);
+      const normalized = normalizeParcels(allParcels, !hasServerFilters);
+      const fallbackForSale = normalized.filter((p) => p.forSale === true).length;
+      const fallbackOverlap = normalized.filter((p) => p.hasOverlap).length;
+      const forSaleCount = Number(response.headers?.['x-for-sale-count'] ?? fallbackForSale);
+      const overlapCount = Number(response.headers?.['x-overlap-count'] ?? fallbackOverlap);
+
+      return {
+        items: normalized,
+        total,
+        forSaleCount,
+        overlapCount,
+      };
     } catch (error) {
       console.error('Failed to fetch parcels:', error);
-      return [];
+      return { items: [], total: 0, forSaleCount: 0, overlapCount: 0 };
+    } finally {
+      if (inFlightParcelsFetchRef.current?.key === requestKey) {
+        inFlightParcelsFetchRef.current = null;
+      }
     }
-  }, []);
+    })();
+
+    inFlightParcelsFetchRef.current = { key: requestKey, promise: fetchPromise };
+    return fetchPromise;
+  }, [normalizeParcels]);
 
   /* =========================
      FETCH AND UPDATE PARCELS
   ========================== */
-  const fetchAllParcelsAndUpdate = useCallback(async () => {
-    const allParcels = await fetchAllParcels();
-    setParcels(allParcels);
+  const fetchAllParcelsAndUpdate = useCallback(async (filters: ParcelFetchFilters = {}) => {
+    const page = await fetchAllParcels(filters);
+    setParcels(page.items);
+    setLoadedFromDbCount(page.items.length);
+    setTotalParcelsCount(page.total || page.items.length);
+    setDbForSaleCount(page.forSaleCount || 0);
+    setDbOverlapCount(page.overlapCount || 0);
   }, [fetchAllParcels]);
 
-  /* =========================
-     FETCH DISTRICT PARCELS
-  ========================== */
-  const fetchDistrictParcels = useCallback(async (district?: string) => {
-    const allParcels = await fetchAllParcels();
+  const applyServerFilters = useCallback(async (filters: ParcelFetchFilters) => {
+    const normalized: ParcelFetchFilters = {
+      province: filters.province || undefined,
+      district: filters.district || undefined,
+      sector: filters.sector || undefined,
+      sale_status: filters.sale_status || undefined,
+    };
+    const currentKey = JSON.stringify(activeServerFilters || {});
+    const nextKey = JSON.stringify(normalized || {});
+    if (currentKey === nextKey) return;
 
-    if (district && viewMode === 'district') {
-      return allParcels.filter((p: ParcelData) =>
-        p.district?.toLowerCase() === district.toLowerCase()
-      );
+    const requestId = ++latestFilterRequestRef.current;
+    setIsFiltering(true);
+    setActiveServerFilters(normalized);
+    try {
+      const page = await fetchAllParcels(normalized);
+      if (requestId !== latestFilterRequestRef.current) return;
+      setParcels(page.items);
+      setLoadedFromDbCount(page.items.length);
+      setTotalParcelsCount(page.total || page.items.length);
+      setDbForSaleCount(page.forSaleCount || 0);
+      setDbOverlapCount(page.overlapCount || 0);
+    } finally {
+      if (requestId === latestFilterRequestRef.current) {
+        setIsFiltering(false);
+      }
     }
-
-    return allParcels;
-  }, [fetchAllParcels, viewMode]);
+  }, [activeServerFilters, fetchAllParcels]);
 
   /* =========================
      HANDLE VERIFICATION
@@ -1918,12 +2568,12 @@ export default function ParcelVerificationFlow() {
       if (response.data) {
         const result = response.data;
         const verifiedUpi = result.upi;
-        const verifiedDistrict = result.district;
-
-        // Fetch parcels based on current view mode
-        const allParcels = viewMode === 'all'
-          ? await fetchAllParcels()
-          : await fetchDistrictParcels(verifiedDistrict);
+        // Always fetch full unfiltered dataset by default
+        const page = await fetchAllParcels({});
+        let allParcels: ParcelData[] = page.items;
+        setActiveServerFilters({});
+        setLoadedFromDbCount(page.items.length);
+        setTotalParcelsCount(page.total || page.items.length);
 
         // Mark the verified parcel in the fetched list
         const updatedParcels: ParcelData[] = allParcels.map((p: ParcelData) => {
@@ -1963,44 +2613,26 @@ export default function ParcelVerificationFlow() {
         const verifiedAlreadyInList = updatedParcels.some((p) => p.upi === verifiedUpi);
         if (!verifiedAlreadyInList && result.official_registry_polygon) {
           try {
-            const geo = parse(result.official_registry_polygon);
-            if (geo && (geo.type === 'Polygon' || geo.type === 'MultiPolygon') && 'coordinates' in geo) {
-              const rawCoords =
-                geo.type === 'Polygon'
-                  ? (geo.coordinates as number[][][])[0]
-                  : (geo.coordinates as number[][][][])[0][0];
-              const positions: [number, number][] = rawCoords.map((coord) => [coord[1], coord[0]]);
-              const center = getCenter(positions);
-              updatedParcels.push({
-                upi: verifiedUpi,
-                positions,
-                center,
-                color: '#395d91',
-                isVerified: true,
-                hasOverlap: false,
-                overlapsWith: [],
-                district: result.district,
-                sector: result.sector,
-                cell: result.cell,
-                village: result.village,
-                province: result.province,
-                area: result.parcel_area_sqm,
-                forSale: result.for_sale || false,
-                price: result.price || null,
-                land_use_type: result.land_use_type,
-                planned_land_use: result.planned_land_use,
-                tenure_type: result.tenure_type,
-                remaining_lease_term: result.remaining_lease_term,
-                under_mortgage: result.under_mortgage,
-                has_caveat: result.has_caveat,
-                in_transaction: result.in_transaction,
-                year_of_record: result.year_of_record,
-                full_address: result.full_address,
-              });
+            const parcel = toParcelFromMapping(result, true);
+            if (parcel) {
+              updatedParcels.push({ ...parcel, isVerified: true, color: getParcelColor(parcel, true) });
             }
           } catch (e) {
             console.warn('[handleVerify] Could not build parcel from result polygon:', e);
           }
+        }
+
+        const currentVerifiedParcel = updatedParcels.find((p) => p.upi === verifiedUpi);
+        if (currentVerifiedParcel) {
+          const records: StoredVerifiedParcel[] = JSON.parse(sessionStorage.getItem('verifiedParcelRecords') || '[]');
+          const nextRecord: StoredVerifiedParcel = {
+            upi: verifiedUpi,
+            parcel: { ...currentVerifiedParcel, isVerified: true, color: getParcelColor(currentVerifiedParcel, true) },
+            timestamp: Date.now(),
+          };
+          const filtered = records.filter((r) => r.upi !== verifiedUpi);
+          filtered.push(nextRecord);
+          sessionStorage.setItem('verifiedParcelRecords', JSON.stringify(filtered));
         }
 
         setParcels(updatedParcels);
@@ -2020,9 +2652,14 @@ export default function ParcelVerificationFlow() {
         });
       }
     } catch (error: any) {
+      const backendDetail = error?.response?.data?.detail;
+      const backendMessage =
+        (typeof backendDetail === 'object' ? backendDetail?.message : undefined) ||
+        (typeof backendDetail === 'string' ? backendDetail : undefined) ||
+        error?.response?.data?.message;
       setVerificationResult({
         success: false,
-        error: error.response?.data?.message || error.message || 'Verification failed',
+        error: backendMessage || error.message || 'Verification failed',
       });
     } finally {
       setIsVerifying(false);
@@ -2042,8 +2679,16 @@ export default function ParcelVerificationFlow() {
     setVerificationResult(null);
   };
 
+  const handleViewMapWithoutUpload = () => {
+    setVerificationResult(null);
+    setActiveServerFilters({});
+    setViewMode('all');
+    fetchAllParcelsAndUpdate({});
+    setStep('map');
+  };
+
   const handleRefreshParcels = async () => {
-    await fetchAllParcelsAndUpdate();
+    await fetchAllParcelsAndUpdate(activeServerFilters);
   };
 
   if (initialLoading) {
@@ -2063,6 +2708,7 @@ export default function ParcelVerificationFlow() {
       {step === 'upload' ? (
         <StepOne
           onVerify={handleVerify}
+          onViewMap={handleViewMapWithoutUpload}
           isVerifying={isVerifying}
           verificationResult={verificationResult}
           onReset={handleReset}
@@ -2110,6 +2756,14 @@ export default function ParcelVerificationFlow() {
             onRefreshParcels={handleRefreshParcels}
             chatHighlightUPI={chatHighlightUPI}
             chatDetailUPI={chatDetailUPI}
+            onAddOrUpdateParcel={upsertParcel}
+            onApplyServerFilters={applyServerFilters}
+            activeServerFilters={activeServerFilters}
+            loadedFromDbCount={loadedFromDbCount}
+            totalParcelsCount={totalParcelsCount}
+            dbForSaleCount={dbForSaleCount}
+            dbOverlapCount={dbOverlapCount}
+            isFiltering={isFiltering}
           />
         </>
       )}

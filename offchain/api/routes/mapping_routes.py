@@ -6,7 +6,7 @@ import numpy as np
 import cv2
 import pytesseract
 import jwt
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends, Request
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends, Request, Query, Response
 from fastapi.security.utils import get_authorization_scheme_param
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -28,6 +28,55 @@ from shapely import wkt
 load_dotenv()
 
 router = APIRouter()
+
+
+def _normalized_province_values(province: Optional[str]) -> list[str]:
+    if not province:
+        return []
+
+    value = province.strip().lower()
+    aliases = {
+        "east": "eastern",
+        "eastern": "eastern",
+        "west": "western",
+        "western": "western",
+        "north": "northern",
+        "northern": "northern",
+        "south": "southern",
+        "southern": "southern",
+        "kigali": "kigali city",
+        "kigali city": "kigali city",
+    }
+
+    canonical = aliases.get(value, value)
+    if canonical == "kigali city":
+        return ["kigali city", "kigali"]
+    return [canonical]
+
+
+async def _compute_overlap_upi_set(db: AsyncSession, upis: list[str]) -> set[str]:
+    if not upis:
+        return set()
+
+    overlap_sql = text("""
+        SELECT DISTINCT a.upi AS upi_a
+        FROM mappings a
+        JOIN mappings b
+          ON a.upi != b.upi
+         AND a.official_registry_polygon IS NOT NULL
+         AND b.official_registry_polygon IS NOT NULL
+         AND ST_Intersects(
+                 ST_GeometryFromText(a.official_registry_polygon),
+                 ST_GeometryFromText(b.official_registry_polygon)
+             )
+         AND NOT ST_Touches(
+                 ST_GeometryFromText(a.official_registry_polygon),
+                 ST_GeometryFromText(b.official_registry_polygon)
+             )
+        WHERE a.upi = ANY(:upis)
+    """)
+    overlap_result = await db.execute(overlap_sql, {"upis": upis})
+    return {row.upi_a for row in overlap_result.fetchall()}
 
 def mapping_to_dict(m) -> dict:
     """Return all mapping fields as a dict."""
@@ -324,7 +373,7 @@ async def extract_pdf_and_store(
         "document_detected_polygon": mapping_obj.document_detected_polygon if mapping_obj else None,
         "status_details": status_details,
         "property": property_summary,
-        "uploaded_by": mapping_obj.uploaded_by if mapping_obj else uploader_id
+        "uploaded_by": mapping_obj.uploaded_by if mapping_obj else uploaded_by
     }
 
 @router.get("/parcel-overlaps", response_model=List[dict])
@@ -384,7 +433,12 @@ async def geoai_analysis(db: AsyncSession = Depends(get_db)):
 @router.get("/my-mappings", response_model=list[dict])
 async def get_my_mappings(
     db: AsyncSession = Depends(get_db),
-    request: Request = None
+    request: Request = None,
+    response: Response = None,
+    province: Optional[str] = Query(None),
+    district: Optional[str] = Query(None),
+    sector: Optional[str] = Query(None),
+    sale_status: Optional[str] = Query(None, pattern="^(for_sale|not_for_sale)$"),
 ):
     uploader_id = None
 
@@ -407,74 +461,108 @@ async def get_my_mappings(
     if not uploader_id:
         raise HTTPException(status_code=401, detail="Could not determine user id from token.")
 
-    result = await db.execute(
-        select(Mapping).where(Mapping.uploaded_by == str(uploader_id))
-    )
+    base_query = select(Mapping).where(Mapping.uploaded_by == str(uploader_id))
+    count_query = select(func.count(Mapping.id)).where(Mapping.uploaded_by == str(uploader_id))
+
+    province_values = _normalized_province_values(province)
+    if province_values:
+        base_query = base_query.where(func.lower(Mapping.province).in_(province_values))
+        count_query = count_query.where(func.lower(Mapping.province).in_(province_values))
+
+    if district:
+        base_query = base_query.where(func.lower(Mapping.district) == district.lower())
+        count_query = count_query.where(func.lower(Mapping.district) == district.lower())
+
+    if sector:
+        base_query = base_query.where(func.lower(Mapping.sector) == sector.lower())
+        count_query = count_query.where(func.lower(Mapping.sector) == sector.lower())
+
+    if sale_status == "for_sale":
+        base_query = base_query.where(Mapping.for_sale.is_(True))
+        count_query = count_query.where(Mapping.for_sale.is_(True))
+    elif sale_status == "not_for_sale":
+        base_query = base_query.where(Mapping.for_sale.is_(False))
+        count_query = count_query.where(Mapping.for_sale.is_(False))
+
+    total_result = await db.execute(count_query)
+    total = total_result.scalar() or 0
+
+    for_sale_count_result = await db.execute(count_query.where(Mapping.for_sale.is_(True)))
+    for_sale_total = for_sale_count_result.scalar() or 0
+
+    result = await db.execute(base_query.order_by(Mapping.created_at.desc()))
     mappings = result.scalars().all()
 
-    response = []
-
+    overlap_upis = await _compute_overlap_upi_set(db, [m.upi for m in mappings if m.upi])
     for m in mappings:
-        sql = '''
-        SELECT EXISTS (
-            SELECT 1 FROM mappings m2
-            WHERE m2.upi != :upi
-            AND m2.official_registry_polygon IS NOT NULL
-            AND ST_Intersects(
-                ST_GeometryFromText(:polygon),
-                ST_GeometryFromText(m2.official_registry_polygon)
-            )
-            AND NOT ST_Touches(
-                ST_GeometryFromText(:polygon),
-                ST_GeometryFromText(m2.official_registry_polygon)
-            )
-        ) AS has_overlap;
-        '''
+        setattr(m, "overlaps", m.upi in overlap_upis)
+    overlap_total = len(overlap_upis)
 
-        overlap_result = await db.execute(
-            text(sql),
-            {"upi": m.upi, "polygon": m.official_registry_polygon}
-        )
+    if response is not None:
+        response.headers["X-Total-Count"] = str(total)
+        response.headers["X-Limit"] = str(total)
+        response.headers["X-Offset"] = "0"
+        response.headers["X-Remaining"] = "0"
+        response.headers["X-For-Sale-Count"] = str(for_sale_total)
+        response.headers["X-Overlap-Count"] = str(overlap_total)
 
-        m.overlaps = bool(overlap_result.scalar())
-
-        await db.commit()
-        await db.refresh(m)
-
-        response.append(mapping_to_dict(m))
-
-    return response
+    return [mapping_to_dict(m) for m in mappings]
 
 @router.get("/", response_model=list[dict])
-async def list_mappings(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Mapping))
+async def list_mappings(
+    db: AsyncSession = Depends(get_db),
+    response: Response = None,
+    province: Optional[str] = Query(None),
+    district: Optional[str] = Query(None),
+    sector: Optional[str] = Query(None),
+    sale_status: Optional[str] = Query(None, pattern="^(for_sale|not_for_sale)$"),
+):
+    base_query = select(Mapping)
+    count_query = select(func.count(Mapping.id))
+
+    province_values = _normalized_province_values(province)
+    if province_values:
+        base_query = base_query.where(func.lower(Mapping.province).in_(province_values))
+        count_query = count_query.where(func.lower(Mapping.province).in_(province_values))
+
+    if district:
+        base_query = base_query.where(func.lower(Mapping.district) == district.lower())
+        count_query = count_query.where(func.lower(Mapping.district) == district.lower())
+
+    if sector:
+        base_query = base_query.where(func.lower(Mapping.sector) == sector.lower())
+        count_query = count_query.where(func.lower(Mapping.sector) == sector.lower())
+
+    if sale_status == "for_sale":
+        base_query = base_query.where(Mapping.for_sale.is_(True))
+        count_query = count_query.where(Mapping.for_sale.is_(True))
+    elif sale_status == "not_for_sale":
+        base_query = base_query.where(Mapping.for_sale.is_(False))
+        count_query = count_query.where(Mapping.for_sale.is_(False))
+
+    total_result = await db.execute(count_query)
+    total = total_result.scalar() or 0
+
+    for_sale_count_result = await db.execute(count_query.where(Mapping.for_sale.is_(True)))
+    for_sale_total = for_sale_count_result.scalar() or 0
+
+    result = await db.execute(base_query.order_by(Mapping.created_at.desc()))
     mappings = result.scalars().all()
-    response = []
+
+    overlap_upis = await _compute_overlap_upi_set(db, [m.upi for m in mappings if m.upi])
     for m in mappings:
-        # GIS overlap check for each mapping
-        sql = '''
-        SELECT EXISTS (
-            SELECT 1 FROM mappings m2
-            WHERE m2.upi != :upi
-            AND m2.official_registry_polygon IS NOT NULL
-            AND ST_Intersects(
-                ST_GeometryFromText(:polygon),
-                ST_GeometryFromText(m2.official_registry_polygon)
-            )
-            AND NOT ST_Touches(
-                ST_GeometryFromText(:polygon),
-                ST_GeometryFromText(m2.official_registry_polygon)
-            )
-        ) AS has_overlap;
-        '''
-        polygon = m.official_registry_polygon
-        overlap_result = await db.execute(text(sql), {"upi": m.upi, "polygon": polygon})
-        has_overlap = overlap_result.scalar()
-        m.overlaps = bool(has_overlap)
-        await db.commit()
-        await db.refresh(m)
-        response.append(mapping_to_dict(m))
-    return response
+        setattr(m, "overlaps", m.upi in overlap_upis)
+    overlap_total = len(overlap_upis)
+
+    if response is not None:
+        response.headers["X-Total-Count"] = str(total)
+        response.headers["X-Limit"] = str(total)
+        response.headers["X-Offset"] = "0"
+        response.headers["X-Remaining"] = "0"
+        response.headers["X-For-Sale-Count"] = str(for_sale_total)
+        response.headers["X-Overlap-Count"] = str(overlap_total)
+
+    return [mapping_to_dict(m) for m in mappings]
 
 @router.get("/{mapping_id}", response_model=MappingSchema)
 async def get_mapping(mapping_id: int, db: AsyncSession = Depends(get_db)):
@@ -507,14 +595,10 @@ async def delete_mapping(mapping_id: int, db: AsyncSession = Depends(get_db)):
 
 @router.patch("/{mapping_id}/overlaps", response_model=dict)
 async def update_overlaps_status(mapping_id: int, overlaps: bool, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Mapping).where(Mapping.id == mapping_id))
-    mapping = result.scalar_one_or_none()
-    if not mapping:
-        raise HTTPException(status_code=404, detail="Mapping not found")
-    mapping.overlaps = overlaps
-    await db.commit()
-    await db.refresh(mapping)
-    return {"id": mapping.id, "overlaps": mapping.overlaps}
+    raise HTTPException(
+        status_code=400,
+        detail="Overlaps are computed live from PostGIS and cannot be patched manually."
+    )
 
 
 @router.post("/sync-property-links", response_model=dict)
@@ -627,6 +711,12 @@ async def verify_pdf(
     page_image = images[0]
     detected_wkt = get_detected_polygon(page_image)
 
+    if not detected_wkt:
+        raise HTTPException(
+            status_code=422,
+            detail={"message": "This title is not valid. Parcel shape was not detected from the document."}
+        )
+
     uploaded_by = None
     if request and hasattr(request, 'state') and hasattr(request.state, 'user'):
         user = getattr(request.state, 'user', None)
@@ -686,12 +776,31 @@ async def verify_pdf(
             logging.error(f"[verify-pdf] Error fetching parcel info for UPI {upi}: {e}")
             details = backup_details
 
+        if details is backup_details:
+            raise HTTPException(
+                status_code=422,
+                detail={"message": "This title is not valid. Parcel details were not found in the registry."}
+            )
+
         # Canonical UPI: prefer what the external registry returns (same value extract-pdf stores)
         canonical_upi = (details.get("upi") or upi or "").strip()
 
+        if not canonical_upi:
+            raise HTTPException(
+                status_code=422,
+                detail={"message": "This title is not valid. UPI is missing from registry data."}
+            )
+
+        registry_polygon = details.get("parcelPolygon", {}).get("polygon")
+        if not registry_polygon:
+            raise HTTPException(
+                status_code=422,
+                detail={"message": "This title is not valid. Parcel boundary data is missing."}
+            )
+
         mapping_preview = dict(
             upi=canonical_upi,
-            official_registry_polygon=details.get("parcelPolygon", {}).get("polygon"),
+            official_registry_polygon=registry_polygon,
             document_detected_polygon=detected_wkt,
             latitude=details.get("parcelCoordinates", {}).get("lat"),
             longitude=details.get("parcelCoordinates", {}).get("lon"),
@@ -751,8 +860,16 @@ async def verify_pdf(
                 "property": property_summary,
             }
     else:
-        canonical_upi = upi
-        status_details = {"validation": "No UPI extracted from document."}
+        raise HTTPException(
+            status_code=422,
+            detail={"message": "This title is not valid. No UPI was detected in the document."}
+        )
+
+    if mapping_preview is None:
+        raise HTTPException(
+            status_code=422,
+            detail={"message": "This title is not valid. Unable to build parcel preview."}
+        )
 
     return {
         **mapping_preview,

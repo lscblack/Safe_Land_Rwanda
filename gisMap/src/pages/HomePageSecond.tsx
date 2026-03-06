@@ -2,15 +2,18 @@ import React, { useState, useEffect, useRef } from 'react';
 import { AnimatePresence, motion, } from 'framer-motion';
 import {
     ShieldCheck, Map, ScanLine,
-     Lock, CheckCircle2, AlertTriangle,
+    Lock, CheckCircle2, AlertTriangle,
     Building2, Briefcase, UserCheck, Layers,
-    ChevronRight, Cpu, 
-    Sparkles, 
-     Shield, Satellite,
-    Brain, Cloud, Radar, Menu, X
+    ChevronRight, Cpu,
+    Sparkles,
+    Shield, Satellite,
+    Brain, Cloud, Radar, Menu, X,
+    Sun,
+    Moon
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { Footer } from '../components/navigation/FooterAll';
+import { useTheme } from '../contexts/theme-context';
 
 // ================= CUSTOM NAVBAR =================
 const SafeLandNavbar = () => {
@@ -71,7 +74,7 @@ const SafeLandNavbar = () => {
                         </button>
                     ))}
                 </div>
-
+                <DarkModeOnboardingPage />
                 {/* Desktop Auth Buttons */}
                 <div className="hidden md:flex items-center gap-3">
                     <a href="/login" className="px-5 py-2.5 text-sm font-bold text-slate-700 dark:text-gray-200 hover:text-[#395d91] dark:hover:text-white transition-colors">
@@ -382,10 +385,10 @@ export const GeoGuardLanding = () => {
                             transition={{ delay: 0.3 }}
                             className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto"
                         >
-                            <button onClick={()=>window.location.href="/map"} className="px-6 py-3.5 bg-[#395d91] hover:bg-[#2d4a75] text-white font-bold rounded-xl transition-colors flex items-center justify-center gap-2 text-sm shadow-sm active:scale-95">
+                            <button onClick={() => window.location.href = "/map"} className="px-6 py-3.5 bg-[#395d91] hover:bg-[#2d4a75] text-white font-bold rounded-xl transition-colors flex items-center justify-center gap-2 text-sm shadow-sm active:scale-95">
                                 <ScanLine size={16} /> Verify Document
                             </button>
-                            <button onClick={()=>window.location.href="/map"} className="px-6 py-3.5 bg-white dark:bg-[#112240] border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-white/5 text-slate-900 dark:text-white font-bold rounded-xl transition-colors flex items-center justify-center gap-2 text-sm active:scale-95">
+                            <button onClick={() => window.location.href = "/map"} className="px-6 py-3.5 bg-white dark:bg-[#112240] border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-white/5 text-slate-900 dark:text-white font-bold rounded-xl transition-colors flex items-center justify-center gap-2 text-sm active:scale-95">
                                 <Map size={16} /> Explore GIS Map
                             </button>
                         </motion.div>
@@ -588,10 +591,10 @@ export const GeoGuardLanding = () => {
                     </p>
 
                     <div className="flex flex-col sm:flex-row justify-center gap-3">
-                        <button onClick={()=>window.location.href="/register"} className="px-6 py-3 bg-[#395d91] hover:bg-[#2d4a75] text-white text-sm font-bold rounded-xl transition-colors flex items-center justify-center gap-2 shadow-sm">
+                        <button onClick={() => window.location.href = "/register"} className="px-6 py-3 bg-[#395d91] hover:bg-[#2d4a75] text-white text-sm font-bold rounded-xl transition-colors flex items-center justify-center gap-2 shadow-sm">
                             Join Us Now
                         </button>
-                        <button onClick={()=>window.open("mailto:lscblack@nexventures.com")} className="px-6 py-3 bg-white dark:bg-[#112240] border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-white/5 text-slate-900 dark:text-white text-sm font-bold rounded-xl transition-colors flex items-center justify-center gap-2">
+                        <button onClick={() => window.open("mailto:lscblack@nexventures.com")} className="px-6 py-3 bg-white dark:bg-[#112240] border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-white/5 text-slate-900 dark:text-white text-sm font-bold rounded-xl transition-colors flex items-center justify-center gap-2">
                             Request Demo
                         </button>
                     </div>
@@ -694,3 +697,21 @@ const TechBadge = ({ icon: Icon, label }: any) => (
         <span className="text-[10px] font-bold uppercase tracking-wider text-slate-700 dark:text-gray-300">{label}</span>
     </div>
 );
+
+export const DarkModeOnboardingPage = () => {
+    const { theme, toggleTheme } = useTheme();
+    const isDark = theme === 'dark';
+    return (<>
+
+        {/* --- THEME TOGGLE (Top Right) --- */}
+        {/* <div className="absolute top-6 right-6 z-50"> */}
+        <button
+            onClick={toggleTheme}
+            className="p-3 rounded-full bg-white dark:bg-white/10 shadow-lg border border-gray-100 dark:border-white/5 hover:bg-gray-100 dark:hover:bg-white/20 transition-all text-slate-600 dark:text-white backdrop-blur-md"
+        >
+            {isDark ? <Sun size={20} /> : <Moon size={20} />}
+        </button>
+        {/* </div> */}
+    </>
+    )
+}

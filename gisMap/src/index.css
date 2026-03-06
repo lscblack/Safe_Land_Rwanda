@@ -11,12 +11,19 @@
   }
 
   :root.dark {
+    --color-primary: #395d91;
+    --color-secondary: #0a162e;
+
+    --color-background: #ffffff;
+    --color-foreground: #0a162e;
+  }
+  /* :root.dark {
     --color-primary: #6b8cce;
     --color-secondary: #ffffff;
 
     --color-background: #0a162e;
     --color-foreground: #ffffff;
-  }
+  } */
 }
 
 /* 2. TAILWIND THEME HOOK-IN */

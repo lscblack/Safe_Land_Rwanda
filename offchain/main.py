@@ -84,6 +84,14 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
     allow_headers=["Origin", "Content-Type", "Accept", "Authorization"],
+    expose_headers=[
+        "X-Total-Count",
+        "X-Limit",
+        "X-Offset",
+        "X-Remaining",
+        "X-For-Sale-Count",
+        "X-Overlap-Count",
+    ],
 )
 
 # --- Static Files ---
