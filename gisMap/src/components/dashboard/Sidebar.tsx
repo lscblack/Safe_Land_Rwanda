@@ -45,7 +45,7 @@ const MENU_CONFIG = [
         place: 'main',
         icon: LayoutDashboard,
         labelKey: 'dash.nav.overview',
-        roles: ['admin', 'seller', 'buyer', 'brocker', 'moderator', 'super_admin'],
+        roles: ['admin', 'seller', '', 'brocker', 'moderator', 'super_admin'],
     },
     {
         id: 'maps',
@@ -73,7 +73,7 @@ const MENU_CONFIG = [
         place: 'main',
         icon: Plus,
         labelKey: 'GIS Registry',
-        roles: ['seller', 'buyer', 'brocker'],
+        roles: ['seller', '', 'brocker'],
     },
     {
         id: 'category',
@@ -88,7 +88,7 @@ const MENU_CONFIG = [
         place: 'main',
         icon: LayoutDashboard,
         labelKey: 'My Properties',
-        roles: ['buyer', 'brocker'],
+        roles: ['', 'brocker'],
     },
     {
         id: 'properties',
@@ -131,7 +131,7 @@ const MENU_CONFIG = [
         icon: Timer,
         place: 'management',
         labelKey: 'verify E-Title',
-        roles: ['admin', 'buyer', 'brocker', 'super_admin'],
+        roles: ['admin', '', 'brocker', 'super_admin'],
     },
 ];
 

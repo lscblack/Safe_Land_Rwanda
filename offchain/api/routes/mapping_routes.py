@@ -578,7 +578,7 @@ async def sync_property_links(db: AsyncSession = Depends(get_db)):
     }
 
 
-@router.patch("/upi/{upi}/market-status", response_model=dict)
+@router.patch("/upi/{upi:path}/market-status", response_model=dict)
 async def update_market_status(
     upi: str,
     body: MarketStatusUpdate,

@@ -104,6 +104,8 @@ interface Mapping {
     created_at: string;
     property_id: number | null;
     property_status?: 'draft' | 'published' | null;
+    for_sale?: boolean;
+    price?: number | null;
 }
 
 interface TabType {
@@ -1550,13 +1552,77 @@ interface MappingsListProps {
     onViewDetails?: (mapping: Mapping) => void;
 }
 
-function MappingsList({ onSelectMapping, onRefresh, onCreateProperty, onViewOnMap, onViewDetails }: MappingsListProps) {
+function MappingsList({ onSelectMapping: _onSelectMapping, onRefresh, onCreateProperty, onViewOnMap, onViewDetails }: MappingsListProps) {
     const [mappings, setMappings] = useState<Mapping[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
-    console.log(error)
-    error == "asdddiowe928301" ? onSelectMapping : ""
+    const [editingMarketId, setEditingMarketId] = useState<number | null>(null);
+    const [marketForm, setMarketForm] = useState<{ for_sale: boolean; price: string }>({
+        for_sale: false,
+        price: '',
+    });
+    const [savingMarketId, setSavingMarketId] = useState<number | null>(null);
+    const [marketError, setMarketError] = useState<string | null>(null);
+
+    const startEditMarket = (mapping: Mapping) => {
+        setMarketError(null);
+        setEditingMarketId(mapping.id);
+        setMarketForm({
+            for_sale: Boolean(mapping.for_sale),
+            price: mapping.price != null ? String(mapping.price) : '',
+        });
+    };
+
+    const cancelEditMarket = () => {
+        setEditingMarketId(null);
+        setMarketError(null);
+        setMarketForm({ for_sale: false, price: '' });
+    };
+
+    const saveMarket = async (mapping: Mapping) => {
+        try {
+            setMarketError(null);
+            setSavingMarketId(mapping.id);
+
+            let payloadPrice: number | null = null;
+            if (marketForm.for_sale) {
+                const parsed = Number((marketForm.price || '').replace(/,/g, '').trim());
+                if (!Number.isFinite(parsed) || parsed <= 0) {
+                    setMarketError('Enter a valid price greater than 0 for parcels listed for sale.');
+                    return;
+                }
+                payloadPrice = parsed;
+            }
+
+            const response = await api.patch(
+                `/api/mappings/upi/${encodeURIComponent(mapping.upi)}/market-status`,
+                {
+                    for_sale: marketForm.for_sale,
+                    price: marketForm.for_sale ? payloadPrice : null,
+                }
+            );
+
+            const updated = response.data;
+            setMappings((prev) => prev.map((m) =>
+                m.id === mapping.id
+                    ? {
+                        ...m,
+                        for_sale: updated.for_sale,
+                        price: updated.price,
+                    }
+                    : m
+            ));
+
+            setEditingMarketId(null);
+        } catch (err: any) {
+            console.error('Failed to update market status:', err);
+            setMarketError(err.response?.data?.detail || 'Failed to update market status');
+        } finally {
+            setSavingMarketId(null);
+        }
+    };
+
     const fetchMappings = useCallback(async () => {
         setLoading(true);
         try {
@@ -1731,6 +1797,90 @@ function MappingsList({ onSelectMapping, onRefresh, onCreateProperty, onViewOnMa
                                                 <Plus size={12} />
                                                 Create
                                             </button>
+                                        )}
+
+                                        {!mapping.property_id && (
+                                            <div className="mt-2 space-y-2">
+                                                <div className="text-xs">
+                                                    {mapping.for_sale ? (
+                                                        <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full">
+                                                            For sale {mapping.price ? `• ${Number(mapping.price).toLocaleString()} RWF` : ''}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded-full">
+                                                            Not for sale
+                                                        </span>
+                                                    )}
+                                                </div>
+
+                                                {editingMarketId === mapping.id ? (
+                                                    <div className="space-y-2">
+                                                        <select
+                                                            value={marketForm.for_sale ? 'yes' : 'no'}
+                                                            onChange={(e) =>
+                                                                setMarketForm((prev) => ({
+                                                                    ...prev,
+                                                                    for_sale: e.target.value === 'yes',
+                                                                }))
+                                                            }
+                                                            className="w-full px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 rounded"
+                                                        >
+                                                            <option value="no">Not for sale</option>
+                                                            <option value="yes">For sale</option>
+                                                        </select>
+
+                                                        {marketForm.for_sale && (
+                                                            <input
+                                                                type="number"
+                                                                min="0"
+                                                                step="1"
+                                                                placeholder="Price (RWF)"
+                                                                value={marketForm.price}
+                                                                onChange={(e) =>
+                                                                    setMarketForm((prev) => ({ ...prev, price: e.target.value }))
+                                                                }
+                                                                className="w-full px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 rounded"
+                                                            />
+                                                        )}
+
+                                                        {marketError && (
+                                                            <p className="text-[11px] text-red-600">{marketError}</p>
+                                                        )}
+
+                                                        <div className="flex gap-1">
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    saveMarket(mapping);
+                                                                }}
+                                                                disabled={savingMarketId === mapping.id}
+                                                                className="px-2 py-1 text-xs bg-primary text-white rounded hover:bg-primary/90 disabled:opacity-60"
+                                                            >
+                                                                {savingMarketId === mapping.id ? 'Saving...' : 'Save'}
+                                                            </button>
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    cancelEditMarket();
+                                                                }}
+                                                                className="px-2 py-1 text-xs bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+                                                            >
+                                                                Cancel
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            startEditMarket(mapping);
+                                                        }}
+                                                        className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+                                                    >
+                                                        Update market
+                                                    </button>
+                                                )}
+                                            </div>
                                         )}
                                     </td>
                                     <td className="px-4 py-3">
