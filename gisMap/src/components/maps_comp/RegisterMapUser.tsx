@@ -1553,6 +1553,7 @@ interface MappingsListProps {
 }
 
 function MappingsList({ onSelectMapping: _onSelectMapping, onRefresh, onCreateProperty, onViewOnMap, onViewDetails }: MappingsListProps) {
+    const PAGE_SIZE = 100;
     const [mappings, setMappings] = useState<Mapping[]>([]);
     const [loading, setLoading] = useState(true);
     const [loadingMore, setLoadingMore] = useState(false);
@@ -1566,7 +1567,6 @@ function MappingsList({ onSelectMapping: _onSelectMapping, onRefresh, onCreatePr
         for_sale: false,
         price: '',
     });
-    console.log(error)
     const [savingMarketId, setSavingMarketId] = useState<number | null>(null);
     const [marketError, setMarketError] = useState<string | null>(null);
 
@@ -1628,9 +1628,10 @@ function MappingsList({ onSelectMapping: _onSelectMapping, onRefresh, onCreatePr
         }
     };
 
-    const fetchMappings = useCallback(async (options?: { append?: boolean }) => {
+    const fetchMappings = useCallback(async (options?: { append?: boolean; page?: number }) => {
         const append = options?.append === true;
-        const nextPage = append ? batchPage + 1 : 0;
+        const nextPage = options?.page ?? 0;
+        const nextOffset = nextPage * PAGE_SIZE;
 
         if (append) {
             setLoadingMore(true);
@@ -1641,8 +1642,8 @@ function MappingsList({ onSelectMapping: _onSelectMapping, onRefresh, onCreatePr
         try {
             const response = await api.get('/api/mappings/my-mappings', {
                 params: {
-                    province_batch_page: nextPage,
-                    province_batch_size: 100,
+                    limit: PAGE_SIZE,
+                    offset: nextOffset,
                 },
             });
 
@@ -1653,14 +1654,20 @@ function MappingsList({ onSelectMapping: _onSelectMapping, onRefresh, onCreatePr
 
             const total = Number(response.headers?.['x-total-count'] ?? data.length);
             const hasMoreHeader = String(response.headers?.['x-has-more'] ?? '').toLowerCase() === 'true';
-            const hasMoreFallback = data.length >= 500;
+            const hasMoreFallback = data.length >= PAGE_SIZE;
 
             if (append) {
-                const existingIds = new Set(mappings.map((m) => m.id));
-                const incomingUnique = data.filter((item: Mapping) => !existingIds.has(item.id));
-                const merged = [...mappings, ...incomingUnique];
-                setMappings(merged);
-                setHasMore((hasMoreHeader || hasMoreFallback || merged.length < total) && incomingUnique.length > 0);
+                let mergedLength = 0;
+                let incomingUniqueLength = 0;
+                setMappings((prev) => {
+                    const existingIds = new Set(prev.map((m) => m.id));
+                    const incomingUnique = data.filter((item: Mapping) => !existingIds.has(item.id));
+                    const merged = [...prev, ...incomingUnique];
+                    mergedLength = merged.length;
+                    incomingUniqueLength = incomingUnique.length;
+                    return merged;
+                });
+                setHasMore((hasMoreHeader || hasMoreFallback || mergedLength < total) && incomingUniqueLength > 0);
             } else {
                 setMappings(data);
                 setHasMore(hasMoreHeader || hasMoreFallback || data.length < total);
@@ -1678,10 +1685,10 @@ function MappingsList({ onSelectMapping: _onSelectMapping, onRefresh, onCreatePr
                 setLoading(false);
             }
         }
-    }, [batchPage, mappings]);
+    }, []);
 
     useEffect(() => {
-        fetchMappings();
+        fetchMappings({ append: false, page: 0 });
     }, [fetchMappings]);
 
     const filteredMappings = useMemo(() => {
@@ -1696,13 +1703,13 @@ function MappingsList({ onSelectMapping: _onSelectMapping, onRefresh, onCreatePr
     }, [mappings, searchQuery]);
 
     const handleRefresh = () => {
-        fetchMappings({ append: false });
+        fetchMappings({ append: false, page: 0 });
         onRefresh?.();
     };
 
     const handleLoadMore = () => {
         if (loadingMore || !hasMore) return;
-        fetchMappings({ append: true });
+        fetchMappings({ append: true, page: batchPage + 1 });
     };
 
     if (loading) {
