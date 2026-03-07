@@ -1018,12 +1018,12 @@ export default function ParcelMap({
         const temp = parcels.map((p) => {
             try {
                 const geo = wk.parse(p.official_registry_polygon);
-                
+
                 // Type-guard to ensure the geometry has coordinates
                 if (!geo || !('coordinates' in geo)) {
                     throw new Error("Invalid geometry: missing coordinates");
                 }
-                
+
                 const coordinates = (geo as any).coordinates[0];
                 const positions = coordinates.map(([lng, lat]: [number, number]) => [lat, lng]);
 
@@ -1257,789 +1257,1081 @@ export default function ParcelMap({
 
     return (
         <>
-        <div style={{
-            display: 'flex',
-            height,
-            width,
-            position: 'relative',
-            backgroundColor: '#F9FAFB',
-            borderRadius: 12,
-            overflow: 'hidden',
-            fontFamily: 'system-ui, -apple-system, sans-serif'
-        }}>
-            {/* Sidebar Toggle Button */}
-            {showSidebar && !sidebarVisible && (
-                <button
-                    onClick={() => setSidebarVisible(true)}
-                    style={{
-                        position: 'absolute',
-                        top: 12,
-                        left: 12,
-                        zIndex: 1000,
-                        backgroundColor: 'white',
-                        border: 'none',
-                        borderRadius: 8,
-                        padding: '8px 12px',
-                        boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 6,
-                        cursor: 'pointer',
-                    }}
-                >
-                    <Menu size={16} color="var(--color-primary)" />
-                    <span style={{ fontSize: 13, fontWeight: 500 }}>Show Sidebar</span>
-                </button>
-            )}
-
-            {/* ================= SIDEBAR ================= */}
-            {showSidebar && sidebarVisible && (
-                <div style={{
-                    width: 360,
-                    backgroundColor: '#ffffff',
-                    borderRight: '1px solid #E5E7EB',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    height: '100vh',
-                    overflow: 'hidden',
-                    position: 'relative',
-                }}>
-                    {/* Sidebar Header with Close Button */}
-                    <div style={{
-                        padding: '16px',
-                        borderBottom: '1px solid #E5E7EB',
-                        backgroundColor: '#ffffff',
-                        flexShrink: 0,
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                    }}>
-                        <div>
-                            <h2 style={{
-                                fontSize: 18,
-                                fontWeight: 600,
-                                color: 'var(--color-primary)',
-                                margin: '0 0 4px 0',
-                            }}>
-                                Property Explorer (Admin)
-                            </h2>
-                            <p style={{ color: '#6B7280', fontSize: 13, margin: 0 }}>
-                                {filteredParcels.length} parcels
-                            </p>
-                        </div>
-                        <button
-                            onClick={() => setSidebarVisible(false)}
-                            style={{
-                                width: 28,
-                                height: 28,
-                                borderRadius: 14,
-                                border: 'none',
-                                backgroundColor: '#F3F4F6',
-                                color: '#6B7280',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                cursor: 'pointer',
-                            }}
-                        >
-                            <X size={14} />
-                        </button>
-                    </div>
-
-                    {/* Search */}
-                    <div style={{
-                        padding: '12px',
-                        borderBottom: '1px solid #E5E7EB',
-                        backgroundColor: '#ffffff',
-                        flexShrink: 0,
-                    }}>
-                        <input
-                            type="text"
-                            placeholder="Search by UPI..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            style={{
-                                width: '100%',
-                                padding: '8px 12px',
-                                border: '1px solid #E5E7EB',
-                                borderRadius: 8,
-                                fontSize: 13,
-                                outline: 'none',
-                                transition: 'border-color 0.2s',
-                            }}
-                            onFocus={(e) => e.target.style.borderColor = 'var(--color-primary)'}
-                            onBlur={(e) => e.target.style.borderColor = '#E5E7EB'}
-                        />
-                    </div>
-
-                    {/* Filter Toggles */}
-                    <div style={{
-                        padding: '10px 12px 12px',
-                        display: 'flex',
-                        gap: 8,
-                        flexWrap: 'wrap',
-                        borderBottom: '1px solid #E5E7EB',
-                        backgroundColor: '#ffffff',
-                        flexShrink: 0,
-                    }}>
-                        <button
-                            onClick={() => setShowFilters(!showFilters)}
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 6,
-                                padding: '6px 12px',
-                                backgroundColor: showFilters ? 'var(--color-primary)' : '#F3F4F6',
-                                color: showFilters ? 'white' : '#374151',
-                                border: 'none',
-                                borderRadius: 20,
-                                fontSize: 12,
-                                fontWeight: 500,
-                                cursor: 'pointer',
-                                transition: 'all 0.2s',
-                            }}
-                        >
-                            <Filter size={14} />
-                            {showFilters ? 'Hide Filters' : 'Show Filters'}
-                        </button>
-
-                        <div style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 4,
-                            padding: '2px 4px',
-                            backgroundColor: '#F3F4F6',
-                            borderRadius: 20,
-                        }}>
-                            <div style={{
-                                width: 12,
-                                height: 12,
-                                borderRadius: 3,
-                                backgroundColor: '#3B82F6',
-                            }} />
-                            <span style={{ fontSize: 11 }}>Regular</span>
-                        </div>
-                        <div style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 4,
-                            padding: '2px 4px',
-                            backgroundColor: '#F3F4F6',
-                            borderRadius: 20,
-                        }}>
-                            <div style={{
-                                width: 12,
-                                height: 12,
-                                borderRadius: 3,
-                                backgroundColor: '#EF4444',
-                            }} />
-                            <span style={{ fontSize: 11 }}>Issues</span>
-                        </div>
-                    </div>
-
-                    {/* Scrollable Content Area */}
-                    <div style={{
-                        flex: 1,
-                        overflowY: 'auto',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        backgroundColor: '#ffffff',
-                        paddingBottom: "100px",
-                    }}>
-                        {/* Filter Panel */}
-                        <AnimatePresence>
-                            {showFilters && (
-                                <motion.div
-                                    initial={{ height: 0, opacity: 0 }}
-                                    animate={{ height: 'auto', opacity: 1 }}
-                                    exit={{ height: 0, opacity: 0 }}
-                                    style={{ overflow: 'hidden', flexShrink: 0 }}
-                                >
-                                    <div style={{
-                                        padding: '12px',
-                                        backgroundColor: '#F9FAFB',
-                                        margin: '0 12px 12px',
-                                        borderRadius: 8,
-                                    }}>
-                                        <div style={{ marginBottom: 12 }}>
-                                            <label style={{
-                                                display: 'block',
-                                                fontSize: 12,
-                                                fontWeight: 500,
-                                                color: '#4B5563',
-                                                marginBottom: 4
-                                            }}>
-                                                Property Status
-                                            </label>
-                                            <select
-                                                value={filter.status}
-                                                onChange={(e) => setFilter({ ...filter, status: e.target.value as any })}
-                                                style={{
-                                                    width: '100%',
-                                                    padding: '6px 8px',
-                                                    border: '1px solid #E5E7EB',
-                                                    borderRadius: 6,
-                                                    fontSize: 12,
-                                                    backgroundColor: 'white',
-                                                }}
-                                            >
-                                                <option value="all">All Properties</option>
-                                                <option value="available">Available</option>
-                                                <option value="overlapping">Overlapping</option>
-                                                <option value="underMortgage">Under Mortgage</option>
-                                                <option value="inTransaction">In Transaction</option>
-                                            </select>
-                                        </div>
-
-                                        <div style={{ marginBottom: 12 }}>
-                                            <label style={{
-                                                display: 'block',
-                                                fontSize: 12,
-                                                fontWeight: 500,
-                                                color: '#4B5563',
-                                                marginBottom: 4
-                                            }}>
-                                                Area Range (m²)
-                                            </label>
-                                            <div style={{ display: 'flex', gap: 6 }}>
-                                                <input
-                                                    type="number"
-                                                    placeholder="Min"
-                                                    value={filter.area[0]}
-                                                    onChange={(e) => setFilter({ ...filter, area: [Number(e.target.value), filter.area[1]] })}
-                                                    style={{
-                                                        flex: 1,
-                                                        padding: '4px 6px',
-                                                        border: '1px solid #E5E7EB',
-                                                        borderRadius: 6,
-                                                        fontSize: 12,
-                                                    }}
-                                                />
-                                                <input
-                                                    type="number"
-                                                    placeholder="Max"
-                                                    value={filter.area[1]}
-                                                    onChange={(e) => setFilter({ ...filter, area: [filter.area[0], Number(e.target.value)] })}
-                                                    style={{
-                                                        flex: 1,
-                                                        padding: '4px 6px',
-                                                        border: '1px solid #E5E7EB',
-                                                        borderRadius: 6,
-                                                        fontSize: 12,
-                                                    }}
-                                                />
-                                            </div>
-                                        </div>
-
-                                        <button
-                                            onClick={() => setFilter({
-                                                status: "all",
-                                                landUse: [],
-                                                area: [0, 10000],
-                                            })}
-                                            style={{
-                                                width: '100%',
-                                                padding: '6px',
-                                                backgroundColor: 'white',
-                                                border: '1px solid #E5E7EB',
-                                                borderRadius: 6,
-                                                fontSize: 12,
-                                                color: '#6B7280',
-                                                cursor: 'pointer',
-                                            }}
-                                        >
-                                            Reset Filters
-                                        </button>
-                                    </div>
-                                </motion.div>
-                            )}
-                        </AnimatePresence>
-
-                        {/* Parcel List */}
-                        <div style={{
-                            flex: 1,
-                            overflowY: 'auto',
-                            padding: '0 12px 12px',
-                            minHeight: '200px',
-                        }}>
-                            {filteredParcels.length === 0 ? (
-                                <div style={{
-                                    padding: '32px 16px',
-                                    textAlign: 'center',
-                                    color: '#6B7280',
-                                    fontSize: 13,
-                                }}>
-                                    No parcels match your filters
-                                </div>
-                            ) : (
-                                filteredParcels.map((parcel) => (
-                                    <motion.div
-                                        key={parcel.upi}
-                                        whileHover={{ scale: 1.01 }}
-                                        whileTap={{ scale: 0.99 }}
-                                        onClick={() => handleParcelClick(parcel.upi)}
-                                        style={{
-                                            padding: '12px',
-                                            backgroundColor: selectedUPI === parcel.upi ? 'rgba(var(--color-primary), 0.05)' : 'white',
-                                            border: '1px solid',
-                                            borderColor: selectedUPI === parcel.upi ? 'var(--color-primary)' : '#E5E7EB',
-                                            borderRadius: 8,
-                                            cursor: 'pointer',
-                                            marginBottom: 6,
-                                            position: 'relative',
-                                            opacity: (clickedParcel === parcel.upi && loadingInfo) ? 0.7 : 1,
-                                        }}
-                                    >
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
-                                            <div style={{ overflow: 'hidden', flex: 1 }}>
-                                                <div style={{
-                                                    fontWeight: 500,
-                                                    fontSize: 13,
-                                                    color: '#111827',
-                                                    marginBottom: 2,
-                                                    whiteSpace: 'nowrap',
-                                                    overflow: 'hidden',
-                                                    textOverflow: 'ellipsis',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: 6,
-                                                }}>
-                                                    {parcel.upi}
-                                                    {clickedParcel === parcel.upi && loadingInfo && (
-                                                        <Loader2 size={12} className="animate-spin" color="var(--color-primary)" />
-                                                    )}
-                                                </div>
-                                                <div style={{ fontSize: 12, color: '#6B7280' }}>
-                                                    Area: {formatArea(parcel.size || parcel.area || parcel.status_details?.area)}
-                                                </div>
-                                                {parcel.village && (
-                                                    <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2 }}>
-                                                        {parcel.village}, {parcel.cell}, {parcel.sector}
-                                                    </div>
-                                                )}
-                                            </div>
-                                            <div style={{
-                                                width: 10,
-                                                height: 10,
-                                                borderRadius: '50%',
-                                                backgroundColor: parcel.color,
-                                                flexShrink: 0,
-                                            }} />
-                                        </div>
-                                        <div style={{
-                                            display: 'flex',
-                                            gap: 6,
-                                            marginTop: 6,
-                                            fontSize: 11,
-                                            flexWrap: 'wrap',
-                                        }}>
-                                            {parcel.overlapping && <span style={{ color: '#EF4444' }}>⚠️ Overlap</span>}
-                                            {parcel.status_details?.underMortgage && <span style={{ color: '#EF4444' }}>🏦 Mortgage</span>}
-                                            {parcel.status_details?.inTransaction && <span style={{ color: '#EF4444' }}>🔄 Active</span>}
-                                            {parcel.land_use_type && <span style={{ color: '#6B7280' }}>📋 {parcel.land_use_type}</span>}
-                                        </div>
-                                    </motion.div>
-                                ))
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* ================= MAP SECTION ================= */}
             <div style={{
-                flex: 1,
+                display: 'flex',
+                height,
+                width,
                 position: 'relative',
-                backgroundColor: '#E5E7EB',
+                backgroundColor: '#F9FAFB',
+                borderRadius: 12,
+                overflow: 'hidden',
+                fontFamily: 'system-ui, -apple-system, sans-serif'
             }}>
-                {/* Map Controls */}
-                <div style={{
-                    position: 'absolute',
-                    top: 12,
-                    right: 12,
-                    zIndex: 1000,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 6,
-                }}>
-                    {/* Map Style Controls */}
-                    <div style={{
-                        backgroundColor: 'white',
-                        borderRadius: 8,
-                        padding: 2,
-                        boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-                        display: 'flex',
-                        flexDirection: 'column',
-                    }}>
-                        <button
-                            onClick={() => setMapStyle('streets')}
-                            style={{
-                                width: 36,
-                                height: 36,
-                                backgroundColor: mapStyle === 'streets' ? 'var(--color-primary)' : 'transparent',
-                                border: 'none',
-                                borderRadius: 6,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                cursor: 'pointer',
-                                transition: 'all 0.2s',
-                            }}
-                            title="Street Map"
-                        >
-                            <MapIcon size={16} color={mapStyle === 'streets' ? 'white' : '#6B7280'} />
-                        </button>
-                        <button
-                            onClick={() => setMapStyle('satellite')}
-                            style={{
-                                width: 36,
-                                height: 36,
-                                backgroundColor: mapStyle === 'satellite' ? 'var(--color-primary)' : 'transparent',
-                                border: 'none',
-                                borderRadius: 6,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                cursor: 'pointer',
-                            }}
-                            title="Satellite"
-                        >
-                            <Satellite size={16} color={mapStyle === 'satellite' ? 'white' : '#6B7280'} />
-                        </button>
-                        <button
-                            onClick={() => setMapStyle('dark')}
-                            style={{
-                                width: 36,
-                                height: 36,
-                                backgroundColor: mapStyle === 'dark' ? 'var(--color-primary)' : 'transparent',
-                                border: 'none',
-                                borderRadius: 6,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                cursor: 'pointer',
-                            }}
-                            title="Dark Mode"
-                        >
-                            <Moon size={16} color={mapStyle === 'dark' ? 'white' : '#6B7280'} />
-                        </button>
-                    </div>
-
-                    {/* 3D Toggle */}
+                {/* Sidebar Toggle Button */}
+                {showSidebar && !sidebarVisible && (
                     <button
-                        onClick={() => setEnable3D(!enable3D)}
+                        onClick={() => setSidebarVisible(true)}
                         style={{
-                            width: 36,
-                            height: 36,
-                            backgroundColor: enable3D ? 'var(--color-primary)' : 'white',
-                            border: 'none',
-                            borderRadius: 8,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            cursor: 'pointer',
-                            boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-                        }}
-                        title="3D View"
-                    >
-                        <Layers size={16} color={enable3D ? 'white' : '#374151'} />
-                    </button>
-
-                    {/* Auto Zoom Toggle */}
-                    <button
-                        onClick={() => setAutoZoom(!autoZoom)}
-                        style={{
-                            width: 36,
-                            height: 36,
-                            backgroundColor: autoZoom ? 'var(--color-primary)' : 'white',
-                            border: 'none',
-                            borderRadius: 8,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            cursor: 'pointer',
-                            boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-                        }}
-                        title="Auto Zoom"
-                    >
-                        <Navigation size={16} color={autoZoom ? 'white' : '#374151'} />
-                    </button>
-
-                    {/* Recenter Button */}
-                    <button
-                        onClick={() => {
-                            if (selectedParcel) {
-                                setAutoZoom(true);
-                            }
-                        }}
-                        style={{
-                            width: 36,
-                            height: 36,
+                            position: 'absolute',
+                            top: 12,
+                            left: 12,
+                            zIndex: 1000,
                             backgroundColor: 'white',
                             border: 'none',
                             borderRadius: 8,
+                            padding: '8px 12px',
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
                             display: 'flex',
                             alignItems: 'center',
-                            justifyContent: 'center',
+                            gap: 6,
                             cursor: 'pointer',
-                            boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
                         }}
-                        title="Recenter on selected"
                     >
-                        <RefreshCw size={16} color="#374151" />
+                        <Menu size={16} color="var(--color-primary)" />
+                        <span style={{ fontSize: 13, fontWeight: 500 }}>Show Sidebar</span>
                     </button>
-                </div>
+                )}
 
-                {/* Map Container */}
-                <MapContainer
-                    center={selectedParcel?.center || mapCenter}
-                    zoom={15}
-                    style={{ height: '100%', width: '100%' }}
-                    zoomControl={true}
-                    scrollWheelZoom={true}
-                    preferCanvas={true}
-                >
-                    <TileLayer
-                        url={getTileLayer()}
-                        maxZoom={22}
-                    />
-
-                    {mapStyle === 'satellite' && (
-                        <WMSTileLayer
-                            url="https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/WMTS"
-                            layers="World_Imagery"
-                            format="image/jpeg"
-                            transparent={false}
-                        />
-                    )}
-
-                    <MapClickHandler onEmptyClick={handleEmptyClick} />
-
-                    {/* Parcel Polygons with Area Labels */}
-                    {filteredParcels.map((parcel) => (
-                        <ParcelPolygonWithLabel
-                            key={parcel.upi}
-                            parcel={parcel}
-                            isSelected={selectedUPI === parcel.upi}
-                            onClick={() => handleParcelClick(parcel.upi)}
-                        />
-                    ))}
-
-                    {/* Selected Parcel Marker */}
-                    {selectedParcel && (
-                        <Marker position={selectedParcel.center}>
-                            <Popup>
-                                <div style={{ minWidth: '300px', maxHeight: '400px', overflowY: 'auto' }}>
-                                    <h4 style={{ margin: '0 0 8px 0', color: 'var(--color-primary)' }}>
-                                        {selectedParcel.upi}
-                                    </h4>
-
-                                    {/* Basic Info */}
-                                    <div style={{
-                                        display: 'grid',
-                                        gridTemplateColumns: 'repeat(2, 1fr)',
-                                        gap: 8,
-                                        marginBottom: 12,
-                                        padding: '8px',
-                                        backgroundColor: '#F9FAFB',
-                                        borderRadius: 6,
-                                    }}>
-                                        <div>
-                                            <div style={{ fontSize: 10, color: '#6B7280' }}>Area</div>
-                                            <div style={{ fontSize: 13, fontWeight: 600 }}>{formatArea(selectedParcel.size || selectedParcel.area)}</div>
-                                        </div>
-                                        {selectedParcel.land_use_type && (
-                                            <div>
-                                                <div style={{ fontSize: 10, color: '#6B7280' }}>Land Use</div>
-                                                <div style={{ fontSize: 13, fontWeight: 600 }}>{selectedParcel.land_use_type}</div>
-                                            </div>
-                                        )}
-                                        {selectedParcel.village && (
-                                            <div style={{ gridColumn: 'span 2' }}>
-                                                <div style={{ fontSize: 10, color: '#6B7280' }}>Location</div>
-                                                <div style={{ fontSize: 12 }}>
-                                                    {selectedParcel.village}, {selectedParcel.cell}, {selectedParcel.sector}
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    {/* Status Indicators */}
-                                    {(selectedParcel.overlapping || selectedParcel.status_details?.underMortgage || selectedParcel.status_details?.inTransaction) && (
-                                        <div style={{ marginBottom: 12 }}>
-                                            <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 4 }}>Status</div>
-                                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                                                {selectedParcel.overlapping && (
-                                                    <span style={{ padding: '2px 6px', backgroundColor: '#FEF2F2', color: '#EF4444', borderRadius: 12, fontSize: 10 }}>
-                                                        Overlap
-                                                    </span>
-                                                )}
-                                                {selectedParcel.status_details?.underMortgage && (
-                                                    <span style={{ padding: '2px 6px', backgroundColor: '#FEF2F2', color: '#EF4444', borderRadius: 12, fontSize: 10 }}>
-                                                        Mortgage
-                                                    </span>
-                                                )}
-                                                {selectedParcel.status_details?.inTransaction && (
-                                                    <span style={{ padding: '2px 6px', backgroundColor: '#FEF2F2', color: '#EF4444', borderRadius: 12, fontSize: 10 }}>
-                                                        In Transaction
-                                                    </span>
-                                                )}
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* Note about full details */}
-                                    <div style={{
-                                        padding: '8px',
-                                        backgroundColor: '#F3F4F6',
-                                        borderRadius: 6,
-                                        fontSize: 11,
-                                        color: '#4B5563',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: 6,
-                                    }}>
-                                        <Info size={14} />
-                                        Click to view complete property details in the sidebar
-                                    </div>
-                                </div>
-                            </Popup>
-                        </Marker>
-                    )}
-
-                    <ZoomControl position="bottomright" />
-                    <ScaleControl position="bottomleft" metric={true} imperial={false} />
-                    <Map3DView enabled={enable3D} />
-                    {selectedParcel && autoZoom && (
-                        <ZoomToParcel parcel={selectedParcel} shouldZoom={autoZoom} />
-                    )}
-                </MapContainer>
-
-                {/* Property Modal - Combined Data from Both Sources */}
-                <DraggableModal
-                    isOpen={!!combinedData}
-                    onClose={handleModalClose}
-                    title="Property Details"
-                    subtitle={`UPI: ${selectedParcel?.upi || ''}`}
-                    isLoading={loadingInfo}
-                >
-                    {combinedData && !loadingInfo && (
-                        <div>
-                            {/* Data Source Badge */}
-                            <div style={{ marginBottom: 16 }}>
-                                <div style={{
-                                    padding: '8px 12px',
-                                    backgroundColor: combinedData.source === 'both' ? '#F0FDF4' :
-                                        combinedData.source === 'property' ? '#EFF6FF' :
-                                            combinedData.source === 'external' ? '#FEF3C7' : '#F3F4F6',
-                                    borderRadius: 8,
-                                    border: `1px solid ${combinedData.source === 'both' ? '#86EFAC' :
-                                        combinedData.source === 'property' ? '#93C5FD' :
-                                            combinedData.source === 'external' ? '#FCD34D' :
-                                                '#E5E7EB'
-                                        }`,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 8,
+                {/* ================= SIDEBAR ================= */}
+                {showSidebar && sidebarVisible && (
+                    <div style={{
+                        width: 360,
+                        backgroundColor: '#ffffff',
+                        borderRight: '1px solid #E5E7EB',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        height: '100vh',
+                        overflow: 'hidden',
+                        position: 'relative',
+                    }}>
+                        {/* Sidebar Header with Close Button */}
+                        <div style={{
+                            padding: '16px',
+                            borderBottom: '1px solid #E5E7EB',
+                            backgroundColor: '#ffffff',
+                            flexShrink: 0,
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                        }}>
+                            <div>
+                                <h2 style={{
+                                    fontSize: 18,
+                                    fontWeight: 600,
+                                    color: 'var(--color-primary)',
+                                    margin: '0 0 4px 0',
                                 }}>
-                                    {combinedData.source === 'both' && <CheckCircle2 size={16} color="#10B981" />}
-                                    {combinedData.source === 'property' && <Info size={16} color="#3B82F6" />}
-                                    {combinedData.source === 'external' && <AlertCircle size={16} color="#F59E0B" />}
-                                    <span style={{ fontSize: 12, fontWeight: 500 }}>
-                                        {combinedData.source === 'both' && 'Data from both property records and external registry'}
-                                        {combinedData.source === 'property' && 'Data from local property records'}
-                                        {combinedData.source === 'external' && 'Data from external registry (no property record)'}
-                                    </span>
-                                </div>
+                                    Property Explorer (Admin)
+                                </h2>
+                                <p style={{ color: '#6B7280', fontSize: 13, margin: 0 }}>
+                                    {filteredParcels.length} parcels
+                                </p>
                             </div>
-
-                            {/* No Property Record Message */}
-                            {!combinedData.hasPropertyRecord && combinedData.externalData && (
-                                <div style={{
-                                    marginBottom: 16,
-                                    padding: '12px',
-                                    backgroundColor: '#FEF3C7',
-                                    border: '1px solid #F59E0B',
-                                    borderRadius: 8,
+                            <button
+                                onClick={() => setSidebarVisible(false)}
+                                style={{
+                                    width: 28,
+                                    height: 28,
+                                    borderRadius: 14,
+                                    border: 'none',
+                                    backgroundColor: '#F3F4F6',
+                                    color: '#6B7280',
                                     display: 'flex',
                                     alignItems: 'center',
-                                    gap: 8,
-                                }}>
-                                    <AlertCircle size={16} color="#F59E0B" />
-                                    <span style={{ fontSize: 13, color: '#92400E' }}>
-                                        This parcel has no property record in our system.
-                                    </span>
-                                </div>
-                            )}
+                                    justifyContent: 'center',
+                                    cursor: 'pointer',
+                                }}
+                            >
+                                <X size={14} />
+                            </button>
+                        </div>
 
-                            {/* Show Property Data if available */}
-                            {combinedData.propertyData && (
-                                <>
-                                    {/* Basic Property Information */}
-                                    <div style={{ marginBottom: 20 }}>
-                                        <h4 style={{ fontSize: 14, fontWeight: 600, margin: '0 0 12px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
-                                            <Info size={16} color="var(--color-primary)" />
-                                            Property Information
-                                        </h4>
+                        {/* Search */}
+                        <div style={{
+                            padding: '12px',
+                            borderBottom: '1px solid #E5E7EB',
+                            backgroundColor: '#ffffff',
+                            flexShrink: 0,
+                        }}>
+                            <input
+                                type="text"
+                                placeholder="Search by UPI..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                style={{
+                                    width: '100%',
+                                    padding: '8px 12px',
+                                    border: '1px solid #E5E7EB',
+                                    borderRadius: 8,
+                                    fontSize: 13,
+                                    outline: 'none',
+                                    transition: 'border-color 0.2s',
+                                }}
+                                onFocus={(e) => e.target.style.borderColor = 'var(--color-primary)'}
+                                onBlur={(e) => e.target.style.borderColor = '#E5E7EB'}
+                            />
+                        </div>
+
+                        {/* Filter Toggles */}
+                        <div style={{
+                            padding: '10px 12px 12px',
+                            display: 'flex',
+                            gap: 8,
+                            flexWrap: 'wrap',
+                            borderBottom: '1px solid #E5E7EB',
+                            backgroundColor: '#ffffff',
+                            flexShrink: 0,
+                        }}>
+                            <button
+                                onClick={() => setShowFilters(!showFilters)}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                    padding: '6px 12px',
+                                    backgroundColor: showFilters ? 'var(--color-primary)' : '#F3F4F6',
+                                    color: showFilters ? 'white' : '#374151',
+                                    border: 'none',
+                                    borderRadius: 20,
+                                    fontSize: 12,
+                                    fontWeight: 500,
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s',
+                                }}
+                            >
+                                <Filter size={14} />
+                                {showFilters ? 'Hide Filters' : 'Show Filters'}
+                            </button>
+
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                padding: '2px 4px',
+                                backgroundColor: '#F3F4F6',
+                                borderRadius: 20,
+                            }}>
+                                <div style={{
+                                    width: 12,
+                                    height: 12,
+                                    borderRadius: 3,
+                                    backgroundColor: '#3B82F6',
+                                }} />
+                                <span style={{ fontSize: 11 }}>Regular</span>
+                            </div>
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                padding: '2px 4px',
+                                backgroundColor: '#F3F4F6',
+                                borderRadius: 20,
+                            }}>
+                                <div style={{
+                                    width: 12,
+                                    height: 12,
+                                    borderRadius: 3,
+                                    backgroundColor: '#EF4444',
+                                }} />
+                                <span style={{ fontSize: 11 }}>Issues</span>
+                            </div>
+                        </div>
+
+                        {/* Scrollable Content Area */}
+                        <div style={{
+                            flex: 1,
+                            overflowY: 'auto',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            backgroundColor: '#ffffff',
+                            paddingBottom: "100px",
+                        }}>
+                            {/* Filter Panel */}
+                            <AnimatePresence>
+                                {showFilters && (
+                                    <motion.div
+                                        initial={{ height: 0, opacity: 0 }}
+                                        animate={{ height: 'auto', opacity: 1 }}
+                                        exit={{ height: 0, opacity: 0 }}
+                                        style={{ overflow: 'hidden', flexShrink: 0 }}
+                                        className="dark:text-white"
+                                    >
                                         <div style={{
+                                            padding: '12px',
                                             backgroundColor: '#F9FAFB',
-                                            padding: 16,
+                                            margin: '0 12px 12px',
                                             borderRadius: 8,
                                         }}>
                                             <div style={{ marginBottom: 12 }}>
-                                                <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 2 }}>UPI</div>
-                                                <div style={{ fontSize: 14, fontWeight: 500 }}>{combinedData.propertyData.upi}</div>
+                                                <label className="" style={{
+                                                    display: 'block',
+                                                    fontSize: 12,
+                                                    fontWeight: 500,
+                                                    // color: '#4B5563',
+                                                    marginBottom: 4
+                                                }}>
+                                                    Property Status
+                                                </label>
+                                                <select
+                                                    className="dark:text-white"
+                                                    value={filter.status}
+                                                    onChange={(e) => setFilter({ ...filter, status: e.target.value as any })}
+                                                    style={{
+                                                        width: '100%',
+                                                        padding: '6px 8px',
+                                                        border: '1px solid #E5E7EB',
+                                                        borderRadius: 6,
+                                                        fontSize: 12,
+                                                        backgroundColor: 'white',
+                                                    }}
+                                                >
+                                                    <option value="all">All Properties</option>
+                                                    <option value="available">Available</option>
+                                                    <option value="overlapping">Overlapping</option>
+                                                    <option value="underMortgage">Under Mortgage</option>
+                                                    <option value="inTransaction">In Transaction</option>
+                                                </select>
                                             </div>
 
                                             <div style={{ marginBottom: 12 }}>
-                                                <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 2 }}>Area</div>
-                                                <div style={{ fontSize: 14, fontWeight: 600 }}>{formatArea(combinedData.propertyData.size)}</div>
+                                                <label style={{
+                                                    display: 'block',
+                                                    fontSize: 12,
+                                                    fontWeight: 500,
+                                                    // color: '#4B5563',
+                                                    marginBottom: 4
+                                                }}>
+                                                    Area Range (m²)
+                                                </label>
+                                                <div style={{ display: 'flex', gap: 6 }}>
+                                                    <input
+                                                        type="number"
+                                                        placeholder="Min"
+                                                        value={filter.area[0]}
+                                                        onChange={(e) => setFilter({ ...filter, area: [Number(e.target.value), filter.area[1]] })}
+                                                        style={{
+                                                            flex: 1,
+                                                            padding: '4px 6px',
+                                                            border: '1px solid #E5E7EB',
+                                                            borderRadius: 6,
+                                                            fontSize: 12,
+                                                        }}
+                                                    />
+                                                    <input
+                                                        type="number"
+                                                        placeholder="Max"
+                                                        value={filter.area[1]}
+                                                        onChange={(e) => setFilter({ ...filter, area: [filter.area[0], Number(e.target.value)] })}
+                                                        style={{
+                                                            flex: 1,
+                                                            padding: '4px 6px',
+                                                            border: '1px solid #E5E7EB',
+                                                            borderRadius: 6,
+                                                            fontSize: 12,
+                                                        }}
+                                                    />
+                                                </div>
                                             </div>
 
-                                            {combinedData.propertyData.land_use && (
-                                                <div style={{ marginBottom: 12 }}>
-                                                    <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 2 }}>Land Use</div>
-                                                    <div style={{ fontSize: 14 }}>{combinedData.propertyData.land_use}</div>
+                                            <button
+                                                onClick={() => setFilter({
+                                                    status: "all",
+                                                    landUse: [],
+                                                    area: [0, 10000],
+                                                })}
+                                                style={{
+                                                    width: '100%',
+                                                    padding: '6px',
+                                                    backgroundColor: 'white',
+                                                    border: '1px solid #E5E7EB',
+                                                    borderRadius: 6,
+                                                    fontSize: 12,
+                                                    // color: '#6B7280',
+                                                    cursor: 'pointer',
+                                                }}
+                                            >
+                                                Reset Filters
+                                            </button>
+                                        </div>
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
+
+                            {/* Parcel List */}
+                            <div style={{
+                                flex: 1,
+                                overflowY: 'auto',
+                                padding: '0 12px 12px',
+                                minHeight: '200px',
+                            }}>
+                                {filteredParcels.length === 0 ? (
+                                    <div style={{
+                                        padding: '32px 16px',
+                                        textAlign: 'center',
+                                        color: '#6B7280',
+                                        fontSize: 13,
+                                    }}>
+                                        No parcels match your filters
+                                    </div>
+                                ) : (
+                                    filteredParcels.map((parcel) => (
+                                        <motion.div
+                                            key={parcel.upi}
+                                            whileHover={{ scale: 1.01 }}
+                                            whileTap={{ scale: 0.99 }}
+                                            onClick={() => handleParcelClick(parcel.upi)}
+                                            style={{
+                                                padding: '12px',
+                                                backgroundColor: selectedUPI === parcel.upi ? 'rgba(var(--color-primary), 0.05)' : 'white',
+                                                border: '1px solid',
+                                                borderColor: selectedUPI === parcel.upi ? 'var(--color-primary)' : '#E5E7EB',
+                                                borderRadius: 8,
+                                                cursor: 'pointer',
+                                                marginBottom: 6,
+                                                position: 'relative',
+                                                opacity: (clickedParcel === parcel.upi && loadingInfo) ? 0.7 : 1,
+                                            }}
+                                        >
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
+                                                <div style={{ overflow: 'hidden', flex: 1 }}>
+                                                    <div style={{
+                                                        fontWeight: 500,
+                                                        fontSize: 13,
+                                                        color: '#111827',
+                                                        marginBottom: 2,
+                                                        whiteSpace: 'nowrap',
+                                                        overflow: 'hidden',
+                                                        textOverflow: 'ellipsis',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: 6,
+                                                    }}>
+                                                        {parcel.upi}
+                                                        {clickedParcel === parcel.upi && loadingInfo && (
+                                                            <Loader2 size={12} className="animate-spin" color="var(--color-primary)" />
+                                                        )}
+                                                    </div>
+                                                    <div style={{ fontSize: 12, color: '#6B7280' }}>
+                                                        Area: {formatArea(parcel.size || parcel.area || parcel.status_details?.area)}
+                                                    </div>
+                                                    {parcel.village && (
+                                                        <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2 }}>
+                                                            {parcel.village}, {parcel.cell}, {parcel.sector}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <div style={{
+                                                    width: 10,
+                                                    height: 10,
+                                                    borderRadius: '50%',
+                                                    backgroundColor: parcel.color,
+                                                    flexShrink: 0,
+                                                }} />
+                                            </div>
+                                            <div style={{
+                                                display: 'flex',
+                                                gap: 6,
+                                                marginTop: 6,
+                                                fontSize: 11,
+                                                flexWrap: 'wrap',
+                                            }}>
+                                                {parcel.overlapping && <span style={{ color: '#EF4444' }}>⚠️ Overlap</span>}
+                                                {parcel.status_details?.underMortgage && <span style={{ color: '#EF4444' }}>🏦 Mortgage</span>}
+                                                {parcel.status_details?.inTransaction && <span style={{ color: '#EF4444' }}>🔄 Active</span>}
+                                                {parcel.land_use_type && <span style={{ color: '#6B7280' }}>📋 {parcel.land_use_type}</span>}
+                                            </div>
+                                        </motion.div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* ================= MAP SECTION ================= */}
+                <div style={{
+                    flex: 1,
+                    position: 'relative',
+                    backgroundColor: '#E5E7EB',
+                }}>
+                    {/* Map Controls */}
+                    <div style={{
+                        position: 'absolute',
+                        top: 12,
+                        right: 12,
+                        zIndex: 1000,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 6,
+                    }}>
+                        {/* Map Style Controls */}
+                        <div style={{
+                            backgroundColor: 'white',
+                            borderRadius: 8,
+                            padding: 2,
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                        }}>
+                            <button
+                                onClick={() => setMapStyle('streets')}
+                                style={{
+                                    width: 36,
+                                    height: 36,
+                                    backgroundColor: mapStyle === 'streets' ? 'var(--color-primary)' : 'transparent',
+                                    border: 'none',
+                                    borderRadius: 6,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s',
+                                }}
+                                title="Street Map"
+                            >
+                                <MapIcon size={16} color={mapStyle === 'streets' ? 'white' : '#6B7280'} />
+                            </button>
+                            <button
+                                onClick={() => setMapStyle('satellite')}
+                                style={{
+                                    width: 36,
+                                    height: 36,
+                                    backgroundColor: mapStyle === 'satellite' ? 'var(--color-primary)' : 'transparent',
+                                    border: 'none',
+                                    borderRadius: 6,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    cursor: 'pointer',
+                                }}
+                                title="Satellite"
+                            >
+                                <Satellite size={16} color={mapStyle === 'satellite' ? 'white' : '#6B7280'} />
+                            </button>
+                            <button
+                                onClick={() => setMapStyle('dark')}
+                                style={{
+                                    width: 36,
+                                    height: 36,
+                                    backgroundColor: mapStyle === 'dark' ? 'var(--color-primary)' : 'transparent',
+                                    border: 'none',
+                                    borderRadius: 6,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    cursor: 'pointer',
+                                }}
+                                title="Dark Mode"
+                            >
+                                <Moon size={16} color={mapStyle === 'dark' ? 'white' : '#6B7280'} />
+                            </button>
+                        </div>
+
+                        {/* 3D Toggle */}
+                        <button
+                            onClick={() => setEnable3D(!enable3D)}
+                            style={{
+                                width: 36,
+                                height: 36,
+                                backgroundColor: enable3D ? 'var(--color-primary)' : 'white',
+                                border: 'none',
+                                borderRadius: 8,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: 'pointer',
+                                boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                            }}
+                            title="3D View"
+                        >
+                            <Layers size={16} color={enable3D ? 'white' : '#374151'} />
+                        </button>
+
+                        {/* Auto Zoom Toggle */}
+                        <button
+                            onClick={() => setAutoZoom(!autoZoom)}
+                            style={{
+                                width: 36,
+                                height: 36,
+                                backgroundColor: autoZoom ? 'var(--color-primary)' : 'white',
+                                border: 'none',
+                                borderRadius: 8,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: 'pointer',
+                                boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                            }}
+                            title="Auto Zoom"
+                        >
+                            <Navigation size={16} color={autoZoom ? 'white' : '#374151'} />
+                        </button>
+
+                        {/* Recenter Button */}
+                        <button
+                            onClick={() => {
+                                if (selectedParcel) {
+                                    setAutoZoom(true);
+                                }
+                            }}
+                            style={{
+                                width: 36,
+                                height: 36,
+                                backgroundColor: 'white',
+                                border: 'none',
+                                borderRadius: 8,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: 'pointer',
+                                boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                            }}
+                            className="bg-primary"
+                            title="Recenter on selected"
+                        >
+                            <RefreshCw size={16} color="#374151" />
+                        </button>
+                    </div>
+
+                    {/* Map Container */}
+                    <MapContainer
+                        center={selectedParcel?.center || mapCenter}
+                        zoom={13}
+                        style={{ height: '100%', width: '100%' }}
+                        zoomControl={false}
+                        scrollWheelZoom={true}
+                    >
+                        <TileLayer
+                            url={getTileLayer()}
+                            maxZoom={22}
+                        />
+
+                        {mapStyle === 'satellite' && (
+                            <WMSTileLayer
+                                url="https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/WMTS"
+                                layers="World_Imagery"
+                                format="image/jpeg"
+                                transparent={false}
+                            />
+                        )}
+
+                        <MapClickHandler onEmptyClick={handleEmptyClick} />
+
+                        {/* Parcel Polygons with Area Labels */}
+                        {filteredParcels.map((parcel) => (
+                            <ParcelPolygonWithLabel
+                                key={parcel.upi}
+                                parcel={parcel}
+                                isSelected={selectedUPI === parcel.upi}
+                                onClick={() => handleParcelClick(parcel.upi)}
+                            />
+                        ))}
+
+                        {/* Selected Parcel Marker */}
+                        {selectedParcel && (
+                            <Marker position={selectedParcel.center}>
+                                <Popup>
+                                    <div style={{ minWidth: '300px', maxHeight: '400px', overflowY: 'auto' }}>
+                                        <h4 style={{ margin: '0 0 8px 0', color: 'var(--color-primary)' }}>
+                                            {selectedParcel.upi}
+                                        </h4>
+
+                                        {/* Basic Info */}
+                                        <div style={{
+                                            display: 'grid',
+                                            gridTemplateColumns: 'repeat(2, 1fr)',
+                                            gap: 8,
+                                            marginBottom: 12,
+                                            padding: '8px',
+                                            backgroundColor: '#F9FAFB',
+                                            borderRadius: 6,
+                                        }}>
+                                            <div>
+                                                <div style={{ fontSize: 10, color: '#6B7280' }}>Area</div>
+                                                <div style={{ fontSize: 13, fontWeight: 600 }}>{formatArea(selectedParcel.size || selectedParcel.area)}</div>
+                                            </div>
+                                            {selectedParcel.land_use_type && (
+                                                <div>
+                                                    <div style={{ fontSize: 10, color: '#6B7280' }}>Land Use</div>
+                                                    <div style={{ fontSize: 13, fontWeight: 600 }}>{selectedParcel.land_use_type}</div>
                                                 </div>
                                             )}
-
-                                            {combinedData.propertyData.right_type && (
-                                                <div style={{ marginBottom: 12 }}>
-                                                    <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 2 }}>Right Type</div>
-                                                    <div style={{ fontSize: 14 }}>{combinedData.propertyData.right_type}</div>
+                                            {selectedParcel.village && (
+                                                <div style={{ gridColumn: 'span 2' }}>
+                                                    <div style={{ fontSize: 10, color: '#6B7280' }}>Location</div>
+                                                    <div style={{ fontSize: 12 }}>
+                                                        {selectedParcel.village}, {selectedParcel.cell}, {selectedParcel.sector}
+                                                    </div>
                                                 </div>
                                             )}
+                                        </div>
 
-                                            {combinedData.propertyData.estimated_amount && (
+                                        {/* Status Indicators */}
+                                        {(selectedParcel.overlapping || selectedParcel.status_details?.underMortgage || selectedParcel.status_details?.inTransaction) && (
+                                            <div style={{ marginBottom: 12 }}>
+                                                <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 4 }}>Status</div>
+                                                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                                                    {selectedParcel.overlapping && (
+                                                        <span style={{ padding: '2px 6px', backgroundColor: '#FEF2F2', color: '#EF4444', borderRadius: 12, fontSize: 10 }}>
+                                                            Overlap
+                                                        </span>
+                                                    )}
+                                                    {selectedParcel.status_details?.underMortgage && (
+                                                        <span style={{ padding: '2px 6px', backgroundColor: '#FEF2F2', color: '#EF4444', borderRadius: 12, fontSize: 10 }}>
+                                                            Mortgage
+                                                        </span>
+                                                    )}
+                                                    {selectedParcel.status_details?.inTransaction && (
+                                                        <span style={{ padding: '2px 6px', backgroundColor: '#FEF2F2', color: '#EF4444', borderRadius: 12, fontSize: 10 }}>
+                                                            In Transaction
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Note about full details */}
+                                        <div style={{
+                                            padding: '8px',
+                                            backgroundColor: '#F3F4F6',
+                                            borderRadius: 6,
+                                            fontSize: 11,
+                                            color: '#4B5563',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 6,
+                                        }}>
+                                            <Info size={14} />
+                                            Click to view complete property details in the sidebar
+                                        </div>
+                                    </div>
+                                </Popup>
+                            </Marker>
+                        )}
+
+                        <ZoomControl position="bottomright" />
+                        <ScaleControl position="bottomleft" metric={true} imperial={false} />
+                        <Map3DView enabled={enable3D} />
+                        {selectedParcel && autoZoom && (
+                            <ZoomToParcel parcel={selectedParcel} shouldZoom={autoZoom} />
+                        )}
+                    </MapContainer>
+
+                    {/* Property Modal - Combined Data from Both Sources */}
+                    <DraggableModal
+                        isOpen={!!combinedData}
+                        onClose={handleModalClose}
+                        title="Property Details"
+                        subtitle={`UPI: ${selectedParcel?.upi || ''}`}
+                        isLoading={loadingInfo}
+                    >
+                        {combinedData && !loadingInfo && (
+                            <div>
+                                {/* Data Source Badge */}
+                                <div style={{ marginBottom: 16 }}>
+                                    <div style={{
+                                        padding: '8px 12px',
+                                        backgroundColor: combinedData.source === 'both' ? '#F0FDF4' :
+                                            combinedData.source === 'property' ? '#EFF6FF' :
+                                                combinedData.source === 'external' ? '#FEF3C7' : '#F3F4F6',
+                                        borderRadius: 8,
+                                        border: `1px solid ${combinedData.source === 'both' ? '#86EFAC' :
+                                            combinedData.source === 'property' ? '#93C5FD' :
+                                                combinedData.source === 'external' ? '#FCD34D' :
+                                                    '#E5E7EB'
+                                            }`,
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 8,
+                                    }}>
+                                        {combinedData.source === 'both' && <CheckCircle2 size={16} color="#10B981" />}
+                                        {combinedData.source === 'property' && <Info size={16} color="#3B82F6" />}
+                                        {combinedData.source === 'external' && <AlertCircle size={16} color="#F59E0B" />}
+                                        <span style={{ fontSize: 12, fontWeight: 500 }}>
+                                            {combinedData.source === 'both' && 'Data from both property records and external registry'}
+                                            {combinedData.source === 'property' && 'Data from local property records'}
+                                            {combinedData.source === 'external' && 'Data from external registry (no property record)'}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                {/* No Property Record Message */}
+                                {!combinedData.hasPropertyRecord && combinedData.externalData && (
+                                    <div style={{
+                                        marginBottom: 16,
+                                        padding: '12px',
+                                        backgroundColor: '#FEF3C7',
+                                        border: '1px solid #F59E0B',
+                                        borderRadius: 8,
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 8,
+                                    }}>
+                                        <AlertCircle size={16} color="#F59E0B" />
+                                        <span style={{ fontSize: 13, color: '#92400E' }}>
+                                            This parcel has no property record in our system.
+                                        </span>
+                                    </div>
+                                )}
+
+                                {/* Show Property Data if available */}
+                                {combinedData.propertyData && (
+                                    <>
+                                        {/* Basic Property Information */}
+                                        <div style={{ marginBottom: 20 }}>
+                                            <h4 style={{ fontSize: 14, fontWeight: 600, margin: '0 0 12px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                <Info size={16} color="var(--color-primary)" />
+                                                Property Information
+                                            </h4>
+                                            <div style={{
+                                                backgroundColor: '#F9FAFB',
+                                                padding: 16,
+                                                borderRadius: 8,
+                                            }}>
                                                 <div style={{ marginBottom: 12 }}>
-                                                    <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 2 }}>Estimated Amount</div>
-                                                    <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--color-primary)' }}>
-                                                        RWF {combinedData.propertyData.estimated_amount.toLocaleString()}
+                                                    <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 2 }}>UPI</div>
+                                                    <div style={{ fontSize: 14, fontWeight: 500 }}>{combinedData.propertyData.upi}</div>
+                                                </div>
+
+                                                <div style={{ marginBottom: 12 }}>
+                                                    <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 2 }}>Area</div>
+                                                    <div style={{ fontSize: 14, fontWeight: 600 }}>{formatArea(combinedData.propertyData.size)}</div>
+                                                </div>
+
+                                                {combinedData.propertyData.land_use && (
+                                                    <div style={{ marginBottom: 12 }}>
+                                                        <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 2 }}>Land Use</div>
+                                                        <div style={{ fontSize: 14 }}>{combinedData.propertyData.land_use}</div>
+                                                    </div>
+                                                )}
+
+                                                {combinedData.propertyData.right_type && (
+                                                    <div style={{ marginBottom: 12 }}>
+                                                        <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 2 }}>Right Type</div>
+                                                        <div style={{ fontSize: 14 }}>{combinedData.propertyData.right_type}</div>
+                                                    </div>
+                                                )}
+
+                                                {combinedData.propertyData.estimated_amount && (
+                                                    <div style={{ marginBottom: 12 }}>
+                                                        <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 2 }}>Estimated Amount</div>
+                                                        <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--color-primary)' }}>
+                                                            RWF {combinedData.propertyData.estimated_amount.toLocaleString()}
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {combinedData.propertyData.status && (
+                                                    <div>
+                                                        <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 2 }}>Status</div>
+                                                        <span style={{
+                                                            padding: '4px 8px',
+                                                            backgroundColor: combinedData.propertyData.status === 'published' ? '#F0FDF4' : '#FEF2F2',
+                                                            color: combinedData.propertyData.status === 'published' ? '#166534' : '#991B1B',
+                                                            borderRadius: 12,
+                                                            fontSize: 11,
+                                                            display: 'inline-block'
+                                                        }}>
+                                                            {combinedData.propertyData.status}
+                                                        </span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {/* Location Information */}
+                                        {(combinedData.propertyData.village || combinedData.propertyData.cell ||
+                                            combinedData.propertyData.sector || combinedData.propertyData.district) && (
+                                                <div style={{ marginBottom: 20 }}>
+                                                    <h4 style={{ fontSize: 14, fontWeight: 600, margin: '0 0 12px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                        <MapPin size={16} color="var(--color-primary)" />
+                                                        Location
+                                                    </h4>
+                                                    <div style={{
+                                                        backgroundColor: '#F9FAFB',
+                                                        padding: 16,
+                                                        borderRadius: 8,
+                                                    }}>
+                                                        {combinedData.propertyData.village && (
+                                                            <div style={{ marginBottom: 8 }}>
+                                                                <span style={{ fontSize: 11, color: '#6B7280', width: 70, display: 'inline-block' }}>Village:</span>
+                                                                <span style={{ fontSize: 13, marginLeft: 8 }}>{combinedData.propertyData.village}</span>
+                                                            </div>
+                                                        )}
+                                                        {combinedData.propertyData.cell && (
+                                                            <div style={{ marginBottom: 8 }}>
+                                                                <span style={{ fontSize: 11, color: '#6B7280', width: 70, display: 'inline-block' }}>Cell:</span>
+                                                                <span style={{ fontSize: 13, marginLeft: 8 }}>{combinedData.propertyData.cell}</span>
+                                                            </div>
+                                                        )}
+                                                        {combinedData.propertyData.sector && (
+                                                            <div style={{ marginBottom: 8 }}>
+                                                                <span style={{ fontSize: 11, color: '#6B7280', width: 70, display: 'inline-block' }}>Sector:</span>
+                                                                <span style={{ fontSize: 13, marginLeft: 8 }}>{combinedData.propertyData.sector}</span>
+                                                            </div>
+                                                        )}
+                                                        {combinedData.propertyData.district && (
+                                                            <div>
+                                                                <span style={{ fontSize: 11, color: '#6B7280', width: 70, display: 'inline-block' }}>District:</span>
+                                                                <span style={{ fontSize: 13, marginLeft: 8 }}>{combinedData.propertyData.district}</span>
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 </div>
                                             )}
 
-                                            {combinedData.propertyData.status && (
-                                                <div>
-                                                    <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 2 }}>Status</div>
-                                                    <span style={{
-                                                        padding: '4px 8px',
-                                                        backgroundColor: combinedData.propertyData.status === 'published' ? '#F0FDF4' : '#FEF2F2',
-                                                        color: combinedData.propertyData.status === 'published' ? '#166534' : '#991B1B',
-                                                        borderRadius: 12,
-                                                        fontSize: 11,
-                                                        display: 'inline-block'
-                                                    }}>
-                                                        {combinedData.propertyData.status}
-                                                    </span>
+                                        {/* Images Gallery */}
+                                        {combinedData.propertyData.images && combinedData.propertyData.images.length > 0 && (
+                                            <div style={{ marginBottom: 20 }}>
+                                                <h4 style={{ fontSize: 14, fontWeight: 600, margin: '0 0 12px 0' }}>Images</h4>
+                                                <div style={{
+                                                    position: 'relative',
+                                                    borderRadius: 8,
+                                                    overflow: 'hidden',
+                                                    aspectRatio: '16/9',
+                                                    backgroundColor: '#F3F4F6',
+                                                }}>
+                                                    <img
+                                                        src={`${api.defaults?.baseURL?.replace(/\/$/, '') || ''}/assets/${combinedData.propertyData.images[currentImageIndex]?.file_path}`}
+                                                        alt="Property"
+                                                        style={{
+                                                            width: '100%',
+                                                            height: '100%',
+                                                            objectFit: 'cover',
+                                                        }}
+                                                        onError={(e) => {
+                                                            (e.target as HTMLImageElement).src = 'https://via.placeholder.com/400x225?text=No+Image';
+                                                        }}
+                                                    />
+                                                    {combinedData.propertyData.images.length > 1 && (
+                                                        <>
+                                                            <button
+                                                                onClick={() => setCurrentImageIndex((prev) =>
+                                                                    prev === 0 ? combinedData.propertyData.images.length - 1 : prev - 1
+                                                                )}
+                                                                style={{
+                                                                    position: 'absolute',
+                                                                    left: 6,
+                                                                    top: '50%',
+                                                                    transform: 'translateY(-50%)',
+                                                                    width: 28,
+                                                                    height: 28,
+                                                                    borderRadius: 14,
+                                                                    backgroundColor: 'rgba(255,255,255,0.9)',
+                                                                    border: 'none',
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    justifyContent: 'center',
+                                                                    cursor: 'pointer',
+                                                                }}
+                                                            >
+                                                                <ChevronLeft size={14} />
+                                                            </button>
+                                                            <button
+                                                                onClick={() => setCurrentImageIndex((prev) =>
+                                                                    prev === combinedData.propertyData.images.length - 1 ? 0 : prev + 1
+                                                                )}
+                                                                style={{
+                                                                    position: 'absolute',
+                                                                    right: 6,
+                                                                    top: '50%',
+                                                                    transform: 'translateY(-50%)',
+                                                                    width: 28,
+                                                                    height: 28,
+                                                                    borderRadius: 14,
+                                                                    backgroundColor: 'rgba(255,255,255,0.9)',
+                                                                    border: 'none',
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    justifyContent: 'center',
+                                                                    cursor: 'pointer',
+                                                                }}
+                                                            >
+                                                                <ChevronRight size={14} />
+                                                            </button>
+                                                        </>
+                                                    )}
                                                 </div>
-                                            )}
-                                        </div>
-                                    </div>
+                                            </div>
+                                        )}
 
-                                    {/* Location Information */}
-                                    {(combinedData.propertyData.village || combinedData.propertyData.cell ||
-                                        combinedData.propertyData.sector || combinedData.propertyData.district) && (
+                                        {/* Parcel Information */}
+                                        {combinedData.propertyData.parcel_information && (
+                                            <>
+                                                {/* Owners */}
+                                                {combinedData.propertyData.parcel_information.owners &&
+                                                    combinedData.propertyData.parcel_information.owners.length > 0 && (
+                                                        <div style={{ marginBottom: 20 }}>
+                                                            <h4 style={{ fontSize: 14, fontWeight: 600, margin: '0 0 12px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                                <Users size={16} color="var(--color-primary)" />
+                                                                Owners ({combinedData.propertyData.parcel_information.owners.length})
+                                                            </h4>
+                                                            <div style={{
+                                                                backgroundColor: '#F9FAFB',
+                                                                borderRadius: 8,
+                                                                overflow: 'hidden',
+                                                            }}>
+                                                                {combinedData.propertyData.parcel_information.owners.map((owner: any, index: number) => (
+                                                                    <OwnerCard key={index} owner={owner} />
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                {/* Representative */}
+                                                {combinedData.propertyData.parcel_information.representative && (
+                                                    <div style={{ marginBottom: 20 }}>
+                                                        <h4 style={{ fontSize: 14, fontWeight: 600, margin: '0 0 12px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                            <UserCog size={16} color="var(--color-primary)" />
+                                                            Representative
+                                                        </h4>
+                                                        <div style={{
+                                                            backgroundColor: '#F9FAFB',
+                                                            padding: 16,
+                                                            borderRadius: 8,
+                                                        }}>
+                                                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                                                                <div style={{
+                                                                    width: 36,
+                                                                    height: 36,
+                                                                    borderRadius: 18,
+                                                                    backgroundColor: 'var(--color-primary)',
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    justifyContent: 'center',
+                                                                    color: 'white',
+                                                                    fontSize: 16,
+                                                                    fontWeight: 600,
+                                                                }}>
+                                                                    {combinedData.propertyData.parcel_information.representative.foreNames?.charAt(0) || '?'}
+                                                                </div>
+                                                                <div>
+                                                                    <div style={{ fontSize: 14, fontWeight: 600 }}>
+                                                                        {combinedData.propertyData.parcel_information.representative.foreNames} {combinedData.propertyData.parcel_information.representative.surname}
+                                                                    </div>
+                                                                    {combinedData.propertyData.parcel_information.representative.idNo && (
+                                                                        <div style={{ fontSize: 12, color: '#6B7280' }}>
+                                                                            ID: {combinedData.propertyData.parcel_information.representative.idNo}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                            <div style={{ display: 'flex', gap: 12, fontSize: 11, color: '#6B7280', marginTop: 4, flexWrap: 'wrap' }}>
+                                                                {combinedData.propertyData.parcel_information.representative.idTypeName && (
+                                                                    <span>Type: {combinedData.propertyData.parcel_information.representative.idTypeName}</span>
+                                                                )}
+                                                                {combinedData.propertyData.parcel_information.representative.countryName && (
+                                                                    <span>Country: {combinedData.propertyData.parcel_information.representative.countryName}</span>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </>
+                                        )}
+
+                                        {/* Property Details */}
+                                        {combinedData.propertyData.details && (
+                                            <div style={{ marginBottom: 20 }}>
+                                                <h4 style={{ fontSize: 14, fontWeight: 600, margin: '0 0 12px 0' }}>Property Details</h4>
+                                                <div style={{
+                                                    backgroundColor: '#F9FAFB',
+                                                    padding: 16,
+                                                    borderRadius: 8,
+                                                }}>
+                                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
+                                                        {combinedData.propertyData.details.condition && (
+                                                            <div>
+                                                                <div style={{ fontSize: 11, color: '#6B7280' }}>Condition</div>
+                                                                <div style={{ fontSize: 13 }}>{combinedData.propertyData.details.condition}</div>
+                                                            </div>
+                                                        )}
+                                                        {combinedData.propertyData.details.building_type && (
+                                                            <div>
+                                                                <div style={{ fontSize: 11, color: '#6B7280' }}>Building Type</div>
+                                                                <div style={{ fontSize: 13 }}>{combinedData.propertyData.details.building_type}</div>
+                                                            </div>
+                                                        )}
+                                                        {combinedData.propertyData.details.built_area && (
+                                                            <div>
+                                                                <div style={{ fontSize: 11, color: '#6B7280' }}>Built Area</div>
+                                                                <div style={{ fontSize: 13 }}>{combinedData.propertyData.details.built_area} m²</div>
+                                                            </div>
+                                                        )}
+                                                        {combinedData.propertyData.details.floors && (
+                                                            <div>
+                                                                <div style={{ fontSize: 11, color: '#6B7280' }}>Floors</div>
+                                                                <div style={{ fontSize: 13 }}>{combinedData.propertyData.details.floors}</div>
+                                                            </div>
+                                                        )}
+                                                        {combinedData.propertyData.details.bedrooms && (
+                                                            <div>
+                                                                <div style={{ fontSize: 11, color: '#6B7280' }}>Bedrooms</div>
+                                                                <div style={{ fontSize: 13 }}>{combinedData.propertyData.details.bedrooms}</div>
+                                                            </div>
+                                                        )}
+                                                        {combinedData.propertyData.details.bathrooms && (
+                                                            <div>
+                                                                <div style={{ fontSize: 11, color: '#6B7280' }}>Bathrooms</div>
+                                                                <div style={{ fontSize: 13 }}>{combinedData.propertyData.details.bathrooms}</div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </>
+                                )}
+
+                                {/* Show External Data if available and no property data */}
+                                {combinedData.externalData && (
+                                    <div>
+                                        {/* External Registry Information */}
+                                        <div style={{ marginBottom: 20 }}>
+                                            <h4 style={{ fontSize: 14, fontWeight: 600, margin: '0 0 12px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                <Globe size={16} color="var(--color-primary)" />
+                                                External Registry Information
+                                            </h4>
+                                            <div style={{
+                                                backgroundColor: '#F9FAFB',
+                                                padding: 16,
+                                                borderRadius: 8,
+                                            }}>
+                                                <div style={{ marginBottom: 12 }}>
+                                                    <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 2 }}>UPI</div>
+                                                    <div style={{ fontSize: 14, fontWeight: 500 }}>{combinedData.externalData.parcelDetails.upi}</div>
+                                                </div>
+
+                                                <div style={{ marginBottom: 12 }}>
+                                                    <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 2 }}>Area</div>
+                                                    <div style={{ fontSize: 14, fontWeight: 600 }}>{formatArea(combinedData.externalData.parcelDetails.area)}</div>
+                                                </div>
+
+                                                {combinedData.externalData.parcelDetails.landUse && (
+                                                    <div style={{ marginBottom: 12 }}>
+                                                        <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 2 }}>Land Use</div>
+                                                        <div style={{ fontSize: 14 }}>{combinedData.externalData.parcelDetails.landUse.landUseTypeNameEnglish}</div>
+                                                    </div>
+                                                )}
+
+                                                {combinedData.externalData.parcelDetails.rightTypeName && (
+                                                    <div style={{ marginBottom: 12 }}>
+                                                        <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 2 }}>Right Type</div>
+                                                        <div style={{ fontSize: 14 }}>{combinedData.externalData.parcelDetails.rightTypeName}</div>
+                                                    </div>
+                                                )}
+
+                                                {combinedData.externalData.parcelDetails.remainingLeaseTerm && (
+                                                    <div style={{ marginBottom: 12 }}>
+                                                        <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 2 }}>Remaining Lease</div>
+                                                        <div style={{ fontSize: 14 }}>{combinedData.externalData.parcelDetails.remainingLeaseTerm} years</div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {/* External Location */}
+                                        {combinedData.externalData.parcelDetails.address && (
                                             <div style={{ marginBottom: 20 }}>
                                                 <h4 style={{ fontSize: 14, fontWeight: 600, margin: '0 0 12px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
                                                     <MapPin size={16} color="var(--color-primary)" />
@@ -2050,577 +2342,287 @@ export default function ParcelMap({
                                                     padding: 16,
                                                     borderRadius: 8,
                                                 }}>
-                                                    {combinedData.propertyData.village && (
-                                                        <div style={{ marginBottom: 8 }}>
-                                                            <span style={{ fontSize: 11, color: '#6B7280', width: 70, display: 'inline-block' }}>Village:</span>
-                                                            <span style={{ fontSize: 13, marginLeft: 8 }}>{combinedData.propertyData.village}</span>
-                                                        </div>
-                                                    )}
-                                                    {combinedData.propertyData.cell && (
-                                                        <div style={{ marginBottom: 8 }}>
-                                                            <span style={{ fontSize: 11, color: '#6B7280', width: 70, display: 'inline-block' }}>Cell:</span>
-                                                            <span style={{ fontSize: 13, marginLeft: 8 }}>{combinedData.propertyData.cell}</span>
-                                                        </div>
-                                                    )}
-                                                    {combinedData.propertyData.sector && (
-                                                        <div style={{ marginBottom: 8 }}>
-                                                            <span style={{ fontSize: 11, color: '#6B7280', width: 70, display: 'inline-block' }}>Sector:</span>
-                                                            <span style={{ fontSize: 13, marginLeft: 8 }}>{combinedData.propertyData.sector}</span>
-                                                        </div>
-                                                    )}
-                                                    {combinedData.propertyData.district && (
-                                                        <div>
-                                                            <span style={{ fontSize: 11, color: '#6B7280', width: 70, display: 'inline-block' }}>District:</span>
-                                                            <span style={{ fontSize: 13, marginLeft: 8 }}>{combinedData.propertyData.district}</span>
-                                                        </div>
-                                                    )}
+                                                    <div style={{ fontSize: 13, marginBottom: 4 }}>{combinedData.externalData.parcelDetails.address.string}</div>
+                                                    <div style={{ fontSize: 12, color: '#6B7280' }}>
+                                                        {combinedData.externalData.parcelDetails.address.villageName && <span>{combinedData.externalData.parcelDetails.address.villageName}, </span>}
+                                                        {combinedData.externalData.parcelDetails.address.cellName && <span>{combinedData.externalData.parcelDetails.address.cellName}, </span>}
+                                                        {combinedData.externalData.parcelDetails.address.sectorName && <span>{combinedData.externalData.parcelDetails.address.sectorName}</span>}
+                                                    </div>
                                                 </div>
                                             </div>
                                         )}
-
-                                    {/* Images Gallery */}
-                                    {combinedData.propertyData.images && combinedData.propertyData.images.length > 0 && (
-                                        <div style={{ marginBottom: 20 }}>
-                                            <h4 style={{ fontSize: 14, fontWeight: 600, margin: '0 0 12px 0' }}>Images</h4>
-                                            <div style={{
-                                                position: 'relative',
-                                                borderRadius: 8,
-                                                overflow: 'hidden',
-                                                aspectRatio: '16/9',
-                                                backgroundColor: '#F3F4F6',
-                                            }}>
-                                                <img
-                                                    src={`${api.defaults?.baseURL?.replace(/\/$/, '') || ''}/assets/${combinedData.propertyData.images[currentImageIndex]?.file_path}`}
-                                                    alt="Property"
-                                                    style={{
-                                                        width: '100%',
-                                                        height: '100%',
-                                                        objectFit: 'cover',
-                                                    }}
-                                                    onError={(e) => {
-                                                        (e.target as HTMLImageElement).src = 'https://via.placeholder.com/400x225?text=No+Image';
-                                                    }}
-                                                />
-                                                {combinedData.propertyData.images.length > 1 && (
-                                                    <>
-                                                        <button
-                                                            onClick={() => setCurrentImageIndex((prev) =>
-                                                                prev === 0 ? combinedData.propertyData.images.length - 1 : prev - 1
-                                                            )}
-                                                            style={{
-                                                                position: 'absolute',
-                                                                left: 6,
-                                                                top: '50%',
-                                                                transform: 'translateY(-50%)',
-                                                                width: 28,
-                                                                height: 28,
-                                                                borderRadius: 14,
-                                                                backgroundColor: 'rgba(255,255,255,0.9)',
-                                                                border: 'none',
-                                                                display: 'flex',
-                                                                alignItems: 'center',
-                                                                justifyContent: 'center',
-                                                                cursor: 'pointer',
-                                                            }}
-                                                        >
-                                                            <ChevronLeft size={14} />
-                                                        </button>
-                                                        <button
-                                                            onClick={() => setCurrentImageIndex((prev) =>
-                                                                prev === combinedData.propertyData.images.length - 1 ? 0 : prev + 1
-                                                            )}
-                                                            style={{
-                                                                position: 'absolute',
-                                                                right: 6,
-                                                                top: '50%',
-                                                                transform: 'translateY(-50%)',
-                                                                width: 28,
-                                                                height: 28,
-                                                                borderRadius: 14,
-                                                                backgroundColor: 'rgba(255,255,255,0.9)',
-                                                                border: 'none',
-                                                                display: 'flex',
-                                                                alignItems: 'center',
-                                                                justifyContent: 'center',
-                                                                cursor: 'pointer',
-                                                            }}
-                                                        >
-                                                            <ChevronRight size={14} />
-                                                        </button>
-                                                    </>
-                                                )}
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* Parcel Information */}
-                                    {combinedData.propertyData.parcel_information && (
-                                        <>
-                                            {/* Owners */}
-                                            {combinedData.propertyData.parcel_information.owners &&
-                                                combinedData.propertyData.parcel_information.owners.length > 0 && (
-                                                    <div style={{ marginBottom: 20 }}>
-                                                        <h4 style={{ fontSize: 14, fontWeight: 600, margin: '0 0 12px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                            <Users size={16} color="var(--color-primary)" />
-                                                            Owners ({combinedData.propertyData.parcel_information.owners.length})
-                                                        </h4>
+                                        {/* Representative */}
+                                        {combinedData.externalData.parcelRepresentative && (
+                                            <div style={{ marginBottom: 20 }}>
+                                                <h4 style={{ fontSize: 14, fontWeight: 600, margin: '0 0 12px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                    <UserCog size={16} color="var(--color-primary)" />
+                                                    Representative (Registry)
+                                                </h4>
+                                                <div style={{
+                                                    backgroundColor: '#F9FAFB',
+                                                    padding: 16,
+                                                    borderRadius: 8,
+                                                }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                                                         <div style={{
-                                                            backgroundColor: '#F9FAFB',
-                                                            borderRadius: 8,
-                                                            overflow: 'hidden',
+                                                            width: 36,
+                                                            height: 36,
+                                                            borderRadius: 18,
+                                                            backgroundColor: 'var(--color-primary)',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center',
+                                                            color: 'white',
+                                                            fontSize: 16,
+                                                            fontWeight: 600,
                                                         }}>
-                                                            {combinedData.propertyData.parcel_information.owners.map((owner: any, index: number) => (
-                                                                <OwnerCard key={index} owner={owner} />
-                                                            ))}
+                                                            {combinedData.externalData.parcelRepresentative.foreNames?.replace(" ", "").charAt(0) || '?'}
                                                         </div>
-                                                    </div>
-                                                )}
-
-                                            {/* Representative */}
-                                            {combinedData.propertyData.parcel_information.representative && (
-                                                <div style={{ marginBottom: 20 }}>
-                                                    <h4 style={{ fontSize: 14, fontWeight: 600, margin: '0 0 12px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                        <UserCog size={16} color="var(--color-primary)" />
-                                                        Representative
-                                                    </h4>
-                                                    <div style={{
-                                                        backgroundColor: '#F9FAFB',
-                                                        padding: 16,
-                                                        borderRadius: 8,
-                                                    }}>
-                                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                                                            <div style={{
-                                                                width: 36,
-                                                                height: 36,
-                                                                borderRadius: 18,
-                                                                backgroundColor: 'var(--color-primary)',
-                                                                display: 'flex',
-                                                                alignItems: 'center',
-                                                                justifyContent: 'center',
-                                                                color: 'white',
-                                                                fontSize: 16,
-                                                                fontWeight: 600,
-                                                            }}>
-                                                                {combinedData.propertyData.parcel_information.representative.foreNames?.charAt(0) || '?'}
+                                                        <div>
+                                                            <div style={{ fontSize: 14, fontWeight: 600 }}>
+                                                                {combinedData.externalData.parcelRepresentative.foreNames} {combinedData.externalData.parcelRepresentative.surname}
                                                             </div>
-                                                            <div>
-                                                                <div style={{ fontSize: 14, fontWeight: 600 }}>
-                                                                    {combinedData.propertyData.parcel_information.representative.foreNames} {combinedData.propertyData.parcel_information.representative.surname}
+                                                            {combinedData.externalData.parcelRepresentative.idNo && (
+                                                                <div style={{ fontSize: 12, color: '#6B7280' }}>
+                                                                    ID: {combinedData.externalData.parcelRepresentative.idNo}
                                                                 </div>
-                                                                {combinedData.propertyData.parcel_information.representative.idNo && (
-                                                                    <div style={{ fontSize: 12, color: '#6B7280' }}>
-                                                                        ID: {combinedData.propertyData.parcel_information.representative.idNo}
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                        <div style={{ display: 'flex', gap: 12, fontSize: 11, color: '#6B7280', marginTop: 4, flexWrap: 'wrap' }}>
-                                                            {combinedData.propertyData.parcel_information.representative.idTypeName && (
-                                                                <span>Type: {combinedData.propertyData.parcel_information.representative.idTypeName}</span>
-                                                            )}
-                                                            {combinedData.propertyData.parcel_information.representative.countryName && (
-                                                                <span>Country: {combinedData.propertyData.parcel_information.representative.countryName}</span>
                                                             )}
                                                         </div>
                                                     </div>
-                                                </div>
-                                            )}
-                                        </>
-                                    )}
-
-                                    {/* Property Details */}
-                                    {combinedData.propertyData.details && (
-                                        <div style={{ marginBottom: 20 }}>
-                                            <h4 style={{ fontSize: 14, fontWeight: 600, margin: '0 0 12px 0' }}>Property Details</h4>
-                                            <div style={{
-                                                backgroundColor: '#F9FAFB',
-                                                padding: 16,
-                                                borderRadius: 8,
-                                            }}>
-                                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
-                                                    {combinedData.propertyData.details.condition && (
-                                                        <div>
-                                                            <div style={{ fontSize: 11, color: '#6B7280' }}>Condition</div>
-                                                            <div style={{ fontSize: 13 }}>{combinedData.propertyData.details.condition}</div>
-                                                        </div>
-                                                    )}
-                                                    {combinedData.propertyData.details.building_type && (
-                                                        <div>
-                                                            <div style={{ fontSize: 11, color: '#6B7280' }}>Building Type</div>
-                                                            <div style={{ fontSize: 13 }}>{combinedData.propertyData.details.building_type}</div>
-                                                        </div>
-                                                    )}
-                                                    {combinedData.propertyData.details.built_area && (
-                                                        <div>
-                                                            <div style={{ fontSize: 11, color: '#6B7280' }}>Built Area</div>
-                                                            <div style={{ fontSize: 13 }}>{combinedData.propertyData.details.built_area} m²</div>
-                                                        </div>
-                                                    )}
-                                                    {combinedData.propertyData.details.floors && (
-                                                        <div>
-                                                            <div style={{ fontSize: 11, color: '#6B7280' }}>Floors</div>
-                                                            <div style={{ fontSize: 13 }}>{combinedData.propertyData.details.floors}</div>
-                                                        </div>
-                                                    )}
-                                                    {combinedData.propertyData.details.bedrooms && (
-                                                        <div>
-                                                            <div style={{ fontSize: 11, color: '#6B7280' }}>Bedrooms</div>
-                                                            <div style={{ fontSize: 13 }}>{combinedData.propertyData.details.bedrooms}</div>
-                                                        </div>
-                                                    )}
-                                                    {combinedData.propertyData.details.bathrooms && (
-                                                        <div>
-                                                            <div style={{ fontSize: 11, color: '#6B7280' }}>Bathrooms</div>
-                                                            <div style={{ fontSize: 13 }}>{combinedData.propertyData.details.bathrooms}</div>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
-                                </>
-                            )}
-
-                            {/* Show External Data if available and no property data */}
-                            {combinedData.externalData && (
-                                <div>
-                                    {/* External Registry Information */}
-                                    <div style={{ marginBottom: 20 }}>
-                                        <h4 style={{ fontSize: 14, fontWeight: 600, margin: '0 0 12px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
-                                            <Globe size={16} color="var(--color-primary)" />
-                                            External Registry Information
-                                        </h4>
-                                        <div style={{
-                                            backgroundColor: '#F9FAFB',
-                                            padding: 16,
-                                            borderRadius: 8,
-                                        }}>
-                                            <div style={{ marginBottom: 12 }}>
-                                                <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 2 }}>UPI</div>
-                                                <div style={{ fontSize: 14, fontWeight: 500 }}>{combinedData.externalData.parcelDetails.upi}</div>
-                                            </div>
-
-                                            <div style={{ marginBottom: 12 }}>
-                                                <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 2 }}>Area</div>
-                                                <div style={{ fontSize: 14, fontWeight: 600 }}>{formatArea(combinedData.externalData.parcelDetails.area)}</div>
-                                            </div>
-
-                                            {combinedData.externalData.parcelDetails.landUse && (
-                                                <div style={{ marginBottom: 12 }}>
-                                                    <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 2 }}>Land Use</div>
-                                                    <div style={{ fontSize: 14 }}>{combinedData.externalData.parcelDetails.landUse.landUseTypeNameEnglish}</div>
-                                                </div>
-                                            )}
-
-                                            {combinedData.externalData.parcelDetails.rightTypeName && (
-                                                <div style={{ marginBottom: 12 }}>
-                                                    <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 2 }}>Right Type</div>
-                                                    <div style={{ fontSize: 14 }}>{combinedData.externalData.parcelDetails.rightTypeName}</div>
-                                                </div>
-                                            )}
-
-                                            {combinedData.externalData.parcelDetails.remainingLeaseTerm && (
-                                                <div style={{ marginBottom: 12 }}>
-                                                    <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 2 }}>Remaining Lease</div>
-                                                    <div style={{ fontSize: 14 }}>{combinedData.externalData.parcelDetails.remainingLeaseTerm} years</div>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    {/* External Location */}
-                                    {combinedData.externalData.parcelDetails.address && (
-                                        <div style={{ marginBottom: 20 }}>
-                                            <h4 style={{ fontSize: 14, fontWeight: 600, margin: '0 0 12px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                <MapPin size={16} color="var(--color-primary)" />
-                                                Location
-                                            </h4>
-                                            <div style={{
-                                                backgroundColor: '#F9FAFB',
-                                                padding: 16,
-                                                borderRadius: 8,
-                                            }}>
-                                                <div style={{ fontSize: 13, marginBottom: 4 }}>{combinedData.externalData.parcelDetails.address.string}</div>
-                                                <div style={{ fontSize: 12, color: '#6B7280' }}>
-                                                    {combinedData.externalData.parcelDetails.address.villageName && <span>{combinedData.externalData.parcelDetails.address.villageName}, </span>}
-                                                    {combinedData.externalData.parcelDetails.address.cellName && <span>{combinedData.externalData.parcelDetails.address.cellName}, </span>}
-                                                    {combinedData.externalData.parcelDetails.address.sectorName && <span>{combinedData.externalData.parcelDetails.address.sectorName}</span>}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
-                                    {/* Representative */}
-                                    {combinedData.externalData.parcelRepresentative && (
-                                        <div style={{ marginBottom: 20 }}>
-                                            <h4 style={{ fontSize: 14, fontWeight: 600, margin: '0 0 12px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                <UserCog size={16} color="var(--color-primary)" />
-                                                Representative (Registry)
-                                            </h4>
-                                            <div style={{
-                                                backgroundColor: '#F9FAFB',
-                                                padding: 16,
-                                                borderRadius: 8,
-                                            }}>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                                                    <div style={{
-                                                        width: 36,
-                                                        height: 36,
-                                                        borderRadius: 18,
-                                                        backgroundColor: 'var(--color-primary)',
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        justifyContent: 'center',
-                                                        color: 'white',
-                                                        fontSize: 16,
-                                                        fontWeight: 600,
-                                                    }}>
-                                                        {combinedData.externalData.parcelRepresentative.foreNames?.replace(" ", "").charAt(0) || '?'}
-                                                    </div>
-                                                    <div>
-                                                        <div style={{ fontSize: 14, fontWeight: 600 }}>
-                                                            {combinedData.externalData.parcelRepresentative.foreNames} {combinedData.externalData.parcelRepresentative.surname}
-                                                        </div>
-                                                        {combinedData.externalData.parcelRepresentative.idNo && (
-                                                            <div style={{ fontSize: 12, color: '#6B7280' }}>
-                                                                ID: {combinedData.externalData.parcelRepresentative.idNo}
-                                                            </div>
+                                                    <div style={{ display: 'flex', gap: 12, fontSize: 11, color: '#6B7280', marginTop: 4, flexWrap: 'wrap' }}>
+                                                        {combinedData.externalData.parcelRepresentative.idTypeName && (
+                                                            <span>Type: {combinedData.externalData.parcelRepresentative.idTypeName}</span>
+                                                        )}
+                                                        {combinedData.externalData.parcelRepresentative.countryName && (
+                                                            <span>Country: {combinedData.externalData.parcelRepresentative.countryName}</span>
                                                         )}
                                                     </div>
                                                 </div>
-                                                <div style={{ display: 'flex', gap: 12, fontSize: 11, color: '#6B7280', marginTop: 4, flexWrap: 'wrap' }}>
-                                                    {combinedData.externalData.parcelRepresentative.idTypeName && (
-                                                        <span>Type: {combinedData.externalData.parcelRepresentative.idTypeName}</span>
-                                                    )}
-                                                    {combinedData.externalData.parcelRepresentative.countryName && (
-                                                        <span>Country: {combinedData.externalData.parcelRepresentative.countryName}</span>
-                                                    )}
-                                                </div>
                                             </div>
-                                        </div>
-                                    )}
-                                    {/* External Owners */}
-                                    {combinedData.externalData.owners && combinedData.externalData.owners.length > 0 && (
-                                        <div style={{ marginBottom: 20 }}>
-                                            <h4 style={{ fontSize: 14, fontWeight: 600, margin: '0 0 12px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                <Users size={16} color="var(--color-primary)" />
-                                                Owners ({combinedData.externalData.owners.length})
-                                            </h4>
-                                            <div style={{
-                                                backgroundColor: '#F9FAFB',
-                                                borderRadius: 8,
-                                                overflow: 'hidden',
-                                            }}>
-                                                {combinedData.externalData.owners.map((owner: any, index: number) => (
-                                                    <div key={index} style={{
-                                                        padding: '12px',
-                                                        borderBottom: index < (combinedData.externalData?.owners?.length || 0) - 1 ? '1px solid #E5E7EB' : 'none',
-                                                    }}>
-                                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                                                            <div style={{
-                                                                width: 32,
-                                                                height: 32,
-                                                                borderRadius: 16,
-                                                                backgroundColor: 'var(--color-primary)',
-                                                                display: 'flex',
-                                                                alignItems: 'center',
-                                                                justifyContent: 'center',
-                                                                color: 'white',
-                                                                fontSize: 14,
-                                                                fontWeight: 600,
-                                                            }}>
-                                                                {owner.fullName?.charAt(0) || '?'}
+                                        )}
+                                        {/* External Owners */}
+                                        {combinedData.externalData.owners && combinedData.externalData.owners.length > 0 && (
+                                            <div style={{ marginBottom: 20 }}>
+                                                <h4 style={{ fontSize: 14, fontWeight: 600, margin: '0 0 12px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                    <Users size={16} color="var(--color-primary)" />
+                                                    Owners ({combinedData.externalData.owners.length})
+                                                </h4>
+                                                <div style={{
+                                                    backgroundColor: '#F9FAFB',
+                                                    borderRadius: 8,
+                                                    overflow: 'hidden',
+                                                }}>
+                                                    {combinedData.externalData.owners.map((owner: any, index: number) => (
+                                                        <div key={index} style={{
+                                                            padding: '12px',
+                                                            borderBottom: index < (combinedData.externalData?.owners?.length || 0) - 1 ? '1px solid #E5E7EB' : 'none',
+                                                        }}>
+                                                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                                                                <div style={{
+                                                                    width: 32,
+                                                                    height: 32,
+                                                                    borderRadius: 16,
+                                                                    backgroundColor: 'var(--color-primary)',
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    justifyContent: 'center',
+                                                                    color: 'white',
+                                                                    fontSize: 14,
+                                                                    fontWeight: 600,
+                                                                }}>
+                                                                    {owner.fullName?.charAt(0) || '?'}
+                                                                </div>
+                                                                <div>
+                                                                    <div style={{ fontSize: 13, fontWeight: 600 }}>{owner.fullName}</div>
+                                                                    {owner.idNo && (
+                                                                        <div style={{ fontSize: 11, color: '#6B7280' }}>ID: {owner.idNo}</div>
+                                                                    )}
+                                                                </div>
                                                             </div>
-                                                            <div>
-                                                                <div style={{ fontSize: 13, fontWeight: 600 }}>{owner.fullName}</div>
-                                                                {owner.idNo && (
-                                                                    <div style={{ fontSize: 11, color: '#6B7280' }}>ID: {owner.idNo}</div>
-                                                                )}
+                                                            <div style={{ display: 'flex', gap: 12, marginTop: 4, fontSize: 11, color: '#6B7280', flexWrap: 'wrap' }}>
+                                                                {owner.countryId && <span>Country: {owner.countryId}</span>}
+                                                                {owner.gender && <span>Gender: {owner.gender === 'M' ? 'Male' : 'Female'}</span>}
+                                                                {owner.share && <span>Share: {owner.share}%</span>}
                                                             </div>
                                                         </div>
-                                                        <div style={{ display: 'flex', gap: 12, marginTop: 4, fontSize: 11, color: '#6B7280', flexWrap: 'wrap' }}>
-                                                            {owner.countryId && <span>Country: {owner.countryId}</span>}
-                                                            {owner.gender && <span>Gender: {owner.gender === 'M' ? 'Male' : 'Female'}</span>}
-                                                            {owner.share && <span>Share: {owner.share}%</span>}
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* External Valuation */}
-                                    {combinedData.externalData.valuationValues && (
-                                        <div style={{ marginBottom: 20 }}>
-                                            <h4 style={{ fontSize: 14, fontWeight: 600, margin: '0 0 12px 0' }}>Valuation Range</h4>
-                                            <div style={{
-                                                backgroundColor: '#F9FAFB',
-                                                padding: 16,
-                                                borderRadius: 8,
-                                            }}>
-                                                <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--color-primary)' }}>
-                                                    RWF {parseInt(combinedData.externalData.valuationValues.minPrice).toLocaleString()} - {parseInt(combinedData.externalData.valuationValues.maxPrice).toLocaleString()}
+                                                    ))}
                                                 </div>
                                             </div>
-                                        </div>
-                                    )}
+                                        )}
 
-                                    {/* Planned Land Uses */}
-                                    {combinedData.externalData.plannedLandUses && combinedData.externalData.plannedLandUses.length > 0 && (
-                                        <div style={{ marginBottom: 20 }}>
-                                            <h4 style={{ fontSize: 14, fontWeight: 600, margin: '0 0 12px 0' }}>Planned Land Uses</h4>
-                                            <div style={{
-                                                backgroundColor: '#F9FAFB',
-                                                padding: 16,
-                                                borderRadius: 8,
-                                            }}>
-                                                {combinedData.externalData.plannedLandUses.map((use: any, idx: number) => (
-                                                    <div key={idx} style={{ fontSize: 13, marginBottom: idx < (combinedData.externalData?.plannedLandUses?.length || 0) - 1 ? 8 : 0 }}>
-                                                        • {use.landUseName} {use.area ? `(${formatArea(use.area)})` : ''}
+                                        {/* External Valuation */}
+                                        {combinedData.externalData.valuationValues && (
+                                            <div style={{ marginBottom: 20 }}>
+                                                <h4 style={{ fontSize: 14, fontWeight: 600, margin: '0 0 12px 0' }}>Valuation Range</h4>
+                                                <div style={{
+                                                    backgroundColor: '#F9FAFB',
+                                                    padding: 16,
+                                                    borderRadius: 8,
+                                                }}>
+                                                    <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--color-primary)' }}>
+                                                        RWF {parseInt(combinedData.externalData.valuationValues.minPrice).toLocaleString()} - {parseInt(combinedData.externalData.valuationValues.maxPrice).toLocaleString()}
                                                     </div>
-                                                ))}
+                                                </div>
                                             </div>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
+                                        )}
 
-                            {/* Status Badges */}
-                            <div style={{ marginBottom: 20 }}>
-                                <h4 style={{ fontSize: 14, fontWeight: 600, margin: '0 0 12px 0' }}>Status</h4>
-                                {/** message if their is no status */}
-                                {!combinedData.propertyData?.parcelDetails?.inTransaction && !combinedData.propertyData?.parcelDetails?.underMortgage && !combinedData.propertyData?.parcelDetails?.hasCaveat && (
-                                    <><span style={{ color: '#6B7280', fontSize: 13 }}>No Status</span></>
-                                )}
-                                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                                    {combinedData.propertyData?.parcelDetails?.inTransaction && (
-                                        <span style={{ padding: '4px 8px', backgroundColor: '#FEF2F2', color: '#EF4444', borderRadius: 12, fontSize: 11 }}>
-                                            In Transaction
-                                        </span>
-                                    )}
-                                    {combinedData.propertyData?.parcelDetails?.underMortgage && (
-                                        <span style={{ padding: '4px 8px', backgroundColor: '#FEF2F2', color: '#EF4444', borderRadius: 12, fontSize: 11 }}>
-                                            Under Mortgage
-                                        </span>
-                                    )}
-                                    {combinedData.propertyData?.parcelDetails?.hasCaveat && (
-                                        <span style={{ padding: '4px 8px', backgroundColor: '#F3E8FF', color: '#8B5CF6', borderRadius: 12, fontSize: 11 }}>
-                                            Has Caveat
-                                        </span>
-                                    )}
-
-                                    {selectedParcel?.overlapping && (
-                                        <span style={{ padding: '4px 8px', backgroundColor: '#FEF2F2', color: '#EF4444', borderRadius: 12, fontSize: 11 }}>
-                                            Overlapping
-                                        </span>
-                                    )}
-                                </div>
-                            </div>
-
-                            {/* Uploader Information - Only if property data exists */}
-                            {combinedData.propertyData?.uploaded_by && (
-                                <div style={{ marginBottom: 16 }}>
-                                    <h4 style={{ fontSize: 13, fontWeight: 600, margin: '0 0 8px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
-                                        <User size={16} color="var(--color-primary)" />
-                                        Uploaded By
-                                    </h4>
-                                    <div style={{
-                                        backgroundColor: '#F9FAFB',
-                                        padding: 12,
-                                        borderRadius: 8,
-                                    }}>
-                                        <div style={{ fontSize: 13, fontWeight: 500 }}>
-                                            {combinedData.propertyData.uploaded_by_name}
-                                        </div>
-                                        <div style={{ fontSize: 11, color: '#6B7280', marginTop: 2 }}>
-                                            Type: {combinedData.propertyData.uploader_type}
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Category Information - Only if property data exists */}
-                            {combinedData.propertyData?.category && (
-                                <div style={{ marginBottom: 16 }}>
-                                    <h4 style={{ fontSize: 13, fontWeight: 600, margin: '0 0 8px 0' }}>Category</h4>
-                                    <div style={{
-                                        backgroundColor: '#F9FAFB',
-                                        padding: 12,
-                                        borderRadius: 8,
-                                    }}>
-                                        <div style={{ fontSize: 13, fontWeight: 500 }}>
-                                            {combinedData.propertyData.category.label}
-                                        </div>
-                                        {combinedData.propertyData.subcategory && (
-                                            <div style={{ fontSize: 12, color: '#6B7280', marginTop: 4 }}>
-                                                Subcategory: {combinedData.propertyData.subcategory.label}
+                                        {/* Planned Land Uses */}
+                                        {combinedData.externalData.plannedLandUses && combinedData.externalData.plannedLandUses.length > 0 && (
+                                            <div style={{ marginBottom: 20 }}>
+                                                <h4 style={{ fontSize: 14, fontWeight: 600, margin: '0 0 12px 0' }}>Planned Land Uses</h4>
+                                                <div style={{
+                                                    backgroundColor: '#F9FAFB',
+                                                    padding: 16,
+                                                    borderRadius: 8,
+                                                }}>
+                                                    {combinedData.externalData.plannedLandUses.map((use: any, idx: number) => (
+                                                        <div key={idx} style={{ fontSize: 13, marginBottom: idx < (combinedData.externalData?.plannedLandUses?.length || 0) - 1 ? 8 : 0 }}>
+                                                            • {use.landUseName} {use.area ? `(${formatArea(use.area)})` : ''}
+                                                        </div>
+                                                    ))}
+                                                </div>
                                             </div>
                                         )}
                                     </div>
-                                </div>
-                            )}
+                                )}
 
-                            {/* Video Link - Only if property data exists */}
-                            {combinedData.propertyData?.video_link &&
-                                combinedData.propertyData.video_link !== "http://localhost:5173/login" && (
+                                {/* Status Badges */}
+                                <div style={{ marginBottom: 20 }}>
+                                    <h4 style={{ fontSize: 14, fontWeight: 600, margin: '0 0 12px 0' }}>Status</h4>
+                                    {/** message if their is no status */}
+                                    {!combinedData.propertyData?.parcelDetails?.inTransaction && !combinedData.propertyData?.parcelDetails?.underMortgage && !combinedData.propertyData?.parcelDetails?.hasCaveat && (
+                                        <><span style={{ color: '#6B7280', fontSize: 13 }}>No Status</span></>
+                                    )}
+                                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                        {combinedData.propertyData?.parcelDetails?.inTransaction && (
+                                            <span style={{ padding: '4px 8px', backgroundColor: '#FEF2F2', color: '#EF4444', borderRadius: 12, fontSize: 11 }}>
+                                                In Transaction
+                                            </span>
+                                        )}
+                                        {combinedData.propertyData?.parcelDetails?.underMortgage && (
+                                            <span style={{ padding: '4px 8px', backgroundColor: '#FEF2F2', color: '#EF4444', borderRadius: 12, fontSize: 11 }}>
+                                                Under Mortgage
+                                            </span>
+                                        )}
+                                        {combinedData.propertyData?.parcelDetails?.hasCaveat && (
+                                            <span style={{ padding: '4px 8px', backgroundColor: '#F3E8FF', color: '#8B5CF6', borderRadius: 12, fontSize: 11 }}>
+                                                Has Caveat
+                                            </span>
+                                        )}
+
+                                        {selectedParcel?.overlapping && (
+                                            <span style={{ padding: '4px 8px', backgroundColor: '#FEF2F2', color: '#EF4444', borderRadius: 12, fontSize: 11 }}>
+                                                Overlapping
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Uploader Information - Only if property data exists */}
+                                {combinedData.propertyData?.uploaded_by && (
                                     <div style={{ marginBottom: 16 }}>
                                         <h4 style={{ fontSize: 13, fontWeight: 600, margin: '0 0 8px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
-                                            <Film size={16} color="var(--color-primary)" />
-                                            Video
+                                            <User size={16} color="var(--color-primary)" />
+                                            Uploaded By
                                         </h4>
-                                        <a
-                                            href={combinedData.propertyData.video_link}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            style={{
-                                                display: 'inline-block',
-                                                padding: '8px 16px',
-                                                backgroundColor: 'var(--color-primary)',
-                                                color: 'white',
-                                                textDecoration: 'none',
-                                                borderRadius: 6,
-                                                fontSize: 12,
-                                            }}
-                                        >
-                                            Watch Video
-                                        </a>
+                                        <div style={{
+                                            backgroundColor: '#F9FAFB',
+                                            padding: 12,
+                                            borderRadius: 8,
+                                        }}>
+                                            <div style={{ fontSize: 13, fontWeight: 500 }}>
+                                                {combinedData.propertyData.uploaded_by_name}
+                                            </div>
+                                            <div style={{ fontSize: 11, color: '#6B7280', marginTop: 2 }}>
+                                                Type: {combinedData.propertyData.uploader_type}
+                                            </div>
+                                        </div>
                                     </div>
                                 )}
-                        </div>
-                    )}
-                </DraggableModal>
 
-                {/* Global Loading Overlay */}
-                {loadingInfo && !combinedData && (
-                    <div style={{
-                        position: 'absolute',
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        backgroundColor: 'rgba(255,255,255,0.7)',
-                        backdropFilter: 'blur(2px)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        zIndex: 900,
-                        pointerEvents: 'none',
-                    }}>
+                                {/* Category Information - Only if property data exists */}
+                                {combinedData.propertyData?.category && (
+                                    <div style={{ marginBottom: 16 }}>
+                                        <h4 style={{ fontSize: 13, fontWeight: 600, margin: '0 0 8px 0' }}>Category</h4>
+                                        <div style={{
+                                            backgroundColor: '#F9FAFB',
+                                            padding: 12,
+                                            borderRadius: 8,
+                                        }}>
+                                            <div style={{ fontSize: 13, fontWeight: 500 }}>
+                                                {combinedData.propertyData.category.label}
+                                            </div>
+                                            {combinedData.propertyData.subcategory && (
+                                                <div style={{ fontSize: 12, color: '#6B7280', marginTop: 4 }}>
+                                                    Subcategory: {combinedData.propertyData.subcategory.label}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Video Link - Only if property data exists */}
+                                {combinedData.propertyData?.video_link &&
+                                    combinedData.propertyData.video_link !== "http://localhost:5173/login" && (
+                                        <div style={{ marginBottom: 16 }}>
+                                            <h4 style={{ fontSize: 13, fontWeight: 600, margin: '0 0 8px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                <Film size={16} color="var(--color-primary)" />
+                                                Video
+                                            </h4>
+                                            <a
+                                                href={combinedData.propertyData.video_link}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                style={{
+                                                    display: 'inline-block',
+                                                    padding: '8px 16px',
+                                                    backgroundColor: 'var(--color-primary)',
+                                                    color: 'white',
+                                                    textDecoration: 'none',
+                                                    borderRadius: 6,
+                                                    fontSize: 12,
+                                                }}
+                                            >
+                                                Watch Video
+                                            </a>
+                                        </div>
+                                    )}
+                            </div>
+                        )}
+                    </DraggableModal>
+
+                    {/* Global Loading Overlay */}
+                    {loadingInfo && !combinedData && (
                         <div style={{
-                            backgroundColor: 'white',
-                            padding: '12px 24px',
-                            borderRadius: 30,
-                            boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            backgroundColor: 'rgba(255,255,255,0.7)',
+                            backdropFilter: 'blur(2px)',
                             display: 'flex',
                             alignItems: 'center',
-                            gap: 12,
+                            justifyContent: 'center',
+                            zIndex: 900,
+                            pointerEvents: 'none',
                         }}>
-                            <Loader2 size={20} className="animate-spin" color="var(--color-primary)" />
-                            <span style={{ fontSize: 13, color: '#374151' }}>Loading property details...</span>
+                            <div style={{
+                                backgroundColor: 'white',
+                                padding: '12px 24px',
+                                borderRadius: 30,
+                                boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 12,
+                            }}>
+                                <Loader2 size={20} className="animate-spin" color="var(--color-primary)" />
+                                <span style={{ fontSize: 13, color: '#374151' }}>Loading property details...</span>
+                            </div>
                         </div>
-                    </div>
-                )}
+                    )}
+                </div>
             </div>
-        </div>
         </>
     );
 }

@@ -1870,14 +1870,14 @@ function StepTwo({
           <div className="flex items-center gap-3">
             <button
               onClick={onBack}
-              className="bg-white/90 backdrop-blur rounded-lg px-3 py-2 flex items-center gap-2 hover:bg-white transition-colors shadow-lg text-foreground"
+              className="bg-white/90 dark:text-white dark:bg-black backdrop-blur rounded-lg px-3 py-2 flex items-center gap-2 hover:bg-white transition-colors shadow-lg text-foreground"
             >
               <ArrowLeft size={18} />
               <span>Back</span>
             </button>
             <button
               onClick={onVerifyAnother}
-              className="bg-white/90 backdrop-blur rounded-lg px-4 py-2 flex items-center gap-2 hover:bg-white transition-colors shadow-lg"
+              className="bg-white/90 dark:bg-black backdrop-blur rounded-lg px-4 py-2 flex items-center gap-2 hover:bg-white transition-colors shadow-lg"
               style={{ color: 'var(--color-primary)' }}
             >
               <Upload size={18} />
@@ -1886,7 +1886,7 @@ function StepTwo({
             <button
               onClick={handleRefresh}
               disabled={refreshing}
-              className="bg-white/90 backdrop-blur rounded-lg px-3 py-2 flex items-center gap-2 hover:bg-white transition-colors shadow-lg text-foreground"
+              className="bg-white/90 dark:bg-black backdrop-blur rounded-lg px-3 py-2 flex items-center gap-2 hover:bg-white transition-colors shadow-lg text-foreground"
             >
               <RefreshCw size={18} className={refreshing ? 'animate-spin' : ''} />
               <span>Refresh</span>
@@ -1895,7 +1895,7 @@ function StepTwo({
 
           <div className="flex items-center gap-3">
             {/* View Mode Toggle */}
-            <div className="bg-white/90 backdrop-blur rounded-lg flex p-1 shadow-lg">
+            <div className="bg-white/90 dark:bg-black backdrop-blur rounded-lg flex p-1 shadow-lg">
               <button
                 onClick={() => setViewMode('district')}
                 className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${viewMode === 'district'
@@ -1941,7 +1941,7 @@ function StepTwo({
               </button>
             )}
 
-            <div className="bg-white/90 backdrop-blur rounded-lg px-4 py-2 flex gap-4 shadow-lg text-foreground">
+            <div className="bg-white/90 dark:bg-black backdrop-blur rounded-lg px-4 py-2 flex gap-4 shadow-lg text-foreground">
               <div className="text-sm">
                 <span className="text-gray-600 dark:text-gray-400">Parcels:</span>
                 <span className="font-semibold ml-1">{loadedFromDbCount}</span>
@@ -1961,7 +1961,7 @@ function StepTwo({
 
       <button
         onClick={() => setSidebarOpen((prev) => !prev)}
-        className="absolute top-24 left-4 z-[1200] bg-white dark:bg-gray-800 rounded-lg shadow-lg p-2 hover:bg-gray-100 dark:hover:bg-gray-700"
+        className="absolute top-24 left-4 z-[1200] bg-white dark:bg-gray-800 rounded-lg shadow-lg p-2 hover:bg-gray-100 dark:hover:bg-gray-700 dark:text-gray-200 transition-colors"
         title={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
       >
         {sidebarOpen ? <ChevronLeft size={18} /> : <ChevronRight size={18} />}
@@ -1973,7 +1973,7 @@ function StepTwo({
             initial={{ x: -20, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: -20, opacity: 0 }}
-            className="absolute top-36 left-4 z-[1200] w-90 max-h-[70vh] overflow-y-auto bg-white/95 dark:bg-gray-900/95 backdrop-blur rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 p-4"
+            className="absolute top-36 left-4 z-[1200] dark:text-gray-200 w-90 max-h-[70vh] overflow-y-auto bg-white/95 dark:bg-gray-900/95 backdrop-blur rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 p-4"
           >
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold flex items-center gap-2">
@@ -1982,7 +1982,7 @@ function StepTwo({
               </h3>
               <button
                 onClick={() => setCompareMode((prev) => !prev)}
-                className={`text-xs px-2 py-1 rounded-md ${compareMode ? 'bg-primary text-white' : 'bg-gray-100 dark:bg-gray-800'}`}
+                className={`text-xs px-2 py-1 dark:text-white rounded-md ${compareMode ? 'bg-primary text-white' : 'bg-gray-100 dark:bg-gray-800'}`}
               >
                 {compareMode ? 'Compare: ON' : 'Compare: OFF'}
               </button>
@@ -2078,7 +2078,7 @@ function StepTwo({
                       Loading more parcels...
                     </>
                   ) : (
-                    'Load More (next 500)'
+                    'Load More (next 100)'
                   )}
                 </button>
               ) : (

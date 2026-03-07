@@ -384,17 +384,17 @@ function ParcelDetailsModal({ isOpen, onClose, parcel, onCreateProperty }: Parce
 
     return (
         <div className="fixed inset-0 z-[1200] flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+            <div className="absolute inset-0 bg-black/20  backdrop-blur-sm" onClick={onClose} />
 
             <motion.div
                 initial={{ scale: 0.95, opacity: 0, y: 20 }}
                 animate={{ scale: 1, opacity: 1, y: 0 }}
                 exit={{ scale: 0.95, opacity: 0, y: 20 }}
-                className="relative bg-white dark:bg-[#0f1f3a] rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden shadow-2xl"
+                className="relative bg-white dark:bg-[#112240] rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden shadow-2xl"
             >
                 {/* Header */}
-                <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#112240] flex justify-between items-center">
-                    <div className="flex items-center gap-3">
+                <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-900 bg-gray-50 dark:bg-black flex justify-between items-center">
+                    <div className="flex items-center gap-3 dark:text-white">
                         <div className={clsx(
                             "p-2 rounded-full",
                             parcel.overlaps ? 'bg-red-100' :
@@ -412,8 +412,8 @@ function ParcelDetailsModal({ isOpen, onClose, parcel, onCreateProperty }: Parce
                             )}
                         </div>
                         <div>
-                            <h3 className="text-lg font-bold">Parcel Details</h3>
-                            <p className="text-xs text-gray-500">UPI: {parcel.upi}</p>
+                            <h3 className="text-lg font-bold dark:text-white">Parcel Details</h3>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">UPI: {parcel.upi}</p>
                         </div>
                     </div>
                     <button
@@ -425,7 +425,7 @@ function ParcelDetailsModal({ isOpen, onClose, parcel, onCreateProperty }: Parce
                 </div>
 
                 {/* Content */}
-                <div className="p-6 overflow-y-auto" style={{ maxHeight: 'calc(90vh - 140px)' }}>
+                <div className="p-6 overflow-y-auto dark:text-gray-300" style={{ maxHeight: 'calc(90vh - 140px)' }}>
                     {/* Status Alert */}
                     {parcel.overlaps && (
                         <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800/30 rounded-xl">
@@ -599,7 +599,7 @@ function ParcelDetailsModal({ isOpen, onClose, parcel, onCreateProperty }: Parce
                 <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#112240] flex justify-end gap-3">
                     <button
                         onClick={onClose}
-                        className="px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-sm font-medium"
+                        className="px-4 py-2 dark:text-white rounded-lg border border-gray-200 dark:border-gray-900 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-sm font-medium"
                     >
                         Close
                     </button>
@@ -1722,17 +1722,17 @@ function MappingsList({ onSelectMapping: _onSelectMapping, onRefresh, onCreatePr
     }
 
     return (
-        <div className="bg-white dark:bg-[#0a162e] rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <div className="bg-white dark:bg-black/20 rounded-lg border border-gray-200 dark:border-gray-900 overflow-hidden">
             {/* Header */}
-            <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
+            <div className="p-4 border-b border-gray-200 dark:border-gray-900 flex justify-between items-center">
                 <div>
-                    <h3 className="text-lg font-semibold">My Mappings</h3>
-                    <p className="text-xs text-gray-500 mt-1">
+                    <h3 className="text-lg font-semibold text-gray-800 dark:text-primary">My Mappings</h3>
+                    <p className="text-xs text-gray-500 mt-1 dark:text-gray-200">
                         Showing {mappings.length}{totalCount > 0 ? ` of ${totalCount}` : ''} parcels
                     </p>
                 </div>
                 <div className="flex gap-2">
-                    <div className="relative">
+                    <div className="relative dark:text-white">
                         <Search size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
                         <input
                             type="text"
@@ -1755,16 +1755,16 @@ function MappingsList({ onSelectMapping: _onSelectMapping, onRefresh, onCreatePr
             {/* Table */}
             <div className="overflow-x-auto">
                 <table className="w-full">
-                    <thead className="bg-gray-50 dark:bg-[#112240] border-b border-gray-200 dark:border-gray-700">
+                    <thead className="bg-gray-50 dark:bg-black border-b border-gray-200 dark:border-gray-900">
                         <tr>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">UPI</th>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Location</th>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Land Use</th>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Area</th>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Year</th>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Property</th>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-white uppercase">UPI</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-white uppercase">Location</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-white uppercase">Land Use</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-white uppercase">Area</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-white uppercase">Status</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-white uppercase">Year</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-white uppercase">Property</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-white uppercase">Actions</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
@@ -1779,7 +1779,7 @@ function MappingsList({ onSelectMapping: _onSelectMapping, onRefresh, onCreatePr
                                 <tr
                                     key={mapping.id}
                                     className={clsx(
-                                        'hover:bg-gray-50 dark:hover:bg-white/5 transition-colors',
+                                        'hover:bg-gray-50 dark:hover:bg-black/20 dark:text-white transition-colors',
                                         mapping.overlaps && 'bg-red-50/50 dark:bg-red-900/10'
                                     )}
                                 >
@@ -2107,7 +2107,7 @@ function MapView({ parcels, onParcelClick, onCreateProperty, onViewDetails, sele
             </div>
 
             {/* Legend */}
-            <div className="absolute top-4 left-4 z-[1000] bg-white dark:bg-[#112240] rounded-lg shadow-lg p-3">
+            <div className="absolute top-4 left-4 z-[1000] bg-white dark:bg-[#112240] dark:text-white rounded-lg shadow-lg p-3">
                 <h4 className="text-xs font-bold mb-2">Legend</h4>
                 <div className="space-y-1.5">
                     <div className="flex items-center gap-2">

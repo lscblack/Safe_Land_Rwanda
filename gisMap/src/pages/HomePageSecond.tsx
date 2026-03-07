@@ -74,16 +74,14 @@ const SafeLandNavbar = () => {
                         </button>
                     ))}
                 </div>
-                <div className='flex gap-3 hidden lg:flex'>
+                <div className='gap-3 hidden lg:flex items-center justify-between'>
                     {/* Desktop Auth Buttons */}
-                    <div className=" items-center gap-3">
                         <a href="/login" className="px-5 py-2.5 text-sm font-bold text-slate-700 dark:text-gray-200 hover:text-[#395d91] dark:hover:text-white transition-colors">
                             Sign In
                         </a>
                         <a href="/register" className="px-5 py-2.5 bg-[#395d91] hover:bg-[#2d4a75] text-white text-sm font-bold rounded-xl transition-all shadow-sm active:scale-95">
                             Get Started
                         </a>
-                    </div>
                     <DarkModeOnboardingPage />
                 </div>
 
@@ -709,14 +707,12 @@ export const DarkModeOnboardingPage = () => {
     return (<>
 
         {/* --- THEME TOGGLE (Top Right) --- */}
-        {/* <div className="absolute top-6 right-6 z-50"> */}
         <button
             onClick={toggleTheme}
-            className="p-3 rounded-full bg-white dark:bg-white/10 shadow-lg border border-gray-100 dark:border-white/5 hover:bg-gray-100 dark:hover:bg-white/20 transition-all text-slate-600 dark:text-white backdrop-blur-md"
+            className="p-3 rounded-full bg-white dark:bg-white/10 shadow-lg border border-gray-100 dark:border-white/5 hover:bg-gray-100 dark:hover:bg-white/20 transition-all text-slate-600 dark:text-white"
         >
             {isDark ? <Sun size={20} /> : <Moon size={20} />}
         </button>
-        {/* </div> */}
     </>
     )
 }

@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import {
     MapPin, AlertTriangle, CheckCircle2, Clock, DollarSign,
     TrendingUp, TrendingDown, Shield,
-    Layers, Database, Sparkles, Target,Plus,Map,Activity, Zap,Home,
+    Layers, Database, Sparkles, Target, Plus, Map, Activity, Zap, Home,
     MessageCircle,
     Upload
 } from 'lucide-react';
@@ -152,7 +152,7 @@ const StatCard: React.FC<StatCardProps> = ({
         <motion.div
             whileHover={{ y: -4 }}
             className={clsx(
-                'bg-white rounded-xl border border-gray-200 p-6 cursor-pointer transition-all hover:shadow-lg',
+                'bg-white dark:bg-black/20 rounded-xl border border-gray-200 dark:border-gray-900 p-6 cursor-pointer transition-all hover:shadow-lg',
                 onClick && 'cursor-pointer'
             )}
             onClick={onClick}
@@ -172,8 +172,8 @@ const StatCard: React.FC<StatCardProps> = ({
                 )}
             </div>
             <div>
-                <p className="text-sm text-gray-500 mb-1">{title}</p>
-                <p className="text-2xl font-bold text-gray-800">{value}</p>
+                <p className="text-sm text-gray-500 dark:text-primary mb-1">{title}</p>
+                <p className="text-2xl font-bold text-gray-800 dark:text-primary">{value}</p>
                 {subtitle && <p className="text-xs text-gray-400 mt-1">{subtitle}</p>}
             </div>
         </motion.div>
@@ -365,16 +365,16 @@ const ParcelTable: React.FC<ParcelTableProps> = ({ parcels, onViewParcel }) => {
         <div className="overflow-x-auto">
             <table className="w-full">
                 <thead>
-                    <tr className="border-b border-gray-200">
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">UPI</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Location</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Land Use</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Area</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                    <tr className="border-b border-gray-200 dark:border-gray-900">
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-primary uppercase">UPI</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-primary uppercase">Location</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-primary uppercase">Land Use</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-primary uppercase">Area</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-primary uppercase">Status</th>
 
                     </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-900">
                     {parcels.map((parcel, index) => (
                         <motion.tr
                             key={parcel.upi}
@@ -382,7 +382,7 @@ const ParcelTable: React.FC<ParcelTableProps> = ({ parcels, onViewParcel }) => {
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ delay: index * 0.05 }}
                             className={clsx(
-                                'hover:bg-gray-50 transition-colors',
+                                'hover:bg-gray-50 transition-colors dark:hover:bg-gray-800 cursor-pointer',
                                 parcel.has_issue && 'bg-red-200/30'
                             )}
                         >
@@ -601,23 +601,23 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
     }
 
     return (
-        <div className="min-h-screen bg-gray-50 p-6 lg:p-8">
+        <div className="min-h-screen bg-gray-50 dark:bg-background dark:text-white p-6 lg:p-8">
             <div className="max-w-full mx-auto space-y-8">
                 {/* Header */}
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                     <div>
-                        <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                        <h1 className="text-2xl font-bold text-gray-800 dark:text-primary flex items-center gap-2">
                             <Sparkles size={24} className="text-[#395d91]" />
                             Welcome back, {userProfile?.first_name || 'User'}!
                         </h1>
-                        <p className="text-gray-500 mt-1">
+                        <p className="text-gray-500 dark:text-gray-100 mt-1">
                             Here's what's happening with your properties
                         </p>
                     </div>
                     <div className="flex gap-3">
                         <button
                             onClick={() => handleView("map")}
-                            className="px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors flex items-center gap-2"
+                            className="px-4 py-2 bg-white dark:text-primary border border-gray-200 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors flex items-center gap-2"
                         >
                             <Map size={16} className="text-[#395d91]" />
                             View Map
@@ -675,9 +675,9 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                 {/* Health Score and Quick Actions */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     {/* Health Score Card */}
-                    <div className="bg-white rounded-xl border border-gray-200 p-6">
+                    <div className="bg-white dark:bg-black/20 rounded-xl border border-gray-200 dark:border-gray-900 p-6">
                         <div className="flex items-center justify-between mb-4">
-                            <h3 className="font-semibold text-gray-800">Portfolio Health</h3>
+                            <h3 className="font-semibold text-gray-800 dark:text-primary">Portfolio Health</h3>
                             <Shield size={20} className="text-[#395d91]" />
                         </div>
                         <div className="flex items-center gap-4">
@@ -728,22 +728,22 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                     </div>
 
                     {/* Quick Actions */}
-                    <div className="bg-white rounded-xl border border-gray-200 p-6 lg:col-span-2">
-                        <h3 className="font-semibold text-gray-800 mb-4">Quick Actions</h3>
+                    <div className="bg-white dark:bg-black/20 rounded-xl border border-gray-200 dark:border-gray-900 p-6 lg:col-span-2">
+                        <h3 className="font-semibold text-gray-800 dark:text-primary mb-4">Quick Actions</h3>
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                            <button onClick={() => handleView("upload")} className="p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors text-center">
+                            <button onClick={() => handleView("upload")} className="p-4 bg-gray-50 dark:bg-black/20 dark:border-gray-900 rounded-lg hover:bg-gray-100 dark:hover:bg-black/20 cursor-pointer transition-colors text-center">
                                 <Upload size={20} className="mx-auto mb-2 text-[#395d91]" />
                                 <span className="text-xs font-medium">Upload PDF</span>
                             </button>
-                            <button onClick={() => handleView("map")} className="p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors text-center">
+                            <button onClick={() => handleView("map")} className="p-4 bg-gray-50 dark:bg-black/20 dark:border-gray-900 rounded-lg hover:bg-gray-100 dark:hover:bg-black/20 cursor-pointer transition-colors text-center">
                                 <Map size={20} className="mx-auto mb-2 text-[#395d91]" />
                                 <span className="text-xs font-medium">View Map</span>
                             </button>
-                            <button onClick={() => handleView("mappings")} className="p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors text-center">
+                            <button onClick={() => handleView("mappings")} className="p-4 bg-gray-50 dark:bg-black/20 dark:border-gray-900 rounded-lg hover:bg-gray-100 dark:hover:bg-black/20 cursor-pointer transition-colors text-center">
                                 <DollarSign size={20} className="mx-auto mb-2 text-[#395d91]" />
                                 <span className="text-xs font-medium">List for Sale</span>
                             </button>
-                            <button onClick={() => window.location.href = "/map"} className="p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors text-center">
+                            <button onClick={() => window.location.href = "/map"} className="p-4 bg-gray-50 dark:bg-black/20 dark:border-gray-900 rounded-lg hover:bg-gray-100 dark:hover:bg-black/20 cursor-pointer transition-colors text-center">
                                 <MessageCircle size={20} className="mx-auto mb-2 text-[#395d91]" />
                                 <span className="text-xs font-medium">View As User</span>
                             </button>
@@ -754,9 +754,9 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                 {/* Charts and Activities */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     {/* Land Use Distribution */}
-                    <div className="bg-white rounded-xl border border-gray-200 p-6">
+                    <div className="bg-white dark:bg-black/20 rounded-xl border border-gray-200 dark:border-gray-900 p-6">
                         <div className="flex justify-between items-center mb-4">
-                            <h3 className="font-semibold text-gray-800">Land Use Distribution</h3>
+                            <h3 className="font-semibold text-gray-800 dark:text-primary">Land Use Distribution</h3>
                             <Layers size={16} className="text-gray-400" />
                         </div>
                         {landUseData.length > 0 ? (
@@ -782,9 +782,9 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                     </div>
 
                     {/* District Distribution */}
-                    <div className="bg-white rounded-xl border border-gray-200 p-6">
+                    <div className="bg-white dark:bg-black/20 dark:border-gray-900 rounded-xl border border-gray-200 p-6">
                         <div className="flex justify-between items-center mb-4">
-                            <h3 className="font-semibold text-gray-800">District Distribution</h3>
+                            <h3 className="font-semibold text-gray-800 dark:text-primary">District Distribution</h3>
                             <MapPin size={16} className="text-gray-400" />
                         </div>
                         {districtData.length > 0 ? (
@@ -814,9 +814,9 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                     </div>
 
                     {/* Recent Activity */}
-                    <div className="bg-white rounded-xl border border-gray-200 p-6">
+                    <div className="bg-white dark:bg-black/20 dark:border-gray-900 rounded-xl border border-gray-200 p-6">
                         <div className="flex justify-between items-center mb-4">
-                            <h3 className="font-semibold text-gray-800">Recent Activity</h3>
+                            <h3 className="font-semibold text-gray-800 dark:text-primary">Recent Activity</h3>
                             <Activity size={16} className="text-gray-400" />
                         </div>
                         <ActivityTimeline activities={activities.slice(0, 5)} />
@@ -824,7 +824,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                 </div>
 
                 {/* Recent Parcels Table */}
-                <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                <div className="bg-white dark:bg-black/20 rounded-xl border border-gray-200 dark:border-gray-900 p-6 overflow-hidden">
                     <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
                         <div>
                             <h3 className="font-semibold text-gray-800">Recent Parcels</h3>
@@ -841,7 +841,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
                 {/* Footer Stats */}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <div className="bg-white rounded-lg border border-gray-200 p-4">
+                    <div className="bg-white dark:bg-black/20 rounded-lg border border-gray-200 dark:border-gray-900 p-4">
                         <div className="flex items-center gap-3">
                             <div className="p-2 bg-blue-100 rounded-lg">
                                 <Clock size={16} className="text-blue-600" />
@@ -854,7 +854,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                             </div>
                         </div>
                     </div>
-                    <div className="bg-white rounded-lg border border-gray-200 p-4">
+                    <div className="bg-white dark:bg-black/20 rounded-lg border border-gray-200 dark:border-gray-900 p-4">
                         <div className="flex items-center gap-3">
                             <div className="p-2 bg-green-100 rounded-lg">
                                 <Target size={16} className="text-green-600" />
@@ -865,7 +865,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                             </div>
                         </div>
                     </div>
-                    <div className="bg-white rounded-lg border border-gray-200 p-4">
+                    <div className="bg-white dark:bg-black/20 rounded-lg border border-gray-200 dark:border-gray-900 p-4">
                         <div className="flex items-center gap-3">
                             <div className={`p-2 rounded-lg ${stats.summary.overlaps > 0 ? 'bg-red-100' : 'bg-green-100'}`}>
                                 <Layers size={16} className={stats.summary.overlaps > 0 ? 'text-red-600' : 'text-green-600'} />
@@ -881,7 +881,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                             </div>
                         </div>
                     </div>
-                    <div className="bg-white rounded-lg border border-gray-200 p-4">
+                    <div className="bg-white dark:bg-black/20 rounded-lg border border-gray-200 dark:border-gray-900 p-4">
                         <div className="flex items-center gap-3">
                             <div className="p-2 bg-orange-100 rounded-lg">
                                 <Zap size={16} className="text-orange-600" />
