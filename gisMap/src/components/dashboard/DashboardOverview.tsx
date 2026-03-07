@@ -516,7 +516,30 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
             } catch (err: any) {
                 console.error('Failed to fetch dashboard data:', err);
-                setError(err.response?.data?.message || 'Failed to load dashboard data');
+                if (err.response?.status === 404) {
+                    // No data yet for this user — show empty dashboard
+                    setStats({
+                        uploader_id: String(userId ?? ''),
+                        summary: {
+                            total_mappings: 0,
+                            for_sale: 0,
+                            not_for_sale: 0,
+                            with_issues: 0,
+                            clean: 0,
+                            under_mortgage: 0,
+                            has_caveat: 0,
+                            in_transaction: 0,
+                            overlaps: 0,
+                            total_listed_value: 0,
+                        },
+                        breakdown: { by_district: {}, by_land_use: {} },
+                        parcels: [],
+                    });
+                    setRecentParcels([]);
+                    setActivities([]);
+                } else {
+                    setError(err.response?.data?.message || 'Failed to load dashboard data');
+                }
             } finally {
                 setLoading(false);
             }
@@ -526,7 +549,9 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
     }, [userId]);
 
     // Calculate health score
-    const healthScore = stats ? Math.round((stats.summary.clean / stats.summary.total_mappings) * 100) : 0;
+    const healthScore = stats && stats.summary.total_mappings > 0
+        ? Math.round((stats.summary.clean / stats.summary.total_mappings) * 100)
+        : 0;
 
     // Prepare chart data
     const landUseData = stats ? Object.entries(stats.breakdown.by_land_use).map(([label, value], index) => ({

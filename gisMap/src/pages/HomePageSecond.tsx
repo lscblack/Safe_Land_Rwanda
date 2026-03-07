@@ -63,7 +63,7 @@ const SafeLandNavbar = () => {
                 </div>
 
                 {/* Desktop Navigation */}
-                <div className="hidden md:flex items-center gap-8">
+                <div className="hidden lg:flex items-center gap-8">
                     {navLinks.map((link) => (
                         <button
                             key={link.name}
@@ -74,20 +74,22 @@ const SafeLandNavbar = () => {
                         </button>
                     ))}
                 </div>
-                <DarkModeOnboardingPage />
-                {/* Desktop Auth Buttons */}
-                <div className="hidden md:flex items-center gap-3">
-                    <a href="/login" className="px-5 py-2.5 text-sm font-bold text-slate-700 dark:text-gray-200 hover:text-[#395d91] dark:hover:text-white transition-colors">
-                        Sign In
-                    </a>
-                    <a href="/register" className="px-5 py-2.5 bg-[#395d91] hover:bg-[#2d4a75] text-white text-sm font-bold rounded-xl transition-all shadow-sm active:scale-95">
-                        Get Started
-                    </a>
+                <div className='flex gap-3 hidden lg:flex'>
+                    {/* Desktop Auth Buttons */}
+                    <div className=" items-center gap-3">
+                        <a href="/login" className="px-5 py-2.5 text-sm font-bold text-slate-700 dark:text-gray-200 hover:text-[#395d91] dark:hover:text-white transition-colors">
+                            Sign In
+                        </a>
+                        <a href="/register" className="px-5 py-2.5 bg-[#395d91] hover:bg-[#2d4a75] text-white text-sm font-bold rounded-xl transition-all shadow-sm active:scale-95">
+                            Get Started
+                        </a>
+                    </div>
+                    <DarkModeOnboardingPage />
                 </div>
 
                 {/* Mobile Menu Toggle */}
                 <button
-                    className="md:hidden p-2 text-slate-900 dark:text-white"
+                    className="lg:hidden p-2 text-slate-900 dark:text-white"
                     onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
                 >
                     {mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
@@ -101,7 +103,7 @@ const SafeLandNavbar = () => {
                         initial={{ opacity: 0, height: 0 }}
                         animate={{ opacity: 1, height: 'auto' }}
                         exit={{ opacity: 0, height: 0 }}
-                        className="md:hidden bg-white dark:bg-[#0a162e] border-b border-gray-200 dark:border-gray-800 overflow-hidden"
+                        className="lg:hidden bg-white dark:bg-[#0a162e] border-b border-gray-200 dark:border-gray-800 overflow-hidden"
                     >
                         <div className="flex flex-col p-4 space-y-2">
                             {navLinks.map((link) => (
@@ -120,6 +122,9 @@ const SafeLandNavbar = () => {
                             <a href="/register" className="p-4 text-center font-bold text-white bg-[#395d91] rounded-xl">
                                 Get Started
                             </a>
+                        </div>
+                        <div className="flex justify-center items-center p-2 gap-2">
+                            <DarkModeOnboardingPage />
                         </div>
                     </motion.div>
                 )}
