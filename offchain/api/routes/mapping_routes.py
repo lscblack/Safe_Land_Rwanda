@@ -762,6 +762,51 @@ async def update_market_status(
     mapping = result.scalar_one_or_none()
     if not mapping:
         raise HTTPException(status_code=404, detail="Mapping not found for the given UPI")
+
+    # Block listing for sale when the parcel has any legal issues
+    if body.for_sale:
+        issues: list[str] = []
+        if mapping.under_mortgage:
+            issues.append("under mortgage")
+        if mapping.has_caveat:
+            issues.append("has a caveat")
+        if mapping.in_transaction:
+            issues.append("already in an active transaction")
+
+        # Check for spatial overlaps via PostGIS (live computation)
+        if mapping.official_registry_polygon:
+            overlap_check_sql = text("""
+                SELECT EXISTS (
+                    SELECT 1 FROM mappings m2
+                    WHERE m2.upi != :upi
+                      AND m2.official_registry_polygon IS NOT NULL
+                      AND ST_Intersects(
+                              ST_GeometryFromText(:polygon),
+                              ST_GeometryFromText(m2.official_registry_polygon)
+                          )
+                      AND NOT ST_Touches(
+                              ST_GeometryFromText(:polygon),
+                              ST_GeometryFromText(m2.official_registry_polygon)
+                          )
+                ) AS has_overlap
+            """)
+            ov_res = await db.execute(overlap_check_sql, {
+                "upi": mapping.upi,
+                "polygon": mapping.official_registry_polygon,
+            })
+            if ov_res.scalar():
+                issues.append("overlaps with another registered parcel")
+
+        if issues:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "This parcel cannot be listed for sale because it has the following "
+                    f"unresolved legal issue(s): {', '.join(issues)}. "
+                    "Please resolve all issues before listing."
+                ),
+            )
+
     mapping.for_sale = body.for_sale
     if body.price is not None:
         mapping.price = body.price

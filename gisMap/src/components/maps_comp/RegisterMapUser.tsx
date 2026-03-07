@@ -1570,6 +1570,7 @@ function MappingsList({ onSelectMapping: _onSelectMapping, onRefresh, onCreatePr
     console.log(error)
     const [savingMarketId, setSavingMarketId] = useState<number | null>(null);
     const [marketError, setMarketError] = useState<string | null>(null);
+    const [marketConfirm, setMarketConfirm] = useState<{ isOpen: boolean; mapping: Mapping | null }>({ isOpen: false, mapping: null });
 
     const startEditMarket = (mapping: Mapping) => {
         setMarketError(null);
@@ -1584,6 +1585,10 @@ function MappingsList({ onSelectMapping: _onSelectMapping, onRefresh, onCreatePr
         setEditingMarketId(null);
         setMarketError(null);
         setMarketForm({ for_sale: false, price: '' });
+    };
+
+    const requestSaveMarket = (mapping: Mapping) => {
+        setMarketConfirm({ isOpen: true, mapping });
     };
 
     const saveMarket = async (mapping: Mapping) => {
@@ -1904,7 +1909,7 @@ function MappingsList({ onSelectMapping: _onSelectMapping, onRefresh, onCreatePr
                                                             <button
                                                                 onClick={(e) => {
                                                                     e.stopPropagation();
-                                                                    saveMarket(mapping);
+                                                                    requestSaveMarket(mapping);
                                                                 }}
                                                                 disabled={savingMarketId === mapping.id}
                                                                 className="px-2 py-1 text-xs bg-primary text-white rounded hover:bg-primary/90 disabled:opacity-60"
@@ -1923,15 +1928,17 @@ function MappingsList({ onSelectMapping: _onSelectMapping, onRefresh, onCreatePr
                                                         </div>
                                                     </div>
                                                 ) : (
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            startEditMarket(mapping);
-                                                        }}
-                                                        className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
-                                                    >
-                                                        Update market
-                                                    </button>
+                                                    !mapping.for_sale && (
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                startEditMarket(mapping);
+                                                            }}
+                                                            className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+                                                        >
+                                                            Update market
+                                                        </button>
+                                                    )
                                                 )}
                                             </div>
                                         )}
@@ -1978,6 +1985,43 @@ function MappingsList({ onSelectMapping: _onSelectMapping, onRefresh, onCreatePr
                     </tbody>
                 </table>
             </div>
+
+            {/* Market Status Confirmation Modal */}
+            {marketConfirm.isOpen && marketConfirm.mapping && (
+                <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+                    <div className="bg-white dark:bg-[#112240] rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 p-6 w-full max-w-sm mx-4">
+                        <h3 className="text-base font-bold mb-2 text-gray-900 dark:text-white">Confirm Market Status Change</h3>
+                        <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">
+                            You are about to mark parcel <span className="font-mono font-semibold text-primary">{marketConfirm.mapping.upi}</span> as{' '}
+                            <span className={marketForm.for_sale ? 'text-green-600 font-semibold' : 'text-gray-500 font-semibold'}>
+                                {marketForm.for_sale ? 'For Sale' : 'Not For Sale'}
+                            </span>
+                            {marketForm.for_sale && marketForm.price && (
+                                <> at <span className="font-semibold">{Number(marketForm.price).toLocaleString()} RWF</span></>  
+                            )}.
+                        </p>
+                        <p className="text-xs text-gray-400 dark:text-gray-500 mb-5">Are you sure you want to proceed? This will update the parcel's listing status.</p>
+                        <div className="flex gap-3 justify-end">
+                            <button
+                                onClick={() => setMarketConfirm({ isOpen: false, mapping: null })}
+                                className="px-4 py-2 text-sm bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={() => {
+                                    const m = marketConfirm.mapping!;
+                                    setMarketConfirm({ isOpen: false, mapping: null });
+                                    saveMarket(m);
+                                }}
+                                className="px-4 py-2 text-sm bg-primary text-white rounded-lg hover:bg-primary/90"
+                            >
+                                Yes, Update
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <div className="p-3 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between gap-3">
                 <p className="text-xs text-gray-500">

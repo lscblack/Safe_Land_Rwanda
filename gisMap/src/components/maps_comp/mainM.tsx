@@ -1174,7 +1174,7 @@ function StepOne({ onVerify, onViewMap, isVerifying, verificationResult }: StepO
             <p className="text-blue-100">
               Upload your e-title document to verify your property
             </p>
-            <button onClick={()=>window.location.href="/"} className='text-blue-100 cursor-pointer'>Goback</button>
+            <button onClick={() => window.location.href = "/"} className='text-blue-100 cursor-pointer'>Goback</button>
           </div>
         </div>
 
@@ -2290,11 +2290,15 @@ function StepTwo({
       {/* Map Container */}
       <MapContainer
         center={verifiedParcel?.center || mapCenter}
+        // zoom={13}
+        // style={{ height: '100%', width: '100%' }}
+        // zoomControl={false}
+        // scrollWheelZoom={true}
+        // preferCanvas={true}
         zoom={13}
         style={{ height: '100%', width: '100%' }}
         zoomControl={false}
         scrollWheelZoom={true}
-        preferCanvas={true}
       >
         <TileLayer
           url={getTileLayer()}
