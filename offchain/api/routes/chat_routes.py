@@ -27,7 +27,6 @@ from api.ml.chat_service import chat as run_chat
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-
 # ---------------------------------------------------------------------------
 # Pydantic schemas
 # ---------------------------------------------------------------------------
@@ -246,9 +245,9 @@ async def send_message(
         "user_message":  {"id": user_msg.id,      "role": "user",      "content": body.message, "created_at": str(user_msg.created_at)},
         "reply":         {"id": assistant_msg.id, "role": "assistant", "content": reply,         "created_at": str(assistant_msg.created_at)},
         "resolved_upi":  context_snapshot.get("resolved_upi"),
-        # Always return every parcel (UPI + polygon + coords) that was referenced
-        # so the frontend can highlight / fly-to them on the map.
-        "parcels": context_snapshot.get("parcels", []),
+        # Parcel chips are only shown when the user uploads a PDF in the chat.
+        # The message endpoint never returns chips to protect other users' UPI privacy.
+        "parcels": [],
     }
 
 

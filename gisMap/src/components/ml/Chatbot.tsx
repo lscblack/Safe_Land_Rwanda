@@ -1,7 +1,7 @@
 // SimpleAiChatbot.tsx — fully integrated with SafeLand RAG backend
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MessageCircle, X, Send, Bot, User, Loader2, MapPin, Paperclip, FileText } from 'lucide-react';
+import { MessageCircle, X, Send, Bot, User, Loader2, MapPin, Paperclip, FileText, Edit2, ShieldAlert } from 'lucide-react';
 import api from '../../instance/mainAxios';
 
 // ---------------------------------------------------------------------------
@@ -64,6 +64,69 @@ const storeSessionId = (upi: string | null, id: number) => {
 };
 
 // ---------------------------------------------------------------------------
+// Admin-only query guard
+// ---------------------------------------------------------------------------
+const ADMIN_ONLY_PATTERNS = [
+    /how many (parcels|properties|lands|titles)/i,
+    /list all (parcels|properties|owners|users|people)/i,
+    /all parcels (with|that|owned|belonging|having)/i,
+    /count.*parcel/i,
+    /who (owns|owned) all/i,
+    /all owners/i,
+    /total number of (parcels|properties|land)/i,
+    /database.*all/i,
+    /all land.*owner/i,
+    /which (owner|person|user).*owns/i,
+    /parcels.*belonging to/i,
+    /show me all/i,
+];
+
+function isAdminOnlyQuery(text: string): boolean {
+    return ADMIN_ONLY_PATTERNS.some(p => p.test(text));
+}
+
+// ---------------------------------------------------------------------------
+// Markdown renderer
+// ---------------------------------------------------------------------------
+function renderInlineMarkdown(text: string): React.ReactNode[] {
+    const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g);
+    return parts.map((part, i) => {
+        if (part.startsWith('**') && part.endsWith('**'))
+            return <strong key={i} className="font-semibold">{part.slice(2, -2)}</strong>;
+        if (part.startsWith('*') && part.endsWith('*'))
+            return <em key={i}>{part.slice(1, -1)}</em>;
+        if (part.startsWith('`') && part.endsWith('`'))
+            return <code key={i} className="bg-black/10 rounded px-0.5 font-mono text-[11px]">{part.slice(1, -1)}</code>;
+        return <React.Fragment key={i}>{part}</React.Fragment>;
+    });
+}
+
+function RenderMarkdown({ text, isUser }: { text: string; isUser?: boolean }) {
+    const lines = text.split('\n');
+    return (
+        <div className="space-y-0.5">
+            {lines.map((line, i) => {
+                if (line.startsWith('### '))
+                    return <p key={i} className="font-bold text-[12px] mt-1">{renderInlineMarkdown(line.slice(4))}</p>;
+                if (line.startsWith('## '))
+                    return <p key={i} className="font-bold text-[13px] mt-1">{renderInlineMarkdown(line.slice(3))}</p>;
+                if (line.startsWith('# '))
+                    return <p key={i} className="font-bold text-sm mt-1">{renderInlineMarkdown(line.slice(2))}</p>;
+                if (line.startsWith('- ') || line.startsWith('* '))
+                    return (
+                        <div key={i} className="flex gap-1.5 items-start">
+                            <span className="mt-1 shrink-0">•</span>
+                            <span>{renderInlineMarkdown(line.slice(2))}</span>
+                        </div>
+                    );
+                if (line.trim() === '') return <div key={i} className="h-1" />;
+                return <p key={i} className={`leading-relaxed ${isUser ? '' : ''}`}>{renderInlineMarkdown(line)}</p>;
+            })}
+        </div>
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 export const SimpleAiChatbot: React.FC<SimpleAiChatbotProps> = ({
@@ -93,6 +156,12 @@ export const SimpleAiChatbot: React.FC<SimpleAiChatbotProps> = ({
     const [isLoading, setIsLoading] = useState(false);
     const [isUploadingPdf, setIsUploadingPdf] = useState(false);
     const [sessionError, setSessionError] = useState<string | null>(null);
+    // lastUploadedUpi: tracks the most recently uploaded PDF parcel so
+    // the session always focuses on the newest upload (unless user says 'compare')
+    const [lastUploadedUpi, setLastUploadedUpi] = useState<string | null>(null);
+    // chipNotices: inline notices shown below a parcel chip after the user clicks it
+    const [chipNotices, setChipNotices] = useState<Record<string, string>>({});
+
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -171,18 +240,38 @@ export const SimpleAiChatbot: React.FC<SimpleAiChatbotProps> = ({
             }
 
             const parcel: ParcelRef = data.parcel;
+
+            // Determine whether the user is in a 'compare' context so we keep old parcels
+            const isCompareContext = messages.some(m =>
+                m.type === 'user' && /compare|vs\.?\s|versus/i.test(m.content)
+            );
+
+            // If NOT in compare mode and there's a previous upload, note the switch
+            const switchNotice =
+                lastUploadedUpi && !isCompareContext && parcel && parcel.upi !== lastUploadedUpi
+                    ? `\n\n(Switched focus to **${parcel.upi}** — previous parcel **${lastUploadedUpi}** is now secondary. Say "compare" to analyse both.)`
+                    : '';
+
             setMessages(prev => [...prev, {
                 id: (Date.now() + 1).toString(),
                 type: 'bot',
-                content: data.message,
+                content: (data.message ?? '') + switchNotice,
                 timestamp: new Date(),
                 parcels: parcel ? [parcel] : undefined,
             }]);
             if (parcel) {
+                // Always zoom/highlight the newly uploaded parcel
                 onParcelsUpdate?.([parcel]);
-                // PDF upload always targets a single known parcel — update selected UPI
+                // Update active UPI to the new upload
                 setActiveUPI(parcel.upi);
                 onUpiChange?.(parcel.upi);
+                setLastUploadedUpi(parcel.upi);
+                // If the parcel has no issues and is for sale, open the detail popup
+                const hasIssue = parcel.under_mortgage || parcel.has_caveat ||
+                    parcel.in_transaction || parcel.overlaps || parcel.has_condition;
+                if (!hasIssue && parcel.for_sale) {
+                    onParcelSelect?.(parcel.upi);
+                }
             }
         } catch (err: any) {
             setMessages(prev => [...prev, {
@@ -199,11 +288,60 @@ export const SimpleAiChatbot: React.FC<SimpleAiChatbotProps> = ({
     };
 
     // -----------------------------------------------------------------------
+    // Chip click — zoom always; open popup only if for_sale & no issues
+    // -----------------------------------------------------------------------
+    const handleChipClick = (p: ParcelRef) => {
+        // Always zoom to the parcel and update active UPI
+        onParcelsUpdate?.([p]);
+        setActiveUPI(p.upi);
+        onUpiChange?.(p.upi);
+
+        const hasIssue = p.under_mortgage || p.has_caveat ||
+            p.in_transaction || p.overlaps || p.has_condition;
+
+        if (!hasIssue && p.for_sale) {
+            // Clean parcel that is for sale → open detail popup
+            onParcelSelect?.(p.upi);
+            setChipNotices(prev => ({ ...prev, [p.upi]: '' }));
+        } else {
+            // Build a specific notice
+            const issues: string[] = [];
+            if (p.under_mortgage)  issues.push('under mortgage');
+            if (p.has_caveat)      issues.push('has a caveat');
+            if (p.in_transaction)  issues.push('currently in a transaction — not safe to buy');
+            if (p.overlaps)        issues.push('has a boundary overlap with another parcel');
+            if (!p.for_sale)       issues.push('not listed for sale');
+
+            const notice = issues.length
+                ? `⚠️ This parcel is ${issues.join(', ')}. It is not safe to proceed with a purchase at this time.`
+                : '⚠️ This parcel has unresolved conditions. Inspect carefully before buying.';
+
+            setChipNotices(prev => ({ ...prev, [p.upi]: notice }));
+        }
+    };
+
+    // -----------------------------------------------------------------------
     // Send a message
     // -----------------------------------------------------------------------
     const handleSend = async () => {
         const text = input.trim();
         if (!text || isLoading) return;
+
+        // Guard: admin-only questions should not be answered for regular users
+        if (isAdminOnlyQuery(text)) {
+            setMessages(prev => [
+                ...prev,
+                { id: Date.now().toString(), type: 'user', content: text, timestamp: new Date() },
+                {
+                    id: (Date.now() + 1).toString(),
+                    type: 'bot',
+                    content: '🔒 Only authorised administrators can query aggregate system data such as parcel counts, owner lists, or bulk statistics. If you believe you should have access, please contact your administrator.',
+                    timestamp: new Date(),
+                },
+            ]);
+            setInput('');
+            return;
+        }
 
         const userMsg: Message = {
             id: Date.now().toString(),
@@ -222,26 +360,13 @@ export const SimpleAiChatbot: React.FC<SimpleAiChatbotProps> = ({
                 message: text,
             });
 
-            const parcels: ParcelRef[] = data.parcels ?? [];
-
             const botMsg: Message = {
                 id: (Date.now() + 1).toString(),
                 type: 'bot',
                 content: data.reply?.content ?? "I'm not sure about that. Could you rephrase?",
                 timestamp: new Date(),
-                parcels: parcels.length > 0 ? parcels : undefined,
             };
             setMessages(prev => [...prev, botMsg]);
-
-            // Notify parent map
-            if (parcels.length > 0) {
-                onParcelsUpdate?.(parcels);
-                // Single parcel reply → auto-select it as the active UPI
-                if (parcels.length === 1) {
-                    setActiveUPI(parcels[0].upi);
-                    onUpiChange?.(parcels[0].upi);
-                }
-            }
 
         } catch (err: any) {
             const detail = err?.response?.data?.detail ?? "Sorry, I'm having trouble connecting. Please try again.";
@@ -379,13 +504,25 @@ export const SimpleAiChatbot: React.FC<SimpleAiChatbotProps> = ({
                                                     : 'bg-[#f1f5f9] text-gray-800 rounded-bl-none'
                                                 }`}
                                         >
-                                            <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
-                                            <p
-                                                className={`text-[10px] mt-1 ${message.type === 'user' ? 'text-white/70' : 'text-gray-400'
-                                                    }`}
-                                            >
-                                                {formatTime(message.timestamp)}
-                                            </p>
+                                            <RenderMarkdown
+                                                text={message.content}
+                                                isUser={message.type === 'user'}
+                                            />
+                                            <div className={`flex items-center justify-between mt-1 gap-2`}>
+                                                <p className={`text-[10px] ${message.type === 'user' ? 'text-white/70' : 'text-gray-400'}`}>
+                                                    {formatTime(message.timestamp)}
+                                                </p>
+                                                {/* Edit & resend button — user messages only */}
+                                                {message.type === 'user' && !message.content.startsWith('📄') && (
+                                                    <button
+                                                        onClick={() => setInput(message.content)}
+                                                        title="Edit and resend"
+                                                        className="p-0.5 rounded text-white/50 hover:text-white/90 transition-colors"
+                                                    >
+                                                        <Edit2 size={10} />
+                                                    </button>
+                                                )}
+                                            </div>
                                         </div>
 
                                         {/* Parcel chips — only on bot messages */}
@@ -394,24 +531,24 @@ export const SimpleAiChatbot: React.FC<SimpleAiChatbotProps> = ({
                                                 {message.parcels.map(p => {
                                                     const chipCls = getChipClasses(p);
                                                     const priceStr = formatPrice(p.price);
+                                                    const hasIssue = p.under_mortgage || p.has_caveat ||
+                                                        p.in_transaction || p.overlaps || p.has_condition;
+                                                    const notice = chipNotices[p.upi];
                                                     return (
                                                         <div key={p.upi} className="flex flex-col gap-0.5">
                                                             {/* Chip button */}
                                                             <button
-                                                                onClick={() => {
-                                                                    onParcelsUpdate?.([p]);
-                                                                    onParcelSelect?.(p.upi);
-                                                                    // Chip click → make this the active UPI
-                                                                    setActiveUPI(p.upi);
-                                                                    onUpiChange?.(p.upi);
-                                                                }}
-                                                                title="Zoom to parcel & open details"
+                                                                onClick={() => handleChipClick(p)}
+                                                                title={hasIssue ? 'View issues' : 'Zoom to parcel & open details'}
                                                                 className={`inline-flex items-center gap-1 px-2 py-1 border rounded-full text-[11px] font-medium transition-colors shadow-sm self-start ${chipCls}`}
                                                             >
                                                                 <MapPin size={10} />
                                                                 {p.upi}
                                                                 {p.for_sale === false && (
                                                                     <span className="ml-1 opacity-75 text-[9px]">(Not for sale)</span>
+                                                                )}
+                                                                {p.in_transaction && (
+                                                                    <span className="ml-1 text-[9px] font-bold">⚠ In Transaction</span>
                                                                 )}
                                                             </button>
                                                             {/* Mini info strip */}
@@ -425,8 +562,15 @@ export const SimpleAiChatbot: React.FC<SimpleAiChatbotProps> = ({
                                                                     {priceStr && <span className="text-green-700 font-medium">{priceStr}</span>}
                                                                     {p.under_mortgage && <span className="text-red-500">🔴 Mortgage</span>}
                                                                     {p.has_caveat && <span className="text-red-500">⚠️ Caveat</span>}
-                                                                    {p.in_transaction && <span className="text-orange-500">🔄 In Transaction</span>}
+                                                                    {p.in_transaction && <span className="text-orange-500 font-medium">🔄 In Transaction — not safe to buy</span>}
                                                                     {p.overlaps && <span className="text-red-500">⚡ Overlaps</span>}
+                                                                </div>
+                                                            )}
+                                                            {/* Inline notice shown after chip click */}
+                                                            {notice && (
+                                                                <div className="mt-0.5 ml-1 flex items-start gap-1 text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1">
+                                                                    <ShieldAlert size={10} className="mt-0.5 shrink-0" />
+                                                                    <span>{notice}</span>
                                                                 </div>
                                                             )}
                                                         </div>

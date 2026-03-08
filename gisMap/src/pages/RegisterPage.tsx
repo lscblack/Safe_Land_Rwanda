@@ -594,7 +594,7 @@ export const RegisterPage = () => {
                                     {/* --- PASSPORT SPECIFIC LOGIC (Show All Manual Inputs) --- */}
                                     {idType === 'passport' && (
                                         <>
-                                            <motion.div variants={itemVariants} className="space-y-2">
+                                            <motion.div variants={itemVariants} className="space-y-2 hidden">
                                                 <label className="text-sm font-semibold text-gray-700 dark:text-gray-300 ml-1">Upload Passport Page</label>
                                                 <div className="relative w-full h-32 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl hover:border-primary bg-gray-50 dark:bg-[#112240] flex flex-col items-center justify-center cursor-pointer overflow-hidden">
                                                     <input type="file" accept="image/*,.pdf" onChange={handleFileUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />

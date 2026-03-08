@@ -44,6 +44,7 @@ import {
   Store,
   Sparkles,
   Search,
+  ShieldAlert,
 } from 'lucide-react';
 import {
   MapContainer,
@@ -1372,6 +1373,10 @@ function StepTwo({
   const [fetchUpi, setFetchUpi] = useState('');
   const [fetchingUpi, setFetchingUpi] = useState(false);
   const [fetchUpiError, setFetchUpiError] = useState<string | null>(null);
+  // 'issues' = has legal issues (kept confidential) | 'overlap' = has boundary overlap | 'not_for_sale'
+  const [issueNotice, setIssueNotice] = useState<'issues' | 'overlap' | 'not_for_sale' | null>(null);
+  const [overlappingDetails, setOverlappingDetails] = useState<Array<{ upi: string; overlap_area_sqm: number }>>([]);
+  const [loadingOverlapDetails, setLoadingOverlapDetails] = useState(false);
   const [emptyAreaInfo, setEmptyAreaInfo] = useState<{ lat: number; lng: number } | null>(null);
   const [poiData, setPoiData] = useState<PoiData[]>([]);
   const [loadingPoi, setLoadingPoi] = useState(false);
@@ -1599,18 +1604,45 @@ function StepTwo({
 
   const handleParcelClick = async (parcel: ParcelData) => {
     setEmptyAreaInfo(null);
+    setIssueNotice(null);
 
     if (compareMode) {
       toggleCompareParcel(parcel);
     }
 
-    // Only open popup if parcel is for sale or is verified
-    if (!parcel.forSale && !parcel.isVerified) {
-      // Close any currently open popup first, then show the "not available" banner
+    // Check for legal issues (details kept confidential) and boundary overlap
+    const hasLegalIssue = parcel.under_mortgage || parcel.has_caveat || parcel.in_transaction;
+    const hasOverlap = parcel.hasOverlap;
+
+    if (hasLegalIssue || hasOverlap) {
       setShowPopup(false);
       setCombinedData(null);
       setSelectedParcel(parcel);
-      setTimeout(() => setSelectedParcel(null), 2000);
+      setAutoZoom(true);
+      // Show overlap explicitly; all other legal issues are kept confidential
+      setIssueNotice(hasOverlap ? 'overlap' : 'issues');
+      if (hasOverlap) {
+        // Fetch detailed overlap info: which parcels, how much area, etc.
+        setOverlappingDetails([]);
+        setLoadingOverlapDetails(true);
+        api.get(`/api/mappings/stats/by-upi/${encodeURIComponent(parcel.upi)}`)
+          .then(res => {
+            const details = res?.data?.legal_issues?.overlapping_with ?? [];
+            setOverlappingDetails(details);
+          })
+          .catch(() => setOverlappingDetails([]))
+          .finally(() => setLoadingOverlapDetails(false));
+      }
+      return;
+    }
+
+    // Only open popup if parcel is for sale or is verified
+    if (!parcel.forSale && !parcel.isVerified) {
+      setShowPopup(false);
+      setCombinedData(null);
+      setSelectedParcel(parcel);
+      setIssueNotice('not_for_sale');
+      setTimeout(() => { setSelectedParcel(null); setIssueNotice(null); }, 2500);
       return;
     }
 
@@ -1665,38 +1697,18 @@ function StepTwo({
     }
   };
 
-  // Open DetailPopup when user clicks a parcel chip in the chatbot
+  // When chatbot calls onParcelSelect, just zoom/highlight — do NOT open popup.
+  // The popup is only opened when the user physically clicks the parcel polygon.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!chatDetailUPI) return;
     const target = parcels.find(p => p.upi === chatDetailUPI);
     if (!target) return;
-
-    // Same rule as handleParcelClick: not-for-sale / unverified → close popup & show banner
-    if (!target.forSale && !target.isVerified) {
-      setShowPopup(false);
-      setCombinedData(null);
-      setSelectedParcel(target);
-      setTimeout(() => setSelectedParcel(null), 2000);
-      return;
-    }
-
-    // Parcel is viewable — open the detail popup
+    // Zoom to parcel and make it selected; close any open popup
+    setShowPopup(false);
+    setCombinedData(null);
     setSelectedParcel(target);
-    setShowPopup(true);
     setAutoZoom(true);
-    setLoadingDetails(true);
-    Promise.all([
-      api.get(`/api/property/properties/by-upi/${encodeURIComponent(target.upi)}`).catch(() => null),
-      api.get('/api/external/title_data', { params: { upi: target.upi, language: 'english' } }).catch(() => null),
-    ]).then(([propRes, extRes]) => {
-      const propertyData = propRes?.data ?? undefined;
-      const externalData = (extRes?.data?.success && extRes?.data?.found) ? extRes.data.data : undefined;
-      const source: 'property' | 'external' | 'both' =
-        propertyData && externalData ? 'both' : propertyData ? 'property' : 'external';
-      setCombinedData({ propertyData, externalData, source });
-    }).finally(() => setLoadingDetails(false));
-    // chatDetailUPI drives the trigger; other deps are stable
   }, [chatDetailUPI]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleRefresh = async () => {
@@ -1744,20 +1756,29 @@ function StepTwo({
     if (!upi) return;
     setFetchingUpi(true);
     setFetchUpiError(null);
+    // Close any currently open popup so the map is clean before zooming
+    setShowPopup(false);
+    setCombinedData(null);
     try {
       const res = await api.get(`/api/mappings/stats/by-upi/${encodeURIComponent(upi)}`);
       const mapping = res?.data?.mapping;
       const parcel = toParcelFromMapping(mapping, false);
       if (!parcel) {
-        setFetchUpiError('Parcel found but polygon is missing.');
+        setFetchUpiError('Parcel found but has no polygon data.');
         return;
       }
+      // Add the parcel to the map layer if not already present
       onAddOrUpdateParcel(parcel);
+      // Select it and fly to it — popup stays closed; user must click the shape to open it
       setSelectedParcel(parcel);
       setAutoZoom(true);
       setFetchUpi('');
     } catch (error: any) {
-      setFetchUpiError(error?.response?.data?.detail || 'Failed to fetch parcel by UPI.');
+      if (error?.response?.status === 404) {
+        setFetchUpiError(`Parcel "${upi}" was not found in the database.`);
+      } else {
+        setFetchUpiError(error?.response?.data?.detail || 'Failed to fetch parcel. Please try again.');
+      }
     } finally {
       setFetchingUpi(false);
     }
@@ -2318,6 +2339,8 @@ function StepTwo({
           setSelectedParcel(null);
           setShowPopup(false);
           setCombinedData(null);
+          setIssueNotice(null);
+          setOverlappingDetails([]);
           setEmptyAreaInfo(location);
         }} />
 
@@ -2376,22 +2399,90 @@ function StepTwo({
         )}
       </AnimatePresence>
 
-      {/* Not available message */}
+      {/* Parcel issue / not-for-sale notice — no confidential details exposed */}
       <AnimatePresence>
-        {selectedParcel && !selectedParcel.forSale && !selectedParcel.isVerified && (
+        {issueNotice && selectedParcel && (
           <motion.div
+            key={issueNotice}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 20 }}
-            className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-[2000] bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 shadow-lg"
+            className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-[2000] rounded-xl shadow-xl max-w-sm w-full"
           >
-            <div className="flex items-center gap-3">
-              <Ban size={20} className="text-red-600" />
-              <div>
-                <h3 className="font-semibold text-red-800 dark:text-red-400">Not Available</h3>
-                <p className="text-sm text-red-700 dark:text-red-300">This parcel is not for sale</p>
+            {issueNotice === 'overlap' && (
+              <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-700 rounded-xl p-4">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle size={20} className="text-orange-500 mt-0.5 shrink-0" />
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-orange-800 dark:text-orange-300">Boundary Overlap Detected</h3>
+                    <p className="text-sm text-orange-700 dark:text-orange-400 mt-1">
+                      This parcel has a boundary conflict with {overlappingDetails.length > 0 ? overlappingDetails.length : 'one or more'} adjacent parcel{overlappingDetails.length !== 1 ? 's' : ''}.
+                      Verify boundaries with the Rwanda Land Authority before any transaction.
+                    </p>
+                    {/* Parcel score */}
+                    {selectedParcel && (
+                      <div className="mt-2 flex items-center gap-1.5 text-xs font-medium text-orange-700 dark:text-orange-400">
+                        <span className="uppercase tracking-wide opacity-70">Safety Score</span>
+                        <span className="bg-orange-200 dark:bg-orange-800 rounded-full px-2 py-0.5">{scoreParcel(selectedParcel)}/100</span>
+                      </div>
+                    )}
+                    {/* Overlapping parcels list */}
+                    {loadingOverlapDetails && (
+                      <div className="mt-2 flex items-center gap-1.5 text-xs text-orange-600">
+                        <Loader2 size={12} className="animate-spin" /> Loading overlap details…
+                      </div>
+                    )}
+                    {!loadingOverlapDetails && overlappingDetails.length > 0 && (
+                      <div className="mt-3 space-y-1">
+                        <p className="text-xs font-semibold text-orange-800 dark:text-orange-300 uppercase tracking-wide">Conflicting parcels</p>
+                        {overlappingDetails.map(ov => (
+                          <div key={ov.upi} className="flex items-center justify-between bg-orange-100 dark:bg-orange-900/40 rounded-lg px-3 py-1.5 text-xs">
+                            <span className="font-medium text-orange-900 dark:text-orange-200 font-mono">{ov.upi}</span>
+                            <span className="text-orange-700 hidden dark:text-orange-400 ml-4">
+                              {ov.overlap_area_sqm != null
+                                ? ov.overlap_area_sqm >= 10000
+                                  ? `${(ov.overlap_area_sqm / 10000).toFixed(2)} ha overlap`
+                                  : `${ov.overlap_area_sqm.toFixed(1)} m² overlap`
+                                : 'overlap'}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <button onClick={() => { setIssueNotice(null); setOverlappingDetails([]); }} className="p-1 rounded hover:bg-orange-100 dark:hover:bg-orange-800">
+                    <X size={14} className="text-orange-600" />
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
+            {issueNotice === 'issues' && (
+              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4">
+                <div className="flex items-start gap-3">
+                  <ShieldAlert size={20} className="text-red-600 mt-0.5 shrink-0" />
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-red-800 dark:text-red-400">Not Safe for Purchase</h3>
+                    <p className="text-sm text-red-700 dark:text-red-300 mt-1">
+                      This parcel has unresolved legal issues. It is not safe to proceed with a purchase at this time. Contact the Rwanda Land Authority for further information.
+                    </p>
+                  </div>
+                  <button onClick={() => setIssueNotice(null)} className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-800">
+                    <X size={14} className="text-red-600" />
+                  </button>
+                </div>
+              </div>
+            )}
+            {issueNotice === 'not_for_sale' && (
+              <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+                <div className="flex items-center gap-3">
+                  <Ban size={20} className="text-gray-500" />
+                  <div>
+                    <h3 className="font-semibold text-gray-700 dark:text-gray-300">Not Listed for Sale</h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">This parcel is not currently listed for sale.</p>
+                  </div>
+                </div>
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>

@@ -438,9 +438,12 @@ async def get_parcel_overlaps(db: AsyncSession = Depends(get_db)):
     sql = '''
     SELECT a.upi AS parcel_a, b.upi AS parcel_b,
            ST_Area(
-               ST_Intersection(
-                   ST_GeometryFromText(a.official_registry_polygon),
-                   ST_GeometryFromText(b.official_registry_polygon)
+               ST_Transform(
+                   ST_Intersection(
+                       ST_SetSRID(ST_GeometryFromText(a.official_registry_polygon), 4326),
+                       ST_SetSRID(ST_GeometryFromText(b.official_registry_polygon), 4326)
+                   ),
+                   32736
                )
            ) AS overlap_area
     FROM mappings a
@@ -449,12 +452,12 @@ async def get_parcel_overlaps(db: AsyncSession = Depends(get_db)):
      AND a.official_registry_polygon IS NOT NULL
      AND b.official_registry_polygon IS NOT NULL
      AND ST_Intersects(
-             ST_GeometryFromText(a.official_registry_polygon),
-             ST_GeometryFromText(b.official_registry_polygon)
+             ST_SetSRID(ST_GeometryFromText(a.official_registry_polygon), 4326),
+             ST_SetSRID(ST_GeometryFromText(b.official_registry_polygon), 4326)
          )
      AND NOT ST_Touches(
-             ST_GeometryFromText(a.official_registry_polygon),
-             ST_GeometryFromText(b.official_registry_polygon)
+             ST_SetSRID(ST_GeometryFromText(a.official_registry_polygon), 4326),
+             ST_SetSRID(ST_GeometryFromText(b.official_registry_polygon), 4326)
          );
     '''
     result = await db.execute(text(sql))
@@ -1064,21 +1067,24 @@ async def stats_by_upi(upi: str, db: AsyncSession = Depends(get_db)):
         ov_sql = text("""
             SELECT m2.upi,
                    ST_Area(
-                       ST_Intersection(
-                           ST_GeometryFromText(:poly),
-                           ST_GeometryFromText(m2.official_registry_polygon)
+                       ST_Transform(
+                           ST_Intersection(
+                               ST_SetSRID(ST_GeometryFromText(:poly), 4326),
+                               ST_SetSRID(ST_GeometryFromText(m2.official_registry_polygon), 4326)
+                           ),
+                           32736
                        )
                    ) AS overlap_area_sqm
             FROM mappings m2
             WHERE m2.upi != :upi
               AND m2.official_registry_polygon IS NOT NULL
               AND ST_Intersects(
-                      ST_GeometryFromText(:poly),
-                      ST_GeometryFromText(m2.official_registry_polygon)
+                      ST_SetSRID(ST_GeometryFromText(:poly), 4326),
+                      ST_SetSRID(ST_GeometryFromText(m2.official_registry_polygon), 4326)
                   )
               AND NOT ST_Touches(
-                      ST_GeometryFromText(:poly),
-                      ST_GeometryFromText(m2.official_registry_polygon)
+                      ST_SetSRID(ST_GeometryFromText(:poly), 4326),
+                      ST_SetSRID(ST_GeometryFromText(m2.official_registry_polygon), 4326)
                   )
         """)
         ov_res = await db.execute(ov_sql, {

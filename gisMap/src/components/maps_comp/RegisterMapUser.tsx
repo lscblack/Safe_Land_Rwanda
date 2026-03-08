@@ -1156,7 +1156,13 @@ function PdfUploader({ onUploadComplete, onVerificationComplete, onError }: PdfU
                     ? {
                         ...f,
                         status: 'error',
-                        error: error.response?.data?.detail || error.message || "Processing failed",
+                        error: (() => {
+                            const detail = error.response?.data?.detail;
+                            if (!detail) return error.message || 'Processing failed';
+                            if (typeof detail === 'string') return detail;
+                            if (typeof detail === 'object' && detail.message) return detail.message;
+                            return JSON.stringify(detail);
+                        })(),
                         progress: undefined,
                     }
                     : f
@@ -1487,9 +1493,15 @@ function PdfUploader({ onUploadComplete, onVerificationComplete, onError }: PdfU
                                             )}
 
                                             {file.error && (
-                                                <div className="mt-1.5 text-xs text-red-600 bg-red-50 dark:bg-red-900/10 p-1.5 rounded">
-                                                    <FileWarning size={12} className="inline mr-1" />
-                                                    {file.error}
+                                                <div className="mt-2 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-3 py-2.5">
+                                                    <div className="flex items-start gap-2">
+                                                        <FileWarning size={14} className="text-red-500 shrink-0 mt-0.5" />
+                                                        <div>
+                                                            <p className="text-xs font-semibold text-red-700 dark:text-red-400 mb-0.5">Invalid Document</p>
+                                                            <p className="text-xs text-red-600 dark:text-red-300 leading-relaxed">{file.error}</p>
+                                                            <p className="text-[10px] text-red-400 dark:text-red-500 mt-1">Please ensure you are uploading a valid Rwanda land title certificate and try again.</p>
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             )}
 
