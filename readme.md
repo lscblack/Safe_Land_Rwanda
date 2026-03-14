@@ -182,7 +182,7 @@ Add real screenshots below and replace placeholder captions/paths.
 2. Parcels Overlaping
 	- Screenshot: `docs/screenshots/core-05-ai-recommendation.png`
 3. Point click on map -> parcel found by lat/lng (PostGIS)
-	- Screenshot: `docs/screenshots/core-02-point-lookup.png`
+	- upload parcel etitle pdf file:
 
 4. Legal issue warning popup / status overview NLA Data
 	- Avaliable: `docs/screenshots/core-03-legal-status.png`
