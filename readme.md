@@ -178,21 +178,30 @@ Add real screenshots below and replace placeholder captions/paths.
 ### 6.1 Core Feature Demos
 
 1. Parcel verification + extracted UPI
-	- Screenshot: `docs/screenshots/core-01-verify-upi.png`
-2. Parcels Overlaping
-	- Screenshot: `docs/screenshots/core-05-ai-recommendation.png`
+	- Screenshot: 
+  ![alt text](<Screenshot From 2026-03-14 19-35-38.png>)
+2. Parcels Issues visualization (overlaps, legal flags)
+	- Overlapping: ![alt text](image.png)
+   - Legal flags: 
+   ![alt text](image-5.png)
 3. Point click on map -> parcel found by lat/lng (PostGIS)
 	- upload parcel etitle pdf file:
-
+![alt text](<Screenshot From 2026-03-14 19-35-38.png>)
 4. Legal issue warning popup / status overview NLA Data
-	- Avaliable: `docs/screenshots/core-03-legal-status.png`
-  	- Not Available: `docs/screenshots/core-03-legal-status.png`
+	- Avaliable: 
+  ![alt text](image-2.png)![alt text](image-3.png)
+  	- Not Available: 
+    ![alt text](image-4.png)
 
 5. Land-usage partition rendering with focused labels
-	- Screenshot: `docs/screenshots/core-04-land-usage-partition.png`
+	- Partition by land usage: ![alt text](image-1.png)
 
-6. AI recommendation with explainable factors
-	- Screenshot: `docs/screenshots/core-05-ai-recommendation.png`
+6. recommendation with explainable factors
+	- recommendation panel with factors: 
+  ![alt text](image-6.png)
+7. AI ChatBot interaction for parcel explanation and user queries
+	- recommendation panel with factors: 
+  ![alt text](image-6.png)
 
 
 
@@ -201,26 +210,22 @@ Add real screenshots below and replace placeholder captions/paths.
 #### A) Functional Testing
 - Scenario: Verify parcel upload and map rendering
 - Expected: Parcel appears and state updates correctly
-- Result: **[PASS/FAIL + notes]**
-- Screenshot: `docs/screenshots/test-functional.png`
+
 
 #### B) Integration Testing
 - Scenario: Frontend click -> backend lookup -> parcel response
 - Expected: Matching parcel returned from PostGIS
-- Result: **[PASS/FAIL + notes]**
-- Screenshot: `docs/screenshots/test-integration.png`
+
 
 #### C) Usability Testing
 - Scenario: User understands risk panel and recommendation factors
 - Expected: Clear interpretation with low confusion
-- Result: **[PASS/FAIL + notes]**
-- Screenshot: `docs/screenshots/test-usability.png`
+
 
 #### D) Regression Testing
 - Scenario: New features do not break existing map interactions
 - Expected: Existing flows stable
-- Result: **[PASS/FAIL + notes]**
-- Screenshot: `docs/screenshots/test-regression.png`
+
 
 ---
 
@@ -236,18 +241,12 @@ Provide test cases with low/medium/high complexity data.
 | 4 | Irregular geometry parcel | Shape-risk reason appears | Irregular shape identified, shape-risk warning displayed. | **PASS** |
 | 5 | Multiple planned land uses | Correct partition and labels | All land uses partitioned and labeled correctly on map. | **PASS** |
 
-Screenshots:
-- `docs/screenshots/data-values-01.png`
-- `docs/screenshots/data-values-02.png`
-- `docs/screenshots/data-values-03.png`
-
----
 
 ## 8) Performance on Different Hardware/Software Specs
 
 Document performance evidence from different environments.
 
-| Environment | Specs | Scenario | Metric | Result |
+| test | Specs | Scenario | Metric | Result |
 |---|---|---|---|---|
 | A | Low-end laptop | Initial map load | Time to interactive | 4.2s (Performance: 62) |
 | B | Mid-range laptop | Parcel click + lookup | Response time | 1.1s (Accessibility: 76) |
@@ -261,9 +260,7 @@ Document performance evidence from different environments.
 
 
 Performance screenshots:
-- `docs/screenshots/perf-01.png`
-- `docs/screenshots/perf-02.png`
-- `docs/screenshots/perf-03.png`
+![alt text](image-7.png)
 
 ---
 
@@ -282,7 +279,7 @@ Provide a detailed analysis of results vs objectives agreed with supervisor.
 
 ### 9.2 Key Findings
 - The integration of GIS, legal, and AI modules enables real-time, multi-factor parcel verification in a single workflow.
-- Transparent AI recommendations and risk factors increase user trust and decision quality.
+- Transparent RuleBased recommendations and risk factors increase user trust and decision quality.
 
 ### 9.3 Gaps / Missed Targets
 - Some edge-case parcels (e.g., highly irregular shapes or missing registry data) may not be fully supported in automated checks.
@@ -300,7 +297,7 @@ Detailed discussion with supervisor on milestones and impact.
 ### 10.1 Milestone Importance
 - Milestone 1: **Core parcel verification and GIS mapping integration (PDF title extraction + UPI-based parcel visualization).** Impact: Established the project’s foundational trust layer by allowing users to validate land records and immediately view official parcel geometry on the map.
 - Milestone 2: **Geospatial legal-risk and safety assessment features (overlap checks, legal flags, point-in-polygon lookup, and issue notices).** Impact: Reduced fraud exposure by turning complex legal/geospatial checks into understandable, real-time warnings for users before transactions.
-- Milestone 3: **Explainable AI recommendation and land-usage partitioning visualization.** Impact: Increased user confidence and decision quality through transparent recommendation factors and clear parcel zoning insights, improving practical usability for buyers, agents, and supervisors.
+- Milestone 3: **Explainable RuleBased and AI recommendation and land-usage partitioning visualization.** Impact: Increased user confidence and decision quality through transparent recommendation factors and clear parcel zoning insights, improving practical usability for buyers, agents, and supervisors.
 
 ### 10.2 Impact of Results
 - Technical impact: The project delivered an integrated geospatial verification workflow combining OCR-based title extraction, PostGIS point-in-polygon lookup, legal-status checks, risk scoring, and explainable AI recommendations in a single platform. This improved system interoperability between frontend map interactions and backend geospatial services, reduced manual validation steps, and increased the reliability of parcel-level decision support.
@@ -325,6 +322,6 @@ Detailed discussion with supervisor on milestones and impact.
 - Add offline geospatial caching for low connectivity
 - Improve model calibration with field-verified labels
 - Expand mobile-first workflows and multilingual UX support
-- Build supervisor-facing analytics dashboards for outcomes tracking
-
+- Integrate with Irembo
+- Explore advanced AI models for natural language parcel queries and explanations
 ---
