@@ -31,7 +31,7 @@ const AppRoutes = () => {
   return (
     <Suspense fallback={<SafeLandLoader />}>
       {/* Run the check on every route change */}
-      {/* <RouteManager /> */}
+      <RouteManager />
 
       <Routes>
         {/* New Onboarding Route */}
