@@ -654,6 +654,79 @@ async def list_mappings(
         response.headers["X-Has-More"] = "true" if has_more else "false"
 
     return [mapping_to_dict(m) for m in mappings]
+    
+@router.get("/lookup/point", response_model=dict)
+async def lookup_mapping_by_point(
+    lat: float = Query(..., description="Latitude in EPSG:4326"),
+    lng: float = Query(..., description="Longitude in EPSG:4326"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Return the mapping whose official polygon contains the given point.
+    Uses PostGIS ST_Contains against official_registry_polygon WKT.
+    """
+    sql = text("""
+        SELECT
+            m.id,
+            m.upi,
+            m.property_id,
+            m.uploaded_by,
+            m.official_registry_polygon,
+            m.document_detected_polygon,
+            m.latitude,
+            m.longitude,
+            m.parcel_area_sqm,
+            m.province,
+            m.district,
+            m.sector,
+            m.cell,
+            m.village,
+            m.full_address,
+            m.land_use_type,
+            m.planned_land_use,
+            m.is_developed,
+            m.has_infrastructure,
+            m.has_building,
+            m.building_floors,
+            m.tenure_type,
+            m.lease_term_years,
+            m.remaining_lease_term,
+            m.under_mortgage,
+            m.has_caveat,
+            m.in_transaction,
+            m.registration_date,
+            m.approval_date,
+            m.year_of_record,
+            m.for_sale,
+            m.price,
+            m.created_at,
+            m.updated_at
+        FROM mappings m
+        WHERE m.official_registry_polygon IS NOT NULL
+          AND ST_Contains(
+                ST_SetSRID(ST_GeomFromText(m.official_registry_polygon), 4326),
+                ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)
+          )
+        ORDER BY m.updated_at DESC NULLS LAST, m.created_at DESC NULLS LAST
+        LIMIT 1
+    """)
+
+    result = await db.execute(sql, {"lat": lat, "lng": lng})
+    row = result.mappings().first()
+
+    if not row:
+        return {
+            "found": False,
+            "point": {"lat": lat, "lng": lng},
+            "mapping": None,
+        }
+
+    mapping = dict(row)
+    return {
+        "found": True,
+        "point": {"lat": lat, "lng": lng},
+        "mapping": mapping,
+    }
 
 @router.get("/{mapping_id}", response_model=MappingSchema)
 async def get_mapping(mapping_id: int, db: AsyncSession = Depends(get_db)):

@@ -338,6 +338,22 @@ interface AppState {
   lastUpdated: number;
 }
 
+interface RiskAssessment {
+  score: number;
+  level: 'Low' | 'Medium' | 'High';
+  reasons: string[];
+  factors: {
+    boundaryOverlapRisk: boolean;
+    neighborParcelConflicts: number;
+    roadDistanceMeters: number | null;
+    wetlandDistanceMeters: number | null;
+    compactness: number;
+    elongation: number;
+    sharpAngleCount: number;
+    fragmentationIndex: number;
+  };
+}
+
 /* =========================
    UTILITY FUNCTIONS
 ========================= */
@@ -361,6 +377,12 @@ function formatPrice(price?: number | null): string {
     return `${(price / 1000).toFixed(0)}K RWF`;
   }
   return `${price.toLocaleString()} RWF`;
+}
+
+function formatDistanceValue(meters?: number | null): string {
+  if (!meters || !Number.isFinite(meters)) return 'N/A';
+  if (meters < 1000) return `${Math.round(meters)} m`;
+  return `${(meters / 1000).toFixed(2)} km`;
 }
 
 function getParcelColor(parcel: ParcelData, isVerified: boolean): string {
@@ -444,6 +466,99 @@ function getCenter(coords: [number, number][]): [number, number] {
     lng += ln;
   });
   return [lat / coords.length, lng / coords.length];
+}
+
+function polygonToLocalMeters(coords: [number, number][]): [number, number][] {
+  if (coords.length === 0) return [];
+  const meanLat = coords.reduce((sum, [lat]) => sum + lat, 0) / coords.length;
+  const meanLng = coords.reduce((sum, [, lng]) => sum + lng, 0) / coords.length;
+  const metersPerDegLat = 111320;
+  const metersPerDegLng = 111320 * Math.cos((meanLat * Math.PI) / 180);
+
+  return coords.map(([lat, lng]) => [
+    (lng - meanLng) * metersPerDegLng,
+    (lat - meanLat) * metersPerDegLat,
+  ]);
+}
+
+function polygonAreaMeters(coords: [number, number][]): number {
+  if (coords.length < 3) return 0;
+  const local = polygonToLocalMeters(coords);
+  let area = 0;
+  for (let i = 0; i < local.length; i++) {
+    const [x1, y1] = local[i];
+    const [x2, y2] = local[(i + 1) % local.length];
+    area += x1 * y2 - x2 * y1;
+  }
+  return Math.abs(area) / 2;
+}
+
+function polygonPerimeterMeters(coords: [number, number][]): number {
+  if (coords.length < 2) return 0;
+  const local = polygonToLocalMeters(coords);
+  let perimeter = 0;
+  for (let i = 0; i < local.length; i++) {
+    const [x1, y1] = local[i];
+    const [x2, y2] = local[(i + 1) % local.length];
+    perimeter += Math.hypot(x2 - x1, y2 - y1);
+  }
+  return perimeter;
+}
+
+function polygonShapeMetrics(coords: [number, number][]) {
+  if (coords.length < 4) {
+    return {
+      compactness: 1,
+      elongation: 1,
+      sharpAngleCount: 0,
+      fragmentationIndex: 0,
+    };
+  }
+
+  const local = polygonToLocalMeters(coords);
+  const area = polygonAreaMeters(coords);
+  const perimeter = polygonPerimeterMeters(coords);
+  const compactness = perimeter > 0 ? (4 * Math.PI * area) / (perimeter * perimeter) : 1;
+
+  const xs = local.map(([x]) => x);
+  const ys = local.map(([, y]) => y);
+  const width = Math.max(...xs) - Math.min(...xs);
+  const height = Math.max(...ys) - Math.min(...ys);
+  const minDim = Math.max(Math.min(width, height), 1);
+  const maxDim = Math.max(width, height);
+  const elongation = maxDim / minDim;
+
+  let sharpAngleCount = 0;
+  const edgeLengths: number[] = [];
+
+  for (let i = 0; i < local.length; i++) {
+    const prev = local[(i - 1 + local.length) % local.length];
+    const cur = local[i];
+    const next = local[(i + 1) % local.length];
+
+    const v1: [number, number] = [prev[0] - cur[0], prev[1] - cur[1]];
+    const v2: [number, number] = [next[0] - cur[0], next[1] - cur[1]];
+    const dot = v1[0] * v2[0] + v1[1] * v2[1];
+    const mag = Math.hypot(v1[0], v1[1]) * Math.hypot(v2[0], v2[1]);
+    if (mag > 0) {
+      const angle = (Math.acos(Math.max(-1, Math.min(1, dot / mag))) * 180) / Math.PI;
+      if (angle < 30 || angle > 170) sharpAngleCount += 1;
+    }
+
+    const edge = Math.hypot(next[0] - cur[0], next[1] - cur[1]);
+    edgeLengths.push(edge);
+  }
+
+  const edgeMean = edgeLengths.reduce((s, v) => s + v, 0) / edgeLengths.length;
+  const edgeStd = Math.sqrt(edgeLengths.reduce((s, v) => s + (v - edgeMean) ** 2, 0) / edgeLengths.length);
+  const fragmentationIndex = edgeMean > 0 ? edgeStd / edgeMean : 0;
+
+  return {
+    compactness,
+    elongation,
+    sharpAngleCount,
+    fragmentationIndex,
+  };
 }
 
 function polygonArea2D(pts: [number, number][]): number {
@@ -744,9 +859,11 @@ interface DetailPopupProps {
   onClose: () => void;
   combinedData: CombinedPropertyData | null;
   loading: boolean;
+  riskAssessment: RiskAssessment | null;
+  loadingRisk: boolean;
 }
 
-function DetailPopup({ parcel, onClose, combinedData, loading }: DetailPopupProps) {
+function DetailPopup({ parcel, onClose, combinedData, loading, riskAssessment, loadingRisk }: DetailPopupProps) {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const propertyData = combinedData?.propertyData;
   const externalData = combinedData?.externalData;
@@ -891,6 +1008,49 @@ function DetailPopup({ parcel, onClose, combinedData, loading }: DetailPopupProp
             );
           })}
         </div>
+      </div>
+
+      <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg p-3 mb-4">
+        <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">Risk Assessment</h4>
+        {loadingRisk ? (
+          <div className="flex items-center gap-2 text-sm text-gray-600">
+            <Loader2 size={14} className="animate-spin" />
+            Calculating parcel risk score...
+          </div>
+        ) : riskAssessment ? (
+          <>
+            <div className="flex items-center justify-between rounded-md border border-gray-200 dark:border-gray-700 px-3 py-2 bg-white/70 dark:bg-gray-900/40">
+              <div className="text-sm font-semibold text-foreground">Parcel Risk Score: {riskAssessment.score}/100</div>
+              <span className={`text-xs font-semibold px-2 py-1 rounded-full ${
+                riskAssessment.level === 'High'
+                  ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
+                  : riskAssessment.level === 'Medium'
+                    ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300'
+                    : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
+              }`}>
+                {riskAssessment.level} risk
+              </span>
+            </div>
+
+            <div className="mt-2">
+              <p className="text-xs font-semibold text-gray-600 dark:text-gray-300">Reasons:</p>
+              <ul className="mt-1 text-xs text-gray-700 dark:text-gray-300 list-disc pl-4 space-y-1">
+                {riskAssessment.reasons.map((reason, idx) => (
+                  <li key={`${reason}-${idx}`}>{reason}</li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-gray-600 dark:text-gray-300">
+              <div>Distance to roads: {formatDistanceValue(riskAssessment.factors.roadDistanceMeters)}</div>
+              <div>Distance to wetlands/lakes: {formatDistanceValue(riskAssessment.factors.wetlandDistanceMeters)}</div>
+              <div>Neighbor conflicts: {riskAssessment.factors.neighborParcelConflicts}</div>
+              <div>Boundary overlap: {riskAssessment.factors.boundaryOverlapRisk ? 'Yes' : 'No'}</div>
+            </div>
+          </>
+        ) : (
+          <div className="text-xs text-gray-500">Risk score not available yet.</div>
+        )}
       </div>
 
       {/* Data Source Indicators */}
@@ -1181,7 +1341,7 @@ function ParcelPolygon({ parcel, isSelected, isCompared, onClick }: { parcel: Pa
   const [hovered, setHovered] = useState(false);
   const [hoveredSliceIdx, setHoveredSliceIdx] = useState<number | null>(null);
   const plannedLandUseSlices = useMemo(
-    () => (parcel.isVerified ? buildLandUseSlices(parcel) : []),
+    () => buildLandUseSlices(parcel),
     [parcel]
   );
 
@@ -1305,7 +1465,7 @@ function ParcelPolygon({ parcel, isSelected, isCompared, onClick }: { parcel: Pa
               },
             }}
           />
-          {hoveredSliceIdx !== idx && (
+          {isSelected && hoveredSliceIdx !== idx && (
             <Marker
               position={slice.center}
               icon={L.divIcon({
@@ -1594,6 +1754,8 @@ function StepTwo({
   const [showPopup, setShowPopup] = useState(false);
   const [combinedData, setCombinedData] = useState<CombinedPropertyData | null>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
+  const [riskAssessment, setRiskAssessment] = useState<RiskAssessment | null>(null);
+  const [loadingRisk, setLoadingRisk] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [selectedProvince, setSelectedProvince] = useState<string>(activeServerFilters.province || 'all');
@@ -1815,6 +1977,7 @@ function StepTwo({
   const handleParcelClick = async (parcel: ParcelData) => {
     setEmptyAreaInfo(null);
     setIssueNotice(null);
+    setRiskAssessment(null);
 
     if (compareMode) {
       toggleCompareParcel(parcel);
@@ -1859,6 +2022,149 @@ function StepTwo({
     setShowPopup(true);
     setAutoZoom(true);
     setLoadingDetails(true);
+    setLoadingRisk(true);
+
+    const computeParcelRisk = async (targetParcel: ParcelData): Promise<RiskAssessment> => {
+      const shape = polygonShapeMetrics(targetParcel.positions || []);
+      let roadDistanceMeters: number | null = null;
+      let wetlandDistanceMeters: number | null = null;
+      let neighborParcelConflicts = 0;
+
+      try {
+        const statsResponse = await api.get(`/api/mappings/stats/by-upi/${encodeURIComponent(targetParcel.upi)}`);
+        neighborParcelConflicts = Number(statsResponse?.data?.legal_issues?.overlapping_with?.length || 0);
+      } catch {
+        neighborParcelConflicts = 0;
+      }
+
+      try {
+        const lats = targetParcel.positions.map((p) => p[0]);
+        const lngs = targetParcel.positions.map((p) => p[1]);
+        const pad = 0.01;
+        const south = Math.min(...lats) - pad;
+        const north = Math.max(...lats) + pad;
+        const west = Math.min(...lngs) - pad;
+        const east = Math.max(...lngs) + pad;
+
+        const overpassQuery = `
+          [out:json][timeout:25];
+          (
+            way["highway"](${south},${west},${north},${east});
+            relation["highway"](${south},${west},${north},${east});
+            way["natural"="wetland"](${south},${west},${north},${east});
+            relation["natural"="wetland"](${south},${west},${north},${east});
+            way["natural"="water"](${south},${west},${north},${east});
+            relation["natural"="water"](${south},${west},${north},${east});
+            way["waterway"~"river|stream|canal"](${south},${west},${north},${east});
+            relation["waterway"~"river|stream|canal"](${south},${west},${north},${east});
+          );
+          out center;
+        `;
+
+        const response = await fetch('https://overpass-api.de/api/interpreter', {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain' },
+          body: overpassQuery,
+        });
+        const json = await response.json();
+        const elements = (json?.elements || []) as any[];
+
+        elements.forEach((el) => {
+          const lat = el?.center?.lat;
+          const lng = el?.center?.lon;
+          if (typeof lat !== 'number' || typeof lng !== 'number') return;
+          const dist = distanceMeters(targetParcel.center, [lat, lng]);
+          const tags = el?.tags || {};
+
+          const isRoad = Boolean(tags.highway);
+          const isWet = tags.natural === 'wetland'
+            || tags.natural === 'water'
+            || ['river', 'stream', 'canal'].includes(tags.waterway || '');
+
+          if (isRoad && (roadDistanceMeters === null || dist < roadDistanceMeters)) {
+            roadDistanceMeters = dist;
+          }
+          if (isWet && (wetlandDistanceMeters === null || dist < wetlandDistanceMeters)) {
+            wetlandDistanceMeters = dist;
+          }
+        });
+      } catch (error) {
+        console.warn('Overpass risk context fetch failed:', error);
+      }
+
+      let score = 0;
+      const reasons: string[] = [];
+
+      if (targetParcel.hasOverlap) {
+        score += 28;
+        reasons.push('High overlap probability with neighboring parcel');
+      }
+
+      if (neighborParcelConflicts > 0) {
+        score += Math.min(22, neighborParcelConflicts * 6);
+        reasons.push(`Neighbor parcel conflicts detected (${neighborParcelConflicts})`);
+      }
+
+      if (wetlandDistanceMeters !== null) {
+        if (wetlandDistanceMeters < 250) {
+          score += 22;
+          reasons.push('Close to protected wetland/lake');
+        } else if (wetlandDistanceMeters < 500) {
+          score += 12;
+          reasons.push('Near wetland/lake zone');
+        }
+      }
+
+      if (roadDistanceMeters !== null && roadDistanceMeters > 900) {
+        score += 10;
+        reasons.push('Far from road access');
+      }
+
+      if (shape.compactness < 0.23) {
+        score += 16;
+        reasons.push('Irregular boundary shape');
+      }
+
+      if (shape.elongation > 5.5) {
+        score += 12;
+        reasons.push('Unusually narrow parcel shape');
+      }
+
+      if (shape.sharpAngleCount >= 4) {
+        score += 10;
+        reasons.push('Unnatural boundary angles detected');
+      }
+
+      if (shape.fragmentationIndex > 1.2) {
+        score += 8;
+        reasons.push('Fragmented/jagged parcel edge pattern');
+      }
+
+      score = Math.max(0, Math.min(100, Math.round(score)));
+      const level: 'Low' | 'Medium' | 'High' = score > 75 ? 'High' : score >= 40 ? 'Medium' : 'Low';
+
+      if (reasons.length === 0) {
+        reasons.push('No major spatial fraud indicators detected in current checks');
+      }
+
+      return {
+        score,
+        level,
+        reasons,
+        factors: {
+          boundaryOverlapRisk: Boolean(targetParcel.hasOverlap),
+          neighborParcelConflicts,
+          roadDistanceMeters,
+          wetlandDistanceMeters,
+          compactness: shape.compactness,
+          elongation: shape.elongation,
+          sharpAngleCount: shape.sharpAngleCount,
+          fragmentationIndex: shape.fragmentationIndex,
+        },
+      };
+    };
+
+    const riskPromise = computeParcelRisk(parcel);
 
     try {
       // Fetch combined data from both sources
@@ -1899,12 +2205,54 @@ function StepTwo({
       }
 
       setCombinedData({ propertyData, externalData, source });
+      const computedRisk = await riskPromise;
+      setRiskAssessment(computedRisk);
     } catch (error) {
       console.error('Failed to fetch property details:', error);
+      try {
+        const computedRisk = await riskPromise;
+        setRiskAssessment(computedRisk);
+      } catch {
+        setRiskAssessment(null);
+      }
     } finally {
       setLoadingDetails(false);
+      setLoadingRisk(false);
     }
   };
+
+  const handleMapPointLookup = useCallback(async (location: { lat: number; lng: number }) => {
+    setIssueNotice(null);
+    setOverlappingDetails([]);
+    setShowPopup(false);
+    setCombinedData(null);
+    setRiskAssessment(null);
+    setLoadingRisk(false);
+
+    try {
+      const response = await api.get('/api/mappings/lookup/point', {
+        params: {
+          lat: location.lat,
+          lng: location.lng,
+        },
+      });
+
+      const mapping = response?.data?.mapping;
+      if (response?.data?.found && mapping) {
+        const parcel = toParcelFromMapping(mapping, mapping?.upi === verifiedUPI);
+        if (parcel) {
+          onAddOrUpdateParcel(parcel);
+          await handleParcelClick(parcel);
+          return;
+        }
+      }
+    } catch (error) {
+      console.warn('Point lookup failed:', error);
+    }
+
+    setSelectedParcel(null);
+    setEmptyAreaInfo(location);
+  }, [handleParcelClick, onAddOrUpdateParcel, verifiedUPI]);
 
   // When chatbot calls onParcelSelect, just zoom/highlight — do NOT open popup.
   // The popup is only opened when the user physically clicks the parcel polygon.
@@ -1935,30 +2283,131 @@ function StepTwo({
     });
   }, []);
 
-  const scoreParcel = useCallback((parcel: ParcelData) => {
+  const evaluateParcelForRecommendation = useCallback((parcel: ParcelData) => {
     let score = 50;
-    if (parcel.forSale) score += 15;
-    if (!parcel.hasOverlap) score += 20;
-    if (!parcel.under_mortgage) score += 8;
-    if (!parcel.has_caveat) score += 8;
-    if (!parcel.in_transaction) score += 6;
-    if (parcel.area && parcel.area > 400) score += 8;
-    if (parcel.price && parcel.area && parcel.area > 0) {
-      const pricePerSqm = parcel.price / parcel.area;
-      if (pricePerSqm < 150000) score += 8;
-      if (pricePerSqm > 400000) score -= 6;
+    const positives: string[] = [];
+    const cautions: string[] = [];
+
+    const legalFlags = [
+      parcel.under_mortgage ? 'Under mortgage' : null,
+      parcel.has_caveat ? 'Has caveat' : null,
+      parcel.in_transaction ? 'In transaction' : null,
+    ].filter(Boolean) as string[];
+
+    if (parcel.hasOverlap) {
+      score -= 24;
+      cautions.push('Boundary overlap risk is high');
+    } else {
+      score += 12;
+      positives.push('No overlap conflict detected');
     }
-    if (!parcel.forSale) score -= 8;
-    return Math.max(0, Math.min(100, score));
-  }, []);
+
+    if (legalFlags.length > 0) {
+      score -= Math.min(24, legalFlags.length * 8);
+      cautions.push(`Legal status flags: ${legalFlags.join(', ')}`);
+    } else {
+      score += 10;
+      positives.push('Legal status appears clear (no mortgage/caveat/transaction)');
+    }
+
+    if (parcel.forSale) {
+      score += 10;
+      positives.push('Listed for sale and ready for transaction');
+    } else {
+      score -= 8;
+      cautions.push('Not currently listed for sale');
+    }
+
+    let pricePerSqm: number | null = null;
+    if (parcel.price && parcel.area && parcel.area > 0) {
+      pricePerSqm = parcel.price / parcel.area;
+      if (pricePerSqm < 150000) {
+        score += 8;
+        positives.push('Price-to-area value is favorable');
+      } else if (pricePerSqm > 400000) {
+        score -= 8;
+        cautions.push('Price-to-area value is high compared to peers');
+      }
+    }
+
+    if (parcel.area && parcel.area > 400) {
+      score += 5;
+      positives.push('Parcel size supports flexible use');
+    }
+
+    const shape = polygonShapeMetrics(parcel.positions || []);
+    if (shape.compactness < 0.23) {
+      score -= 10;
+      cautions.push('Irregular boundary shape detected');
+    }
+    if (shape.elongation > 5.5) {
+      score -= 8;
+      cautions.push('Long and narrow shape detected');
+    }
+    if (shape.sharpAngleCount >= 4) {
+      score -= 6;
+      cautions.push('Unnatural boundary angles detected');
+    }
+    if (shape.fragmentationIndex > 1.2) {
+      score -= 6;
+      cautions.push('Boundary appears fragmented/jagged');
+    }
+
+    const context = compareFacilityContexts[parcel.upi];
+    if (context) {
+      if (context.influenceScore >= 8) {
+        score += 8;
+        positives.push('Strong surrounding facility influence');
+      } else if (context.influenceScore >= 4) {
+        score += 4;
+        positives.push('Moderate surrounding facility influence');
+      } else {
+        cautions.push('Limited surrounding facility influence');
+      }
+    }
+
+    score = Math.max(0, Math.min(100, Math.round(score)));
+
+    const allReasons = [...cautions, ...positives];
+    const reasons = allReasons.length > 0
+      ? allReasons
+      : ['No major differentiating factors found among compared parcels'];
+
+    return {
+      score,
+      legalStatus: legalFlags.length > 0 ? 'Flagged' : 'Clear',
+      legalFlags,
+      reasons,
+      factors: {
+        boundaryOverlapRisk: parcel.hasOverlap ? 'High' : 'Low',
+        legalStatus: legalFlags.length > 0 ? legalFlags.join(', ') : 'Clear',
+        saleStatus: parcel.forSale ? 'For sale' : 'Not for sale',
+        area: formatArea(parcel.area),
+        pricePerSqm: pricePerSqm ? `${Math.round(pricePerSqm).toLocaleString()} RWF/m²` : 'N/A',
+        shapeComplexity: shape.compactness < 0.23 ? 'High irregularity' : 'Normal',
+        elongation: shape.elongation.toFixed(2),
+        unnaturalAngles: String(shape.sharpAngleCount),
+        fragmentation: shape.fragmentationIndex.toFixed(2),
+        neighborContext: context ? `${context.influenceLabel} (${context.influenceScore})` : 'N/A',
+      },
+    };
+  }, [compareFacilityContexts]);
+
+  const compareAnalysisByUpi = useMemo(() => {
+    const table: Record<string, ReturnType<typeof evaluateParcelForRecommendation>> = {};
+    compareParcels.forEach((parcel) => {
+      table[parcel.upi] = evaluateParcelForRecommendation(parcel);
+    });
+    return table;
+  }, [compareParcels, evaluateParcelForRecommendation]);
 
   const bestComparedParcel = useMemo(() => {
     if (compareParcels.length < 2) return null;
     const ranked = compareParcels
-      .map((parcel) => ({ parcel, score: scoreParcel(parcel) }))
-      .sort((a, b) => b.score - a.score);
+      .map((parcel) => ({ parcel, analysis: compareAnalysisByUpi[parcel.upi] }))
+      .sort((a, b) => (b.analysis?.score || 0) - (a.analysis?.score || 0));
     return ranked[0];
-  }, [compareParcels, scoreParcel]);
+  }, [compareAnalysisByUpi, compareParcels]);
 
   const fetchParcelByUpi = useCallback(async () => {
     const upi = fetchUpi.trim();
@@ -2392,7 +2841,10 @@ function StepTwo({
                   <div key={parcel.upi} className="rounded-md border border-gray-200 dark:border-gray-700 p-2 text-xs flex justify-between items-center">
                     <div>
                       <div className="font-medium">{parcel.upi}</div>
-                      <div className="text-gray-500">{parcel.district || 'Unknown'} • Score {scoreParcel(parcel)}/100</div>
+                      <div className="text-gray-500">{parcel.district || 'Unknown'} • Score {compareAnalysisByUpi[parcel.upi]?.score ?? 0}/100</div>
+                      <div className={`text-[11px] mt-0.5 ${compareAnalysisByUpi[parcel.upi]?.legalStatus === 'Clear' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                        Legal: {compareAnalysisByUpi[parcel.upi]?.legalStatus || 'Unknown'}
+                      </div>
                       {compareFacilityContexts[parcel.upi]?.nearestPoi && (
                         <div className="text-gray-500">
                           Nearest: {compareFacilityContexts[parcel.upi]?.nearestPoi?.category} • {formatDistance(compareFacilityContexts[parcel.upi]?.nearestDistance || null)}
@@ -2421,8 +2873,28 @@ function StepTwo({
                   </div>
                   <div className="text-sm font-medium">{bestComparedParcel.parcel.upi}</div>
                   <p className="text-xs text-gray-600 dark:text-gray-300 mt-1">
-                    Best score ({bestComparedParcel.score}/100) based on overlap risk, legal status, sale readiness, and price-to-area value.
+                    Best score ({bestComparedParcel.analysis.score}/100) from all checked factors with legal status verification.
                   </p>
+                  <div className="mt-2 text-[11px] space-y-1 text-gray-700 dark:text-gray-300">
+                    <div>Legal status: <span className="font-semibold">{bestComparedParcel.analysis.factors.legalStatus}</span></div>
+                    <div>Boundary overlap risk: <span className="font-semibold">{bestComparedParcel.analysis.factors.boundaryOverlapRisk}</span></div>
+                    <div>Sale status: <span className="font-semibold">{bestComparedParcel.analysis.factors.saleStatus}</span></div>
+                    <div>Area: <span className="font-semibold">{bestComparedParcel.analysis.factors.area}</span></div>
+                    <div>Price/m²: <span className="font-semibold">{bestComparedParcel.analysis.factors.pricePerSqm}</span></div>
+                    <div>Shape complexity: <span className="font-semibold">{bestComparedParcel.analysis.factors.shapeComplexity}</span></div>
+                    <div>Elongation ratio: <span className="font-semibold">{bestComparedParcel.analysis.factors.elongation}</span></div>
+                    <div>Unnatural angles: <span className="font-semibold">{bestComparedParcel.analysis.factors.unnaturalAngles}</span></div>
+                    <div>Fragmentation index: <span className="font-semibold">{bestComparedParcel.analysis.factors.fragmentation}</span></div>
+                    <div>Neighbor context: <span className="font-semibold">{bestComparedParcel.analysis.factors.neighborContext}</span></div>
+                  </div>
+                  <div className="mt-2">
+                    <p className="text-[11px] font-semibold text-gray-600 dark:text-gray-300">Why recommended:</p>
+                    <ul className="list-disc pl-4 mt-1 text-[11px] text-gray-600 dark:text-gray-300 space-y-0.5">
+                      {bestComparedParcel.analysis.reasons.map((reason, idx) => (
+                        <li key={`${reason}-${idx}`}>{reason}</li>
+                      ))}
+                    </ul>
+                  </div>
                 </div>
               )}
             </div>
@@ -2545,12 +3017,7 @@ function StepTwo({
         )}
 
         <MapClickHandler onEmptyClick={(location) => {
-          setSelectedParcel(null);
-          setShowPopup(false);
-          setCombinedData(null);
-          setIssueNotice(null);
-          setOverlappingDetails([]);
-          setEmptyAreaInfo(location);
+          handleMapPointLookup(location);
         }} />
 
         {/* Parcel Polygons */}
@@ -2600,9 +3067,12 @@ function StepTwo({
                 setShowPopup(false);
                 setSelectedParcel(null);
                 setCombinedData(null);
+                setRiskAssessment(null);
               }}
               combinedData={combinedData}
               loading={loadingDetails}
+              riskAssessment={riskAssessment}
+              loadingRisk={loadingRisk}
             />
           </motion.div>
         )}
