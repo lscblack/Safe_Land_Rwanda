@@ -910,7 +910,6 @@ function DetailPopup({ parcel, onClose, combinedData, loading, riskAssessment, l
   const propertyData = combinedData?.propertyData;
   const externalData = combinedData?.externalData;
   const statusRows = [
-    { label: 'For Sale', value: parcel.forSale === true ? 'Yes' : 'No' },
     { label: 'Under Mortgage', value: parcel.under_mortgage ? 'Yes' : 'No' },
     { label: 'Has Caveat', value: parcel.has_caveat ? 'Yes' : 'No' },
     { label: 'In Transaction', value: parcel.in_transaction ? 'Yes' : 'No' },
@@ -1063,13 +1062,12 @@ function DetailPopup({ parcel, onClose, combinedData, loading, riskAssessment, l
           <>
             <div className="flex items-center justify-between rounded-md border border-gray-200 dark:border-gray-700 px-3 py-2 bg-white/70 dark:bg-gray-900/40">
               <div className="text-sm font-semibold text-foreground">Parcel Risk Score: {riskAssessment.score}/100</div>
-              <span className={`text-xs font-semibold px-2 py-1 rounded-full ${
-                riskAssessment.level === 'High'
-                  ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
-                  : riskAssessment.level === 'Medium'
-                    ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300'
-                    : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
-              }`}>
+              <span className={`text-xs font-semibold px-2 py-1 rounded-full ${riskAssessment.level === 'High'
+                ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
+                : riskAssessment.level === 'Medium'
+                  ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300'
+                  : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
+                }`}>
                 {riskAssessment.level} risk
               </span>
             </div>
@@ -1804,6 +1802,7 @@ function StepTwo({
   const [selectedProvince, setSelectedProvince] = useState<string>(activeServerFilters.province || 'all');
   const [selectedDistrict, setSelectedDistrict] = useState<string>(activeServerFilters.district || 'all');
   const [selectedSector, setSelectedSector] = useState<string>(activeServerFilters.sector || 'all');
+  const [dbDistrictOptions, setDbDistrictOptions] = useState<string[]>([]);
   const [saleStatusFilter, setSaleStatusFilter] = useState<'all' | 'for_sale' | 'not_for_sale'>('all');
   const [compareMode, setCompareMode] = useState(false);
   const [compareUpis, setCompareUpis] = useState<string[]>([]);
@@ -1909,12 +1908,44 @@ function StepTwo({
 
   const provinceOptions = PROVINCE_OPTIONS;
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadDistrictOptions = async () => {
+      try {
+        const params: Record<string, string> = {};
+        if (selectedProvince !== 'all') {
+          params.province = selectedProvince.toLowerCase();
+        }
+        const response = await api.get('/api/mappings/filter-options/districts', { params });
+        const districts = Array.isArray(response.data)
+          ? response.data.filter((d: unknown) => typeof d === 'string' && d.trim().length > 0)
+          : [];
+        if (!cancelled) {
+          setDbDistrictOptions(districts);
+        }
+      } catch {
+        if (!cancelled) {
+          setDbDistrictOptions([]);
+        }
+      }
+    };
+
+    loadDistrictOptions();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedProvince]);
+
   const districtOptions = useMemo(() => {
+    if (dbDistrictOptions.length > 0) {
+      return dbDistrictOptions;
+    }
     if (selectedProvince === 'all') {
       return RWANDA_DISTRICT_OPTIONS;
     }
     return DISTRICTS_BY_PROVINCE[selectedProvince] || RWANDA_DISTRICT_OPTIONS;
-  }, [selectedProvince]);
+  }, [dbDistrictOptions, selectedProvince]);
 
   const sectorOptions = useMemo(() => {
     let source = selectedProvince === 'all'
@@ -1936,6 +1967,9 @@ function StepTwo({
 
     return filtered;
   }, [parcels, filterAvailable, viewMode]);
+
+  const hasLocationFilter = Boolean(activeServerFilters.province || activeServerFilters.district || activeServerFilters.sector);
+  const noLocationFilterResults = !isFiltering && hasLocationFilter && displayedParcels.length === 0;
 
   const compareParcels = useMemo(
     () => parcels.filter((p) => compareUpis.includes(p.upi)),
@@ -2011,15 +2045,23 @@ function StepTwo({
     }
   }, [displayedParcels, verifiedUPI]);
 
-  useEffect(() => {
+  const handleApplyFilters = useCallback(async () => {
     const filters: ParcelFetchFilters = {
       province: selectedProvince !== 'all' ? selectedProvince : undefined,
       district: selectedDistrict !== 'all' ? selectedDistrict : undefined,
       sector: selectedSector !== 'all' ? selectedSector : undefined,
       sale_status: saleStatusFilter !== 'all' ? saleStatusFilter : undefined,
     };
-    onApplyServerFilters(filters);
+    await onApplyServerFilters(filters);
   }, [selectedProvince, selectedDistrict, selectedSector, saleStatusFilter, onApplyServerFilters]);
+
+  const handleResetFilterControls = useCallback(async () => {
+    setSelectedProvince('all');
+    setSelectedDistrict('all');
+    setSelectedSector('all');
+    setSaleStatusFilter('all');
+    await onApplyServerFilters({});
+  }, [onApplyServerFilters]);
 
   const handleParcelClick = async (parcel: ParcelData) => {
     setEmptyAreaInfo(null);
@@ -2721,6 +2763,12 @@ function StepTwo({
                   Applying filters...
                 </div>
               )}
+              {noLocationFilterResults && (
+                <div className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 rounded-md px-2 py-1.5 border border-amber-200">
+                  <AlertCircle size={12} />
+                  No parcels found for the selected location filters.
+                </div>
+              )}
               <div>
                 <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Province</label>
                 <select
@@ -2785,6 +2833,23 @@ function StepTwo({
                   <option value="for_sale">For sale</option>
                   <option value="not_for_sale">Not for sale</option>
                 </select>
+              </div>
+
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  onClick={() => { void handleApplyFilters(); }}
+                  disabled={isFiltering}
+                  className="flex-1 rounded-md bg-primary text-white text-xs px-3 py-2 disabled:opacity-60"
+                >
+                  Apply Filters
+                </button>
+                <button
+                  onClick={() => { void handleResetFilterControls(); }}
+                  disabled={isFiltering}
+                  className="rounded-md border border-gray-300 dark:border-gray-700 text-xs px-3 py-2 disabled:opacity-60"
+                >
+                  Reset
+                </button>
               </div>
             </div>
 

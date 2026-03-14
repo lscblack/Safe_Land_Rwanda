@@ -19,7 +19,7 @@ from typing import Optional, Any
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import text
+from sqlalchemy import text, func
 from sqlalchemy.exc import SQLAlchemyError
 
 from data.models.mapping import Mapping
