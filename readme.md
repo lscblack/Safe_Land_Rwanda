@@ -3,8 +3,8 @@
 This README contains:
 - Step-by-step installation and run instructions
 - Related project files and folders
-- Placeholder for 5-minute demo video link
-- Placeholder for deployed app / installable package links
+- 5-minute demo video link
+- deployed app / installable package links
 - Testing results with screenshot placeholders
 - Analysis, Discussion, and Recommendations/Future Work sections
 
