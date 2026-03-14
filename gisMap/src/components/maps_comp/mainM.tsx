@@ -255,6 +255,7 @@ interface StepOneProps {
 interface StepTwoProps {
   parcels: ParcelData[];
   verifiedUPI: string;
+  onSelectedParcelChange: (upi: string) => void;
   onBack: () => void;
   onVerifyAnother: () => void;
   filterAvailable: boolean;
@@ -319,6 +320,47 @@ interface PlannedLandUseSlice {
 }
 
 const PROVINCE_OPTIONS = ['Kigali City', 'Eastern', 'Western', 'Northern', 'Southern'];
+
+const RWANDA_DISTRICT_OPTIONS = [
+  'Bugesera',
+  'Burera',
+  'Gakenke',
+  'Gasabo',
+  'Gatsibo',
+  'Gicumbi',
+  'Gisagara',
+  'Huye',
+  'Kamonyi',
+  'Karongi',
+  'Kayonza',
+  'Kicukiro',
+  'Kirehe',
+  'Muhanga',
+  'Musanze',
+  'Ngoma',
+  'Ngororero',
+  'Nyabihu',
+  'Nyagatare',
+  'Nyamagabe',
+  'Nyamasheke',
+  'Nyanza',
+  'Nyarugenge',
+  'Nyaruguru',
+  'Rubavu',
+  'Ruhango',
+  'Rulindo',
+  'Rusizi',
+  'Rwamagana',
+  'Rutsiro',
+];
+
+const DISTRICTS_BY_PROVINCE: Record<string, string[]> = {
+  'Kigali City': ['Gasabo', 'Kicukiro', 'Nyarugenge'],
+  'Eastern': ['Bugesera', 'Gatsibo', 'Kayonza', 'Kirehe', 'Ngoma', 'Nyagatare', 'Rwamagana'],
+  'Western': ['Karongi', 'Ngororero', 'Nyabihu', 'Nyamasheke', 'Rubavu', 'Rusizi', 'Rutsiro'],
+  'Northern': ['Burera', 'Gakenke', 'Gicumbi', 'Musanze', 'Rulindo'],
+  'Southern': ['Gisagara', 'Huye', 'Kamonyi', 'Muhanga', 'Nyamagabe', 'Nyanza', 'Nyaruguru', 'Ruhango'],
+};
 
 type PoiCategory = 'hospitals' | 'schools' | 'banks' | 'markets';
 
@@ -1726,6 +1768,7 @@ function StepOne({ onVerify, onViewMap, isVerifying, verificationResult }: StepO
 function StepTwo({
   parcels,
   verifiedUPI,
+  onSelectedParcelChange,
   onBack,
   onVerifyAnother,
   filterAvailable,
@@ -1867,12 +1910,11 @@ function StepTwo({
   const provinceOptions = PROVINCE_OPTIONS;
 
   const districtOptions = useMemo(() => {
-    const source = selectedProvince === 'all'
-      ? parcels
-      : parcels.filter((p) => p.province === selectedProvince);
-    const districts = Array.from(new Set(source.map((p) => p.district).filter(Boolean) as string[]));
-    return districts.sort((a, b) => a.localeCompare(b));
-  }, [parcels, selectedProvince]);
+    if (selectedProvince === 'all') {
+      return RWANDA_DISTRICT_OPTIONS;
+    }
+    return DISTRICTS_BY_PROVINCE[selectedProvince] || RWANDA_DISTRICT_OPTIONS;
+  }, [selectedProvince]);
 
   const sectorOptions = useMemo(() => {
     let source = selectedProvince === 'all'
@@ -1937,6 +1979,11 @@ function StepTwo({
       setSelectedParcel(verifiedParcel);
     }
   }, [verifiedParcel, autoZoom]);
+
+  useEffect(() => {
+    if (!selectedParcel?.upi) return;
+    onSelectedParcelChange(selectedParcel.upi);
+  }, [selectedParcel?.upi, onSelectedParcelChange]);
 
   // Auto-zoom when chatbot highlights a UPI
   useEffect(() => {
@@ -2869,7 +2916,7 @@ function StepTwo({
               {bestComparedParcel && (
                 <div className="mt-3 rounded-lg bg-primary/10 border border-primary/20 p-3">
                   <div className="text-xs font-semibold text-primary flex items-center gap-1 mb-1">
-                    <Sparkles size={12} /> AI Recommendation
+                    <Sparkles size={12} />  Recommendation
                   </div>
                   <div className="text-sm font-medium">{bestComparedParcel.parcel.upi}</div>
                   <p className="text-xs text-gray-600 dark:text-gray-300 mt-1">
@@ -3440,10 +3487,15 @@ export default function ParcelVerificationFlow() {
   }, [fetchAllParcels]);
 
   const applyServerFilters = useCallback(async (filters: ParcelFetchFilters) => {
+    const normalizeValue = (value?: string) => {
+      const normalized = value?.trim().toLowerCase();
+      return normalized && normalized !== 'all' ? normalized : undefined;
+    };
+
     const normalized: ParcelFetchFilters = {
-      province: filters.province || undefined,
-      district: filters.district || undefined,
-      sector: filters.sector || undefined,
+      province: normalizeValue(filters.province),
+      district: normalizeValue(filters.district),
+      sector: normalizeValue(filters.sector),
       sale_status: filters.sale_status || undefined,
     };
     const currentKey = JSON.stringify(activeServerFilters || {});
@@ -3748,6 +3800,7 @@ export default function ParcelVerificationFlow() {
           <StepTwo
             parcels={parcels}
             verifiedUPI={verifiedUPI}
+            onSelectedParcelChange={setVerifiedUPI}
             onBack={handleBack}
             onVerifyAnother={handleVerifyAnother}
             filterAvailable={filterAvailable}

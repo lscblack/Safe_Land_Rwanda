@@ -62,6 +62,13 @@ def _normalized_province_values(province: Optional[str]) -> list[str]:
     return [canonical]
 
 
+def _normalized_text_filter(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    return normalized or None
+
+
 async def _compute_overlap_upi_set(db: AsyncSession, upis: list[str]) -> set[str]:
     if not upis:
         return set()
@@ -523,18 +530,20 @@ async def get_my_mappings(
     base_query = select(Mapping).where(Mapping.uploaded_by == str(uploader_id))
     count_query = select(func.count(Mapping.id)).where(Mapping.uploaded_by == str(uploader_id))
 
-    province_values = _normalized_province_values(province)
-    if province_values:
+    norm_sector = _normalized_text_filter(sector)
+    norm_district = _normalized_text_filter(district)
+    province_values = _normalized_province_values(_normalized_text_filter(province))
+
+    # Location precedence (non-hierarchical): sector > district > province
+    if norm_sector:
+        base_query = base_query.where(func.lower(Mapping.sector) == norm_sector)
+        count_query = count_query.where(func.lower(Mapping.sector) == norm_sector)
+    elif norm_district:
+        base_query = base_query.where(func.lower(Mapping.district) == norm_district)
+        count_query = count_query.where(func.lower(Mapping.district) == norm_district)
+    elif province_values:
         base_query = base_query.where(func.lower(Mapping.province).in_(province_values))
         count_query = count_query.where(func.lower(Mapping.province).in_(province_values))
-
-    if district:
-        base_query = base_query.where(func.lower(Mapping.district) == district.lower())
-        count_query = count_query.where(func.lower(Mapping.district) == district.lower())
-
-    if sector:
-        base_query = base_query.where(func.lower(Mapping.sector) == sector.lower())
-        count_query = count_query.where(func.lower(Mapping.sector) == sector.lower())
 
     if sale_status == "for_sale":
         base_query = base_query.where(Mapping.for_sale.is_(True))
@@ -597,18 +606,20 @@ async def list_mappings(
     base_query = select(Mapping)
     count_query = select(func.count(Mapping.id))
 
-    province_values = _normalized_province_values(province)
-    if province_values:
+    norm_sector = _normalized_text_filter(sector)
+    norm_district = _normalized_text_filter(district)
+    province_values = _normalized_province_values(_normalized_text_filter(province))
+
+    # Location precedence (non-hierarchical): sector > district > province
+    if norm_sector:
+        base_query = base_query.where(func.lower(Mapping.sector) == norm_sector)
+        count_query = count_query.where(func.lower(Mapping.sector) == norm_sector)
+    elif norm_district:
+        base_query = base_query.where(func.lower(Mapping.district) == norm_district)
+        count_query = count_query.where(func.lower(Mapping.district) == norm_district)
+    elif province_values:
         base_query = base_query.where(func.lower(Mapping.province).in_(province_values))
         count_query = count_query.where(func.lower(Mapping.province).in_(province_values))
-
-    if district:
-        base_query = base_query.where(func.lower(Mapping.district) == district.lower())
-        count_query = count_query.where(func.lower(Mapping.district) == district.lower())
-
-    if sector:
-        base_query = base_query.where(func.lower(Mapping.sector) == sector.lower())
-        count_query = count_query.where(func.lower(Mapping.sector) == sector.lower())
 
     if sale_status == "for_sale":
         base_query = base_query.where(Mapping.for_sale.is_(True))
@@ -654,6 +665,28 @@ async def list_mappings(
         response.headers["X-Has-More"] = "true" if has_more else "false"
 
     return [mapping_to_dict(m) for m in mappings]
+
+
+@router.get("/filter-options/districts", response_model=list[str])
+async def list_district_filter_options(
+    db: AsyncSession = Depends(get_db),
+    province: Optional[str] = Query(None),
+):
+    """
+    Efficient DB-backed district dropdown source.
+    If province is provided, return districts only for that province.
+    """
+    norm_province = _normalized_text_filter(province)
+    province_values = _normalized_province_values(norm_province)
+
+    q = select(func.lower(Mapping.district)).where(Mapping.district.isnot(None))
+    if province_values:
+        q = q.where(func.lower(Mapping.province).in_(province_values))
+
+    q = q.distinct().order_by(func.lower(Mapping.district))
+    result = await db.execute(q)
+    districts = [row[0] for row in result.fetchall() if row and row[0]]
+    return [d.title() for d in districts]
     
 @router.get("/lookup/point", response_model=dict)
 async def lookup_mapping_by_point(

@@ -19,6 +19,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
+from sqlalchemy import delete
 
 from data.database.database import get_db
 from data.models.chat import ChatSession, ChatMessage
@@ -38,6 +39,13 @@ class CreateSessionRequest(BaseModel):
 
 class SendMessageRequest(BaseModel):
     message: str
+    selected_upi: Optional[str] = None
+
+
+class VoiceMessageRequest(BaseModel):
+    transcript: str
+    locale: Optional[str] = None
+    selected_upi: Optional[str] = None
 
 
 class MessageOut(BaseModel):
@@ -187,6 +195,51 @@ async def send_message(
     • Persist both the user message and the assistant reply.
     • Return the assistant reply alongside the session.
     """
+    payload = await _process_session_message(
+        session_id=session_id,
+        user_content=body.message,
+        selected_upi=body.selected_upi,
+        db=db,
+    )
+    return payload
+
+
+@router.post("/sessions/{session_id}/voice", response_model=dict)
+async def send_voice_message(
+    session_id: int,
+    body: VoiceMessageRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Voice turn endpoint.
+    Expects browser speech-to-text transcript and returns both chat reply and TTS text.
+    """
+    transcript = (body.transcript or "").strip()
+    if not transcript:
+        raise HTTPException(status_code=400, detail="Voice transcript is empty.")
+
+    payload = await _process_session_message(
+        session_id=session_id,
+        user_content=transcript,
+        selected_upi=body.selected_upi,
+        db=db,
+    )
+
+    # TTS payload: frontend can directly speak this text.
+    payload["voice"] = {
+        "input_transcript": transcript,
+        "locale": body.locale,
+        "tts_text": payload["reply"]["content"],
+    }
+    return payload
+
+
+async def _process_session_message(
+    session_id: int,
+    user_content: str,
+    selected_upi: Optional[str],
+    db: AsyncSession,
+) -> dict:
     # --- load session + history ---
     result = await db.execute(
         select(ChatSession)
@@ -199,6 +252,19 @@ async def send_message(
     if not session.is_active:
         raise HTTPException(status_code=400, detail="Session is closed.")
 
+    normalized_selected_upi = (selected_upi or "").strip() or None
+    effective_upi = normalized_selected_upi or session.upi
+
+    if not effective_upi:
+        raise HTTPException(
+            status_code=400,
+            detail="Please select a parcel on the map or upload a parcel certificate before starting chat.",
+        )
+
+    # Keep selected parcel pinned at session-level for future turns.
+    if normalized_selected_upi and session.upi != normalized_selected_upi:
+        session.upi = normalized_selected_upi
+
     # Build history list for the model
     history = [
         {"role": m.role, "content": m.content}
@@ -209,10 +275,10 @@ async def send_message(
     # --- run RAG + LLM ---
     try:
         reply, context_snapshot = await run_chat(
-            user_message=body.message,
+            user_message=user_content,
             db=db,
             history=history,
-            session_upi=session.upi,
+            session_upi=effective_upi,
             pdf_context=session.pdf_context,
         )
     except RuntimeError as exc:
@@ -222,7 +288,7 @@ async def send_message(
     user_msg = ChatMessage(
         session_id       = session.id,
         role             = "user",
-        content          = body.message,
+        content          = user_content,
         context_snapshot = None,
     )
     db.add(user_msg)
@@ -242,12 +308,10 @@ async def send_message(
 
     return {
         "session_id":    session.id,
-        "user_message":  {"id": user_msg.id,      "role": "user",      "content": body.message, "created_at": str(user_msg.created_at)},
+        "user_message":  {"id": user_msg.id,      "role": "user",      "content": user_content, "created_at": str(user_msg.created_at)},
         "reply":         {"id": assistant_msg.id, "role": "assistant", "content": reply,         "created_at": str(assistant_msg.created_at)},
         "resolved_upi":  context_snapshot.get("resolved_upi"),
-        # Parcel chips are only shown when the user uploads a PDF in the chat.
-        # The message endpoint never returns chips to protect other users' UPI privacy.
-        "parcels": [],
+        "parcels":       context_snapshot.get("parcels") or [],
     }
 
 
@@ -342,10 +406,14 @@ async def upload_pdf_to_session(
         "filename":                  file.filename,
     }
 
+    # --- Session isolation on each upload ---
+    # Every uploaded parcel starts a fresh analysis context in this session.
+    await db.execute(delete(ChatMessage).where(ChatMessage.session_id == session.id))
+
     # --- Persist on session ---
     session.pdf_context = pdf_ctx
-    if not session.title or session.title.startswith("New chat"):
-        session.title = f"Certificate {canonical_upi}"
+    session.upi = canonical_upi
+    session.title = f"Certificate {canonical_upi}"
     await db.commit()
 
     # --- Parcel chip response (same shape as map parcels) ---
@@ -373,7 +441,7 @@ async def upload_pdf_to_session(
 
     return {
         "success": True,
-        "message": f"Certificate for {canonical_upi} loaded. Ask me anything about this parcel.",
+        "message": f"Certificate for {canonical_upi} loaded. A new parcel analysis context has started for this session.",
         "parcel": parcel_out,
         "session_id": session_id,
         # pass the full verify-pdf preview so the frontend can use it for the map too

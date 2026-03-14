@@ -1,8 +1,66 @@
 // SimpleAiChatbot.tsx — fully integrated with SafeLand RAG backend
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MessageCircle, X, Send, Bot, User, Loader2, MapPin, Paperclip, FileText, Edit2, ShieldAlert } from 'lucide-react';
+import { MessageCircle, X, Send, Bot, User, Loader2, MapPin, Paperclip, FileText, Edit2, ShieldAlert, Mic } from 'lucide-react';
 import api from '../../instance/mainAxios';
+
+interface SpeechRecognitionAlternative {
+    transcript: string;
+}
+
+interface SpeechRecognitionResultLike {
+    isFinal: boolean;
+    [index: number]: SpeechRecognitionAlternative;
+}
+
+interface SpeechRecognitionEventLike extends Event {
+    results: {
+        [index: number]: SpeechRecognitionResultLike;
+        length: number;
+    };
+}
+
+interface SpeechRecognitionLike extends EventTarget {
+    lang: string;
+    interimResults: boolean;
+    maxAlternatives: number;
+    continuous: boolean;
+    onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+    onerror: ((event: Event) => void) | null;
+    onend: (() => void) | null;
+    start: () => void;
+    stop: () => void;
+}
+
+const UPI_SPEECH_RE = /\b\d+\/\d+\/\d+\/\d+\/\d+\b/g;
+const DIGIT_WORDS: Record<string, string> = {
+    '0': 'zero',
+    '1': 'one',
+    '2': 'two',
+    '3': 'three',
+    '4': 'four',
+    '5': 'five',
+    '6': 'six',
+    '7': 'seven',
+    '8': 'eight',
+    '9': 'nine',
+};
+
+function verbalizeUpiForSpeech(upi: string): string {
+    return upi
+        .split('')
+        .map(ch => {
+            if (ch === '/') return ' slash ';
+            return DIGIT_WORDS[ch] ?? ch;
+        })
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function normalizeTextForSpeech(text: string): string {
+    return text.replace(UPI_SPEECH_RE, (upi) => `${verbalizeUpiForSpeech(upi)}`);
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -61,6 +119,10 @@ const getStoredSessionId = (upi: string | null): number | null => {
 
 const storeSessionId = (upi: string | null, id: number) => {
     sessionStorage.setItem(SESSION_KEY(upi), String(id));
+};
+
+const clearSessionId = (upi: string | null) => {
+    sessionStorage.removeItem(SESSION_KEY(upi));
 };
 
 // ---------------------------------------------------------------------------
@@ -148,13 +210,14 @@ export const SimpleAiChatbot: React.FC<SimpleAiChatbotProps> = ({
             type: 'bot',
             content: verifiedUPI
                 ? `Hello! I'm your SafeLand Land Assistant. I can see you're looking at parcel **${verifiedUPI}**. Ask me anything about it — price, land use, legal status, safety, and more!`
-                : "Hello! I'm your SafeLand Land Assistant. Ask me about any parcel, e.g. 'What parcels have no issues?' or mention a UPI like 1/01/01/001/0001.",
+                : 'Please select a parcel on the map or upload a land certificate PDF to start chat.',
             timestamp: new Date(),
         },
     ]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [isUploadingPdf, setIsUploadingPdf] = useState(false);
+    const [isListening, setIsListening] = useState(false);
     const [sessionError, setSessionError] = useState<string | null>(null);
     // lastUploadedUpi: tracks the most recently uploaded PDF parcel so
     // the session always focuses on the newest upload (unless user says 'compare')
@@ -165,6 +228,12 @@ export const SimpleAiChatbot: React.FC<SimpleAiChatbotProps> = ({
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+    const initializedSessionForUpiRef = useRef<string | null>(verifiedUPI ?? null);
+
+    const speechRecognitionSupported = typeof window !== 'undefined' &&
+        ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
+    const hasSelectedParcel = Boolean(activeUPI);
 
     // -----------------------------------------------------------------------
     // Scroll to bottom on new messages
@@ -178,10 +247,72 @@ export const SimpleAiChatbot: React.FC<SimpleAiChatbotProps> = ({
         if (isOpen) setTimeout(() => inputRef.current?.focus(), 150);
     }, [isOpen]);
 
+    const makeWelcomeMessage = useCallback((upi: string | null): Message => {
+        return {
+            id: Date.now().toString(),
+            type: 'bot',
+            content: upi
+                ? `Hello! I'm your SafeLand Land Assistant. I can see you're looking at parcel **${upi}**. Ask me anything about it — price, land use, legal status, safety, and more!`
+                : 'Please select a parcel on the map or upload a land certificate PDF to start chat.',
+            timestamp: new Date(),
+        };
+    }, []);
+
+    const startNewSessionForParcel = useCallback(async (upi: string) => {
+        const normalized = upi.trim();
+        if (!normalized) return;
+
+        try {
+            clearSessionId(normalized);
+            const { data } = await api.post('/api/chat/sessions', {
+                upi: normalized,
+                title: `Parcel ${normalized}`,
+            });
+            const id: number = data.id;
+            storeSessionId(normalized, id);
+            setSessionId(id);
+            setMessages([makeWelcomeMessage(normalized)]);
+            setSessionError(null);
+        } catch {
+            setSessionId(null);
+            setSessionError('Could not start a new chat session for this parcel. Please try again.');
+        }
+    }, [makeWelcomeMessage]);
+
     // Keep activeUPI in sync if the parent changes verifiedUPI externally
     useEffect(() => {
         if (verifiedUPI) setActiveUPI(verifiedUPI);
     }, [verifiedUPI]);
+
+    // Start a fresh chat session whenever parcel selection changes
+    useEffect(() => {
+        if (!activeUPI) {
+            setSessionId(null);
+            setMessages([makeWelcomeMessage(null)]);
+            initializedSessionForUpiRef.current = null;
+            return;
+        }
+
+        if (initializedSessionForUpiRef.current === activeUPI) return;
+        initializedSessionForUpiRef.current = activeUPI;
+        setIsOpen(true);
+        setIsListening(false);
+        void startNewSessionForParcel(activeUPI);
+    }, [activeUPI, makeWelcomeMessage, startNewSessionForParcel]);
+
+    // Cleanup speech resources on unmount
+    useEffect(() => {
+        return () => {
+            try {
+                recognitionRef.current?.stop();
+            } catch {
+                // no-op
+            }
+            if (typeof window !== 'undefined' && window.speechSynthesis) {
+                window.speechSynthesis.cancel();
+            }
+        };
+    }, []);
 
     // -----------------------------------------------------------------------
     // Create (or reuse) a backend session
@@ -189,14 +320,14 @@ export const SimpleAiChatbot: React.FC<SimpleAiChatbotProps> = ({
     const ensureSession = useCallback(async (): Promise<number> => {
         if (sessionId) return sessionId;
         const { data } = await api.post('/api/chat/sessions', {
-            upi: verifiedUPI ?? null,
-            title: verifiedUPI ? `Parcel ${verifiedUPI}` : 'General inquiry',
+            upi: activeUPI ?? null,
+            title: activeUPI ? `Parcel ${activeUPI}` : 'General inquiry',
         });
         const id: number = data.id;
-        storeSessionId(verifiedUPI, id);
+        storeSessionId(activeUPI, id);
         setSessionId(id);
         return id;
-    }, [sessionId, verifiedUPI]);
+    }, [sessionId, activeUPI]);
 
     // -----------------------------------------------------------------------
     // PDF upload
@@ -306,11 +437,11 @@ export const SimpleAiChatbot: React.FC<SimpleAiChatbotProps> = ({
         } else {
             // Build a specific notice
             const issues: string[] = [];
-            if (p.under_mortgage)  issues.push('under mortgage');
-            if (p.has_caveat)      issues.push('has a caveat');
-            if (p.in_transaction)  issues.push('currently in a transaction — not safe to buy');
-            if (p.overlaps)        issues.push('has a boundary overlap with another parcel');
-            if (!p.for_sale)       issues.push('not listed for sale');
+            if (p.under_mortgage) issues.push('under mortgage');
+            if (p.has_caveat) issues.push('has a caveat');
+            if (p.in_transaction) issues.push('currently in a transaction — not safe to buy');
+            if (p.overlaps) issues.push('has a boundary overlap with another parcel');
+            if (!p.for_sale) issues.push('not listed for sale');
 
             const notice = issues.length
                 ? `⚠️ This parcel is ${issues.join(', ')}. It is not safe to proceed with a purchase at this time.`
@@ -320,12 +451,38 @@ export const SimpleAiChatbot: React.FC<SimpleAiChatbotProps> = ({
         }
     };
 
+    const speakText = useCallback((text: string) => {
+        if (!text || typeof window === 'undefined' || !window.speechSynthesis) return;
+        const spokenText = normalizeTextForSpeech(text);
+        const utterance = new SpeechSynthesisUtterance(spokenText);
+        utterance.lang = 'en-US';
+        utterance.rate = 1;
+        utterance.pitch = 1;
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(utterance);
+    }, []);
+
     // -----------------------------------------------------------------------
-    // Send a message
+    // Send a message (shared for text + voice)
     // -----------------------------------------------------------------------
-    const handleSend = async () => {
-        const text = input.trim();
+    const sendMessage = async (rawText: string, viaVoice: boolean) => {
+        const text = rawText.trim();
         if (!text || isLoading) return;
+
+        if (!hasSelectedParcel) {
+            const prompt = 'Please select a parcel on the map or upload a land certificate PDF to start chat.';
+            setMessages(prev => [
+                ...prev,
+                {
+                    id: Date.now().toString(),
+                    type: 'bot',
+                    content: prompt,
+                    timestamp: new Date(),
+                },
+            ]);
+            setSessionError(prompt);
+            return;
+        }
 
         // Guard: admin-only questions should not be answered for regular users
         if (isAdminOnlyQuery(text)) {
@@ -346,33 +503,57 @@ export const SimpleAiChatbot: React.FC<SimpleAiChatbotProps> = ({
         const userMsg: Message = {
             id: Date.now().toString(),
             type: 'user',
-            content: text,
+            content: viaVoice ? `🎤 ${text}` : text,
             timestamp: new Date(),
         };
         setMessages(prev => [...prev, userMsg]);
-        setInput('');
+        if (!viaVoice) setInput('');
         setIsLoading(true);
         setSessionError(null);
 
         try {
             const sid = await ensureSession();
-            const { data } = await api.post(`/api/chat/sessions/${sid}/message`, {
-                message: text,
-            });
+            const { data } = viaVoice
+                ? await api.post(`/api/chat/sessions/${sid}/voice`, {
+                    transcript: text,
+                    locale: 'en-US',
+                    selected_upi: activeUPI,
+                })
+                : await api.post(`/api/chat/sessions/${sid}/message`, {
+                    message: text,
+                    selected_upi: activeUPI,
+                });
+
+            const replyParcels: ParcelRef[] = Array.isArray(data.parcels) ? data.parcels : [];
 
             const botMsg: Message = {
                 id: (Date.now() + 1).toString(),
                 type: 'bot',
                 content: data.reply?.content ?? "I'm not sure about that. Could you rephrase?",
                 timestamp: new Date(),
+                parcels: replyParcels.length ? replyParcels : undefined,
             };
             setMessages(prev => [...prev, botMsg]);
+
+            if (viaVoice) {
+                const ttsText: string = data?.voice?.tts_text || botMsg.content;
+                speakText(ttsText);
+            }
+
+            if (replyParcels.length > 0) {
+                onParcelsUpdate?.(replyParcels);
+                const firstUpi = replyParcels[0]?.upi;
+                if (firstUpi) {
+                    setActiveUPI(firstUpi);
+                    onUpiChange?.(firstUpi);
+                }
+            }
 
         } catch (err: any) {
             const detail = err?.response?.data?.detail ?? "Sorry, I'm having trouble connecting. Please try again.";
             // If the session was deleted on the server, clear stored id and retry once
             if (err?.response?.status === 404 && sessionId) {
-                sessionStorage.removeItem(SESSION_KEY(verifiedUPI));
+                sessionStorage.removeItem(SESSION_KEY(activeUPI));
                 setSessionId(null);
                 setSessionError('Session expired — starting a new conversation.');
             } else {
@@ -389,6 +570,54 @@ export const SimpleAiChatbot: React.FC<SimpleAiChatbotProps> = ({
         } finally {
             setIsLoading(false);
         }
+    };
+
+    const handleSend = async () => {
+        await sendMessage(input, false);
+    };
+
+    const startVoiceCapture = async () => {
+        if (!hasSelectedParcel) {
+            setSessionError('Please select a parcel on the map or upload a land certificate PDF before using voice chat.');
+            return;
+        }
+        if (!speechRecognitionSupported) {
+            setSessionError('Voice input is not supported in this browser.');
+            return;
+        }
+        if (isLoading || isUploadingPdf || isListening) return;
+
+        setSessionError(null);
+
+        const SpeechRecognitionCtor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        const recognition: SpeechRecognitionLike = new SpeechRecognitionCtor();
+        recognitionRef.current = recognition;
+        recognition.lang = 'en-US';
+        recognition.interimResults = false;
+        recognition.maxAlternatives = 1;
+        recognition.continuous = false;
+
+        recognition.onresult = async (event: SpeechRecognitionEventLike) => {
+            const result = event.results[0];
+            const transcript = result?.[0]?.transcript?.trim() || '';
+            if (!transcript) {
+                setSessionError('No speech detected. Please try again.');
+                return;
+            }
+            await sendMessage(transcript, true);
+        };
+
+        recognition.onerror = () => {
+            setSessionError('Voice recognition failed. Please try again.');
+            setIsListening(false);
+        };
+
+        recognition.onend = () => {
+            setIsListening(false);
+        };
+
+        setIsListening(true);
+        recognition.start();
     };
 
     const formatTime = (date: Date) =>
@@ -482,6 +711,12 @@ export const SimpleAiChatbot: React.FC<SimpleAiChatbotProps> = ({
                             </div>
                         )}
 
+                        {!hasSelectedParcel && (
+                            <div className="bg-blue-50 border-b border-blue-200 px-4 py-2 text-xs text-blue-700">
+                                Select a parcel on the map or upload a certificate to enable chat and voice.
+                            </div>
+                        )}
+
                         {/* ── Messages ── */}
                         <div className="flex-1 overflow-y-auto p-4 space-y-4">
                             {messages.map(message => (
@@ -500,8 +735,8 @@ export const SimpleAiChatbot: React.FC<SimpleAiChatbotProps> = ({
                                         {/* Bubble */}
                                         <div
                                             className={`rounded-2xl px-4 py-2 text-sm ${message.type === 'user'
-                                                    ? 'bg-[#395d91] text-white rounded-br-none'
-                                                    : 'bg-[#f1f5f9] text-gray-800 rounded-bl-none'
+                                                ? 'bg-[#395d91] text-white rounded-br-none'
+                                                : 'bg-[#f1f5f9] text-gray-800 rounded-bl-none'
                                                 }`}
                                         >
                                             <RenderMarkdown
@@ -641,19 +876,33 @@ export const SimpleAiChatbot: React.FC<SimpleAiChatbotProps> = ({
                                         : <Paperclip size={16} />
                                     }
                                 </button>
+                                <button
+                                    onClick={startVoiceCapture}
+                                    disabled={isLoading || isUploadingPdf || !speechRecognitionSupported || !hasSelectedParcel}
+                                    title={speechRecognitionSupported ? 'Speak to ask a question' : 'Voice input not supported in this browser'}
+                                    className={`px-2 py-2 border rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0 ${isListening
+                                        ? 'border-red-300 text-red-600 bg-red-50'
+                                        : 'border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-[#395d91]'
+                                        }`}
+                                >
+                                    {isListening
+                                        ? <Loader2 size={16} className="animate-spin" />
+                                        : <Mic size={16} />
+                                    }
+                                </button>
                                 <input
                                     ref={inputRef}
                                     type="text"
                                     value={input}
                                     onChange={e => setInput(e.target.value)}
                                     onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSend()}
-                                    placeholder={activeUPI ? `Ask about ${activeUPI}…` : 'Ask about any parcel…'}
-                                    disabled={isLoading || isUploadingPdf}
+                                    placeholder={activeUPI ? `Ask about ${activeUPI}…` : 'Select parcel first…'}
+                                    disabled={isLoading || isUploadingPdf || !hasSelectedParcel}
                                     className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#395d91]/20 focus:border-[#395d91] disabled:bg-gray-50"
                                 />
                                 <button
                                     onClick={handleSend}
-                                    disabled={!input.trim() || isLoading || isUploadingPdf}
+                                    disabled={!input.trim() || isLoading || isUploadingPdf || !hasSelectedParcel}
                                     className="px-3 py-2 bg-[#395d91] text-white rounded-lg hover:bg-[#2d4a75] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     {isLoading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
