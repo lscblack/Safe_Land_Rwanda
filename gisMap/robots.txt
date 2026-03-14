@@ -1,0 +1,16 @@
+User-agent: *
+Allow: /
+
+# Block sensitive folders
+Disallow: /admin/
+Disallow: /private/
+Disallow: /api/
+Disallow: /login/
+
+# Block temporary or system files
+Disallow: /tmp/
+Disallow: /cache/
+Disallow: /node_modules/
+Disallow: /src/
+Disallow: /.git/
+

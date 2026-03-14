@@ -66,6 +66,7 @@ const SafeLandNavbar = () => {
                 <div className="hidden lg:flex items-center gap-8">
                     {navLinks.map((link) => (
                         <button
+                            name={link.name}
                             key={link.name}
                             onClick={() => scrollToSection(link.id)}
                             className="text-sm font-bold text-slate-600 dark:text-gray-300 hover:text-[#395d91] dark:hover:text-[#5b85c7] transition-colors"
@@ -76,12 +77,12 @@ const SafeLandNavbar = () => {
                 </div>
                 <div className='gap-3 hidden lg:flex items-center justify-between'>
                     {/* Desktop Auth Buttons */}
-                        <a href="/login" className="px-5 py-2.5 text-sm font-bold text-slate-700 dark:text-gray-200 hover:text-[#395d91] dark:hover:text-white transition-colors">
-                            Sign In
-                        </a>
-                        <a href="/register" className="px-5 py-2.5 bg-[#395d91] hover:bg-[#2d4a75] text-white text-sm font-bold rounded-xl transition-all shadow-sm active:scale-95">
-                            Get Started
-                        </a>
+                    <a href="/login" className="px-5 py-2.5 text-sm font-bold text-slate-700 dark:text-gray-200 hover:text-[#395d91] dark:hover:text-white transition-colors">
+                        Sign In
+                    </a>
+                    <a href="/register" className="px-5 py-2.5 bg-[#395d91] hover:bg-[#2d4a75] text-white text-sm font-bold rounded-xl transition-all shadow-sm active:scale-95">
+                        Get Started
+                    </a>
                     <DarkModeOnboardingPage />
                 </div>
 
@@ -708,6 +709,7 @@ export const DarkModeOnboardingPage = () => {
 
         {/* --- THEME TOGGLE (Top Right) --- */}
         <button
+            name='dark'
             onClick={toggleTheme}
             className="p-3 rounded-full bg-white dark:bg-white/10 shadow-lg border border-gray-100 dark:border-white/5 hover:bg-gray-100 dark:hover:bg-white/20 transition-all text-slate-600 dark:text-white"
         >
