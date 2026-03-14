@@ -104,6 +104,10 @@ interface ParcelData {
   in_transaction?: boolean;
   year_of_record?: number;
   full_address?: string;
+  planned_land_uses?: Array<{
+    landUseName: string;
+    area: number;
+  }>;
 }
 
 interface PropertyImage {
@@ -300,6 +304,20 @@ interface ParcelFetchFilters {
   sale_status?: 'for_sale' | 'not_for_sale';
 }
 
+interface PlannedLandUsePart {
+  name: string;
+  area: number;
+  ratio: number;
+}
+
+interface PlannedLandUseSlice {
+  name: string;
+  area: number;
+  color: string;
+  positions: [number, number][];
+  center: [number, number];
+}
+
 const PROVINCE_OPTIONS = ['Kigali City', 'Eastern', 'Western', 'Northern', 'Southern'];
 
 type PoiCategory = 'hospitals' | 'schools' | 'banks' | 'markets';
@@ -353,6 +371,18 @@ function getParcelColor(parcel: ParcelData, isVerified: boolean): string {
   return '#F97316';
 }
 
+function extractPlannedLandUses(raw: any): Array<{ landUseName: string; area: number }> {
+  const planned = raw?.parcelDetails?.plannedLandUses || raw?.plannedLandUses || [];
+  if (!Array.isArray(planned)) return [];
+
+  return planned
+    .map((entry: any) => ({
+      landUseName: String(entry?.landUseName || '').trim(),
+      area: Number(entry?.area || 0),
+    }))
+    .filter((entry: { landUseName: string; area: number }) => Boolean(entry.landUseName) && Number.isFinite(entry.area) && entry.area > 0);
+}
+
 function toParcelFromMapping(mapping: any, verified = false): ParcelData | null {
   const polygonWkt = mapping?.official_registry_polygon;
   if (!polygonWkt) return null;
@@ -396,6 +426,11 @@ function toParcelFromMapping(mapping: any, verified = false): ParcelData | null 
     in_transaction: mapping.in_transaction,
     year_of_record: mapping.year_of_record,
     full_address: mapping.full_address,
+    planned_land_uses: Array.isArray(mapping.planned_land_uses)
+      ? mapping.planned_land_uses
+      : Array.isArray(mapping.plannedLandUses)
+        ? mapping.plannedLandUses
+        : undefined,
   };
   parcel.color = getParcelColor(parcel, verified);
   return parcel;
@@ -409,6 +444,122 @@ function getCenter(coords: [number, number][]): [number, number] {
     lng += ln;
   });
   return [lat / coords.length, lng / coords.length];
+}
+
+function polygonArea2D(pts: [number, number][]): number {
+  // Shoelace formula treating [lat, lng] as [y, x] flat plane
+  let area = 0;
+  const n = pts.length;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    area += pts[j][1] * pts[i][0];
+    area -= pts[i][1] * pts[j][0];
+  }
+  return Math.abs(area) / 2;
+}
+
+function clipHalfPlane(
+  pts: [number, number][],
+  yCut: number,
+  side: 'below' | 'above',
+): [number, number][] {
+  const output: [number, number][] = [];
+  const n = pts.length;
+  for (let i = 0; i < n; i++) {
+    const cur = pts[i];
+    const prev = pts[(i - 1 + n) % n];
+    const curIn = side === 'below' ? cur[0] <= yCut : cur[0] >= yCut;
+    const prevIn = side === 'below' ? prev[0] <= yCut : prev[0] >= yCut;
+    if (curIn !== prevIn) {
+      const t = (yCut - prev[0]) / (cur[0] - prev[0]);
+      output.push([yCut, prev[1] + t * (cur[1] - prev[1])]);
+    }
+    if (curIn) output.push(cur);
+  }
+  return output;
+}
+
+function buildLandUseSlices(parcel: ParcelData): PlannedLandUseSlice[] {
+  const planned = (parcel.planned_land_uses || [])
+    .filter((entry) => Boolean(entry?.landUseName) && Number(entry?.area) > 0)
+    .map((entry) => ({ name: entry.landUseName, area: Number(entry.area), ratio: 0 })) as PlannedLandUsePart[];
+
+  if (planned.length < 2 || !parcel.positions || parcel.positions.length < 4) return [];
+
+  const ring = [...parcel.positions];
+  const first = ring[0];
+  const last = ring[ring.length - 1];
+  const closed = first[0] === last[0] && first[1] === last[1];
+  const boundary = closed ? ring.slice(0, -1) : ring;
+  if (boundary.length < 4) return [];
+
+  const totalPlannedArea = planned.reduce((sum, item) => sum + item.area, 0);
+  if (!totalPlannedArea || !Number.isFinite(totalPlannedArea)) return [];
+  planned.forEach((item) => { item.ratio = item.area / totalPlannedArea; });
+
+  const usageColors = ['#2563EB', '#059669', '#7C3AED', '#F59E0B', '#EC4899', '#14B8A6'];
+  const slices: PlannedLandUseSlice[] = [];
+  let remainingPoly: [number, number][] = [...boundary];
+
+  for (let i = 0; i < planned.length; i++) {
+    const part = planned[i];
+    const isLast = i === planned.length - 1;
+
+    if (isLast) {
+      if (remainingPoly.length >= 3) {
+        slices.push({
+          name: part.name,
+          area: part.area,
+          color: usageColors[i % usageColors.length],
+          positions: remainingPoly,
+          center: getCenter(remainingPoly),
+        });
+      }
+    } else {
+      // Binary-search for horizontal cut lat that gives correct area proportion
+      const remaining = planned.slice(i);
+      const totalRemaining = remaining.reduce((s, p) => s + p.area, 0);
+      const fraction = part.area / totalRemaining;
+      const remainingArea = polygonArea2D(remainingPoly);
+      const targetArea = remainingArea * fraction;
+
+      const lats = remainingPoly.map((p) => p[0]);
+      let lo = Math.min(...lats);
+      let hi = Math.max(...lats);
+
+      for (let iter = 0; iter < 64; iter++) {
+        const mid = (lo + hi) / 2;
+        const below = clipHalfPlane(remainingPoly, mid, 'below');
+        const belowArea = below.length >= 3 ? polygonArea2D(below) : 0;
+        if (belowArea < targetArea) lo = mid; else hi = mid;
+      }
+
+      const yCut = (lo + hi) / 2;
+      const below = clipHalfPlane(remainingPoly, yCut, 'below');
+      const above = clipHalfPlane(remainingPoly, yCut, 'above');
+
+      if (below.length >= 3) {
+        slices.push({
+          name: part.name,
+          area: part.area,
+          color: usageColors[i % usageColors.length],
+          positions: below,
+          center: getCenter(below),
+        });
+      }
+      remainingPoly = above.length >= 3 ? above : remainingPoly;
+    }
+  }
+
+  return slices;
+}
+
+function getParcelIssueLabels(parcel: ParcelData): string[] {
+  const issues: string[] = [];
+  if (parcel.hasOverlap) issues.push('Boundary overlap');
+  if (parcel.in_transaction) issues.push('In transaction');
+  if (parcel.under_mortgage) issues.push('Under mortgage');
+  if (parcel.has_caveat) issues.push('Has caveat');
+  return issues;
 }
 
 function getGenderIcon(gender: string) {
@@ -597,6 +748,19 @@ interface DetailPopupProps {
 
 function DetailPopup({ parcel, onClose, combinedData, loading }: DetailPopupProps) {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const propertyData = combinedData?.propertyData;
+  const externalData = combinedData?.externalData;
+  const statusRows = [
+    { label: 'For Sale', value: parcel.forSale === true ? 'Yes' : 'No' },
+    { label: 'Under Mortgage', value: parcel.under_mortgage ? 'Yes' : 'No' },
+    { label: 'Has Caveat', value: parcel.has_caveat ? 'Yes' : 'No' },
+    { label: 'In Transaction', value: parcel.in_transaction ? 'Yes' : 'No' },
+    { label: 'Boundary Overlap', value: parcel.hasOverlap ? 'Yes' : 'No' },
+  ];
+
+  const plannedLandUses = (externalData?.plannedLandUses && externalData.plannedLandUses.length > 0)
+    ? externalData.plannedLandUses
+    : (parcel.planned_land_uses || []);
 
   if (loading) {
     return (
@@ -606,9 +770,6 @@ function DetailPopup({ parcel, onClose, combinedData, loading }: DetailPopupProp
       </div>
     );
   }
-
-  const propertyData = combinedData?.propertyData;
-  const externalData = combinedData?.externalData;
 
   return (
     <div className=" max-h-[80vh] overflow-y-auto p-4 pt-0">
@@ -713,6 +874,23 @@ function DetailPopup({ parcel, onClose, combinedData, loading }: DetailPopupProp
             Overlap
           </span>
         )}
+      </div>
+
+      <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg p-3 mb-4">
+        <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">Status Overview</h4>
+        <div className="grid grid-cols-2 gap-2">
+          {statusRows.map((row) => {
+            const isYes = row.value === 'Yes';
+            return (
+              <div key={row.label} className="rounded-md border border-gray-200 dark:border-gray-700 px-2 py-1.5">
+                <div className="text-[11px] text-gray-500">{row.label}</div>
+                <div className={`text-xs font-semibold ${isYes ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
+                  {row.value}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {/* Data Source Indicators */}
@@ -970,11 +1148,11 @@ function DetailPopup({ parcel, onClose, combinedData, loading }: DetailPopupProp
           )}
 
           {/* Planned Land Uses */}
-          {externalData.plannedLandUses && externalData.plannedLandUses.length > 0 && (
+          {plannedLandUses.length > 0 && (
             <div className="mb-4">
               <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">Planned Land Uses</h4>
               <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg p-3">
-                {externalData.plannedLandUses.map((use, idx) => (
+                {plannedLandUses.map((use, idx) => (
                   <div key={idx} className="text-sm mb-1 last:mb-0">
                     • {use.landUseName} {use.area && `(${formatArea(use.area)})`}
                   </div>
@@ -1001,6 +1179,11 @@ function DetailPopup({ parcel, onClose, combinedData, loading }: DetailPopupProp
 ========================= */
 function ParcelPolygon({ parcel, isSelected, isCompared, onClick }: { parcel: ParcelData; isSelected: boolean; isCompared: boolean; onClick: () => void }) {
   const [hovered, setHovered] = useState(false);
+  const [hoveredSliceIdx, setHoveredSliceIdx] = useState<number | null>(null);
+  const plannedLandUseSlices = useMemo(
+    () => (parcel.isVerified ? buildLandUseSlices(parcel) : []),
+    [parcel]
+  );
 
   const getPathOptions = () => {
     const baseOptions: L.PathOptions = {
@@ -1102,6 +1285,55 @@ function ParcelPolygon({ parcel, isSelected, isCompared, onClick }: { parcel: Pa
           </div>
         </Tooltip>
       </Polygon>
+
+      {plannedLandUseSlices.map((slice, idx) => (
+        <React.Fragment key={`${parcel.upi}-planned-${idx}`}>
+          <Polygon
+            positions={slice.positions}
+            pathOptions={{
+              color: parcel.color,
+              weight: 1,
+              fillColor: slice.color,
+              fillOpacity: 0.35,
+            }}
+            eventHandlers={{
+              mouseover: () => setHoveredSliceIdx(idx),
+              mouseout: () => setHoveredSliceIdx((prev) => (prev === idx ? null : prev)),
+              click: (e) => {
+                L.DomEvent.stopPropagation(e);
+                onClick();
+              },
+            }}
+          />
+          {hoveredSliceIdx !== idx && (
+            <Marker
+              position={slice.center}
+              icon={L.divIcon({
+                html: `<div style="
+                  background: rgba(255,255,255,0.96);
+                  border: 1px solid #E5E7EB;
+                  border-radius: 6px;
+                  padding: 3px 6px;
+                  font-size: 10px;
+                  font-weight: 600;
+                  color: #1F2937;
+                  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+                  white-space: normal;
+                  overflow-wrap: anywhere;
+                  max-width: 120px;
+                  pointer-events: none;
+                  line-height: 1.25;
+                  text-align: center;
+                ">${slice.name}<br/><span style="font-size:9px;font-weight:400;color:#4B5563;">${formatArea(slice.area)}</span></div>`,
+                className: 'planned-land-use-label',
+                iconSize: [120, 42],
+                iconAnchor: [60, 21],
+              })}
+              interactive={false}
+            />
+          )}
+        </React.Fragment>
+      ))}
 
       <AreaLabel parcel={parcel} />
 
@@ -1374,7 +1606,7 @@ function StepTwo({
   const [fetchingUpi, setFetchingUpi] = useState(false);
   const [fetchUpiError, setFetchUpiError] = useState<string | null>(null);
   // 'issues' = has legal issues (kept confidential) | 'overlap' = has boundary overlap | 'not_for_sale'
-  const [issueNotice, setIssueNotice] = useState<'issues' | 'overlap' | 'not_for_sale' | null>(null);
+  const [issueNotice, setIssueNotice] = useState<'issues' | 'not_for_sale' | null>(null);
   const [overlappingDetails, setOverlappingDetails] = useState<Array<{ upi: string; overlap_area_sqm: number }>>([]);
   const [loadingOverlapDetails, setLoadingOverlapDetails] = useState(false);
   const [emptyAreaInfo, setEmptyAreaInfo] = useState<{ lat: number; lng: number } | null>(null);
@@ -1387,7 +1619,6 @@ function StepTwo({
     markets: false,
   });
   const [mapCenter] = useState<[number, number]>([-1.9403, 29.8739]);
-  const defaultLocationAppliedRef = useRef<string | null>(null);
 
   const distanceMeters = useCallback((a: [number, number], b: [number, number]) => {
     const toRad = (v: number) => (v * Math.PI) / 180;
@@ -1557,40 +1788,19 @@ function StepTwo({
 
   useEffect(() => {
     if (!verifiedParcel) return;
-    if (defaultLocationAppliedRef.current === verifiedParcel.upi) return;
-
-    const hasProvince = Boolean(verifiedParcel.province);
-    const hasDistrict = Boolean(verifiedParcel.district);
-    const hasSector = Boolean(verifiedParcel.sector);
-
-    if (hasSector) {
-      setSelectedProvince(verifiedParcel.province || 'all');
-      setSelectedDistrict(verifiedParcel.district || 'all');
-      setSelectedSector(verifiedParcel.sector || 'all');
-    } else if (hasDistrict) {
-      setSelectedProvince(verifiedParcel.province || 'all');
-      setSelectedDistrict(verifiedParcel.district || 'all');
-      setSelectedSector('all');
-    } else if (hasProvince) {
-      setSelectedProvince(verifiedParcel.province || 'all');
-      setSelectedDistrict('all');
-      setSelectedSector('all');
-    } else {
-      setSelectedProvince('all');
-      setSelectedDistrict('all');
-      setSelectedSector('all');
-    }
-
+    setSelectedProvince('all');
+    setSelectedDistrict('all');
+    setSelectedSector('all');
     setSaleStatusFilter('all');
-    defaultLocationAppliedRef.current = verifiedParcel.upi;
-  }, [verifiedParcel]);
+  }, [verifiedParcel?.upi]);
 
   useEffect(() => {
     if (displayedParcels.length > 0) {
-      setSelectedParcel(displayedParcels[0]);
+      const verifiedInView = displayedParcels.find((parcel) => parcel.upi === verifiedUPI);
+      setSelectedParcel(verifiedInView || displayedParcels[0]);
       setAutoZoom(true);
     }
-  }, [displayedParcels]);
+  }, [displayedParcels, verifiedUPI]);
 
   useEffect(() => {
     const filters: ParcelFetchFilters = {
@@ -1619,8 +1829,7 @@ function StepTwo({
       setCombinedData(null);
       setSelectedParcel(parcel);
       setAutoZoom(true);
-      // Show overlap explicitly; all other legal issues are kept confidential
-      setIssueNotice(hasOverlap ? 'overlap' : 'issues');
+      setIssueNotice('issues');
       if (hasOverlap) {
         // Fetch detailed overlap info: which parcels, how much area, etc.
         setOverlappingDetails([]);
@@ -2409,36 +2618,56 @@ function StepTwo({
             exit={{ opacity: 0, y: 20 }}
             className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-[2000] rounded-xl shadow-xl max-w-sm w-full"
           >
-            {issueNotice === 'overlap' && (
-              <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-700 rounded-xl p-4">
+            {issueNotice === 'issues' && (
+              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4">
                 <div className="flex items-start gap-3">
-                  <AlertTriangle size={20} className="text-orange-500 mt-0.5 shrink-0" />
+                  <ShieldAlert size={20} className="text-red-600 mt-0.5 shrink-0" />
                   <div className="flex-1">
-                    <h3 className="font-semibold text-orange-800 dark:text-orange-300">Boundary Overlap Detected</h3>
-                    <p className="text-sm text-orange-700 dark:text-orange-400 mt-1">
-                      This parcel has a boundary conflict with {overlappingDetails.length > 0 ? overlappingDetails.length : 'one or more'} adjacent parcel{overlappingDetails.length !== 1 ? 's' : ''}.
-                      Verify boundaries with the Rwanda Land Authority before any transaction.
+                    <h3 className="font-semibold text-red-800 dark:text-red-400">Not Safe for Purchase</h3>
+                    <p className="text-xs font-mono text-red-800 dark:text-red-300 mt-1">UPI: {selectedParcel.upi}</p>
+                    <p className="text-sm text-red-700 dark:text-red-300 mt-1">
+                      This parcel has unresolved legal issues. It is not safe to proceed with a purchase at this time. Contact the Rwanda Land Authority for further information.
                     </p>
-                    {/* Parcel score */}
                     {selectedParcel && (
-                      <div className="mt-2 flex items-center gap-1.5 text-xs font-medium text-orange-700 dark:text-orange-400">
-                        <span className="uppercase tracking-wide opacity-70">Safety Score</span>
-                        <span className="bg-orange-200 dark:bg-orange-800 rounded-full px-2 py-0.5">{scoreParcel(selectedParcel)}/100</span>
-                      </div>
+                      <>
+                        <div className="mt-3">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-red-800 dark:text-red-300">Issues found</p>
+                          <div className="mt-1 flex flex-wrap gap-1.5">
+                            {getParcelIssueLabels(selectedParcel).map((issue) => (
+                              <span key={issue} className="text-[11px] px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-700">
+                                {issue}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      </>
                     )}
-                    {/* Overlapping parcels list */}
-                    {loadingOverlapDetails && (
-                      <div className="mt-2 flex items-center gap-1.5 text-xs text-orange-600">
+
+                    <details className="mt-3 rounded-lg border border-red-200 dark:border-red-700 bg-red-100/40 dark:bg-red-900/20 px-3 py-2">
+                      <summary className="text-xs font-semibold text-red-800 dark:text-red-300 cursor-pointer">
+                        What we check to determine land safety (NLA data)
+                      </summary>
+                      <ul className="mt-2 text-xs text-red-700 dark:text-red-300 space-y-1 list-disc pl-4">
+                        <li>Boundary overlap/conflict status</li>
+                        <li>Current transaction status</li>
+                        <li>Mortgage status</li>
+                        <li>Caveat/restriction status</li>
+                      </ul>
+                      <p className="mt-2 text-[11px] text-red-600 dark:text-red-400">Source: National Land Authority (NLA) integrated records.</p>
+                    </details>
+
+                    {selectedParcel?.hasOverlap && loadingOverlapDetails && (
+                      <div className="mt-2 flex items-center gap-1.5 text-xs text-red-600">
                         <Loader2 size={12} className="animate-spin" /> Loading overlap details…
                       </div>
                     )}
-                    {!loadingOverlapDetails && overlappingDetails.length > 0 && (
+                    {selectedParcel?.hasOverlap && !loadingOverlapDetails && overlappingDetails.length > 0 && (
                       <div className="mt-3 space-y-1">
-                        <p className="text-xs font-semibold text-orange-800 dark:text-orange-300 uppercase tracking-wide">Conflicting parcels</p>
-                        {overlappingDetails.map(ov => (
-                          <div key={ov.upi} className="flex items-center justify-between bg-orange-100 dark:bg-orange-900/40 rounded-lg px-3 py-1.5 text-xs">
-                            <span className="font-medium text-orange-900 dark:text-orange-200 font-mono">{ov.upi}</span>
-                            <span className="text-orange-700 hidden dark:text-orange-400 ml-4">
+                        <p className="text-xs font-semibold text-red-800 dark:text-red-300 uppercase tracking-wide">Conflicting parcels</p>
+                        {overlappingDetails.map((ov) => (
+                          <div key={ov.upi} className="flex items-center justify-between bg-red-100 dark:bg-red-900/30 rounded-lg px-3 py-1.5 text-xs">
+                            <span className="font-medium text-red-900 dark:text-red-200 font-mono">{ov.upi}</span>
+                            <span className="text-red-700 hidden dark:text-red-300 ml-4">
                               {ov.overlap_area_sqm != null
                                 ? ov.overlap_area_sqm >= 10000
                                   ? `${(ov.overlap_area_sqm / 10000).toFixed(2)} ha overlap`
@@ -2450,23 +2679,7 @@ function StepTwo({
                       </div>
                     )}
                   </div>
-                  <button onClick={() => { setIssueNotice(null); setOverlappingDetails([]); }} className="p-1 rounded hover:bg-orange-100 dark:hover:bg-orange-800">
-                    <X size={14} className="text-orange-600" />
-                  </button>
-                </div>
-              </div>
-            )}
-            {issueNotice === 'issues' && (
-              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4">
-                <div className="flex items-start gap-3">
-                  <ShieldAlert size={20} className="text-red-600 mt-0.5 shrink-0" />
-                  <div className="flex-1">
-                    <h3 className="font-semibold text-red-800 dark:text-red-400">Not Safe for Purchase</h3>
-                    <p className="text-sm text-red-700 dark:text-red-300 mt-1">
-                      This parcel has unresolved legal issues. It is not safe to proceed with a purchase at this time. Contact the Rwanda Land Authority for further information.
-                    </p>
-                  </div>
-                  <button onClick={() => setIssueNotice(null)} className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-800">
+                  <button onClick={() => { setIssueNotice(null); setOverlappingDetails([]); }} className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-800">
                     <X size={14} className="text-red-600" />
                   </button>
                 </div>
@@ -2478,7 +2691,20 @@ function StepTwo({
                   <Ban size={20} className="text-gray-500" />
                   <div>
                     <h3 className="font-semibold text-gray-700 dark:text-gray-300">Not Listed for Sale</h3>
+                    <p className="text-xs font-mono text-gray-600 dark:text-gray-300 mt-1">UPI: {selectedParcel.upi}</p>
                     <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">This parcel is not currently listed for sale.</p>
+                    <details className="mt-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-100/70 dark:bg-gray-900/40 px-3 py-2">
+                      <summary className="text-xs font-semibold text-gray-700 dark:text-gray-300 cursor-pointer">
+                        What we check to determine land safety (NLA data)
+                      </summary>
+                      <ul className="mt-2 text-xs text-gray-600 dark:text-gray-300 space-y-1 list-disc pl-4">
+                        <li>Boundary overlap/conflict status</li>
+                        <li>Current transaction status</li>
+                        <li>Mortgage status</li>
+                        <li>Caveat/restriction status</li>
+                      </ul>
+                      <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">Source: National Land Authority (NLA) integrated records.</p>
+                    </details>
                   </div>
                 </div>
               </div>
@@ -2816,10 +3042,44 @@ export default function ParcelVerificationFlow() {
       if (response.data) {
         const result = response.data;
         const verifiedUpi = result.upi;
+        let externalPlannedUses: Array<{ landUseName: string; area: number }> = [];
+        let externalStatuses: {
+          under_mortgage?: boolean;
+          has_caveat?: boolean;
+          in_transaction?: boolean;
+          land_use_type?: string;
+          tenure_type?: string;
+          remaining_lease_term?: number;
+          area?: number;
+        } = {};
+
+        try {
+          const externalResponse = await api.get('/api/external/title_data', {
+            params: { upi: verifiedUpi, language: 'english' },
+          });
+          if (externalResponse.data?.success && externalResponse.data?.found) {
+            const ext = externalResponse.data.data;
+            externalPlannedUses = extractPlannedLandUses(ext);
+            const parcelDetails = ext?.parcelDetails || {};
+            externalStatuses = {
+              under_mortgage: Boolean(parcelDetails.underMortgage ?? ext?.underMortgage),
+              has_caveat: Boolean(parcelDetails.hasCaveat ?? ext?.hasCaveat),
+              in_transaction: Boolean(parcelDetails.inTransaction ?? ext?.inTransaction),
+              land_use_type: parcelDetails.landUseTypeNameEnglish || ext?.landUse?.landUseTypeNameEnglish,
+              tenure_type: parcelDetails.rightTypeName || ext?.rightTypeName,
+              remaining_lease_term: Number(parcelDetails.remainingLeaseTerm ?? ext?.remainingLeaseTerm),
+              area: Number(parcelDetails.area ?? ext?.area),
+            };
+          }
+        } catch (err) {
+          console.warn('External title_data enrichment failed:', err);
+        }
+
         // Always fetch full unfiltered dataset by default
         const page = await fetchAllParcels({});
         let allParcels: ParcelData[] = page.items;
         setActiveServerFilters({});
+        setFilterAvailable(false);
         setLoadedFromDbCount(page.items.length);
         setTotalParcelsCount(page.total || page.items.length);
         setDbForSaleCount(page.forSaleCount || page.items.filter((p) => p.forSale === true).length);
@@ -2836,10 +3096,14 @@ export default function ParcelVerificationFlow() {
               isVerified: true,
               forSale: result.for_sale || false,
               price: result.price || null,
-              area: result.parcel_area_sqm || p.area,
-              land_use_type: result.land_use_type || p.land_use_type,
-              tenure_type: result.tenure_type || p.tenure_type,
-              remaining_lease_term: result.remaining_lease_term || p.remaining_lease_term,
+              area: result.parcel_area_sqm || externalStatuses.area || p.area,
+              land_use_type: result.land_use_type || externalStatuses.land_use_type || p.land_use_type,
+              tenure_type: result.tenure_type || externalStatuses.tenure_type || p.tenure_type,
+              remaining_lease_term: result.remaining_lease_term || externalStatuses.remaining_lease_term || p.remaining_lease_term,
+              under_mortgage: result.under_mortgage ?? externalStatuses.under_mortgage ?? p.under_mortgage,
+              has_caveat: result.has_caveat ?? externalStatuses.has_caveat ?? p.has_caveat,
+              in_transaction: result.in_transaction ?? externalStatuses.in_transaction ?? p.in_transaction,
+              planned_land_uses: externalPlannedUses.length > 0 ? externalPlannedUses : p.planned_land_uses,
             };
           }
 
@@ -2867,7 +3131,18 @@ export default function ParcelVerificationFlow() {
           try {
             const parcel = toParcelFromMapping(result, true);
             if (parcel) {
-              updatedParcels.push({ ...parcel, isVerified: true, color: getParcelColor(parcel, true) });
+              updatedParcels.push({
+                ...parcel,
+                isVerified: true,
+                color: getParcelColor(parcel, true),
+                under_mortgage: result.under_mortgage ?? externalStatuses.under_mortgage ?? parcel.under_mortgage,
+                has_caveat: result.has_caveat ?? externalStatuses.has_caveat ?? parcel.has_caveat,
+                in_transaction: result.in_transaction ?? externalStatuses.in_transaction ?? parcel.in_transaction,
+                planned_land_uses: externalPlannedUses.length > 0 ? externalPlannedUses : parcel.planned_land_uses,
+                land_use_type: result.land_use_type || externalStatuses.land_use_type || parcel.land_use_type,
+                tenure_type: result.tenure_type || externalStatuses.tenure_type || parcel.tenure_type,
+                remaining_lease_term: result.remaining_lease_term || externalStatuses.remaining_lease_term || parcel.remaining_lease_term,
+              });
             }
           } catch (e) {
             console.warn('[handleVerify] Could not build parcel from result polygon:', e);
@@ -2892,7 +3167,7 @@ export default function ParcelVerificationFlow() {
 
         setParcels(updatedParcels);
         setVerifiedUPI(verifiedUpi);
-        setViewMode('district');
+        setViewMode('all');
 
         setVerificationResult({
           success: true,

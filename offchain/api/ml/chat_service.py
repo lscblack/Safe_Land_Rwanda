@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 OLLAMA_URL   = "http://localhost:11434/api/chat"
 OLLAMA_MODEL = "qwen2.5:1.5b"
+# OLLAMA_MODEL = "llama3"
 
 # Number of previous turns fed back to the model for memory
 HISTORY_WINDOW = 10
