@@ -201,7 +201,7 @@ Add real screenshots below and replace placeholder captions/paths.
   ![alt text](image-6.png)
 7. AI ChatBot interaction for parcel explanation and user queries
 	- recommendation panel with factors: 
-  ![alt text](image-6.png)
+  ![alt text](image-8.png)
 
 
 
