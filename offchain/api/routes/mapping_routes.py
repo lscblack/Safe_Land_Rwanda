@@ -220,6 +220,160 @@ def get_detected_polygon(image):
         gps_coords.append((lon, lat))
     return str(Polygon(gps_coords))
 
+def get_detected_polygon_for_verify(image):
+    """
+    Verify-only detector aligned with previous behavior:
+    uses the largest contour directly (without aggressive simplification).
+    """
+    transformer = Transformer.from_crs("epsg:32736", "epsg:4326", always_xy=True)
+    img = np.array(image)
+    gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    h, w = gray.shape
+    roi = gray[int(h * 0.5):, int(w * 0.5):]
+    blurred = cv2.GaussianBlur(roi, (5, 5), 0)
+
+    # 1) Find the map frame first (usually a large rectangle in the ROI)
+    edges = cv2.Canny(blurred, 50, 150)
+    edges = cv2.dilate(edges, np.ones((3, 3), np.uint8), iterations=1)
+    frame_contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    roi_h, roi_w = roi.shape
+    roi_area = float(max(roi_h * roi_w, 1))
+
+    frame_x, frame_y, frame_w, frame_h = 0, 0, roi_w, roi_h
+    best_frame_score = -1.0
+
+    for cnt in frame_contours:
+        area = cv2.contourArea(cnt)
+        if area < roi_area * 0.06:
+            continue
+
+        peri = cv2.arcLength(cnt, True)
+        if peri <= 0:
+            continue
+
+        approx = cv2.approxPolyDP(cnt, 0.02 * peri, True)
+        x, y, w_box, h_box = cv2.boundingRect(cnt)
+        if w_box <= 0 or h_box <= 0:
+            continue
+
+        box_area = float(w_box * h_box)
+        extent = area / box_area
+        aspect = w_box / float(h_box)
+
+        # Prefer quadrilateral-like, sizable, document-map-like rectangles
+        quad_bonus = 1.2 if len(approx) in (4, 5) else 1.0
+        aspect_penalty = 1.0 - min(abs(aspect - 1.1), 1.1) * 0.35
+        score = area * extent * quad_bonus * max(0.2, aspect_penalty)
+
+        if score > best_frame_score:
+            best_frame_score = score
+            frame_x, frame_y, frame_w, frame_h = x, y, w_box, h_box
+
+    # Crop slightly inside frame to avoid border line being selected as parcel boundary
+    inset_x = max(3, int(frame_w * 0.015))
+    inset_y = max(3, int(frame_h * 0.015))
+    map_x0 = min(max(frame_x + inset_x, 0), roi_w - 1)
+    map_y0 = min(max(frame_y + inset_y, 0), roi_h - 1)
+    map_x1 = min(max(frame_x + frame_w - inset_x, map_x0 + 1), roi_w)
+    map_y1 = min(max(frame_y + frame_h - inset_y, map_y0 + 1), roi_h)
+
+    map_roi = roi[map_y0:map_y1, map_x0:map_x1]
+    if map_roi.size == 0:
+        map_roi = roi
+        map_x0, map_y0 = 0, 0
+
+    # 2) Detect parcel shape inside map frame only
+    map_blurred = cv2.GaussianBlur(map_roi, (5, 5), 0)
+    thresh = cv2.adaptiveThreshold(
+        map_blurred,
+        255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY_INV,
+        11,
+        2,
+    )
+    kernel = np.ones((3, 3), np.uint8)
+    thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=1)
+    thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=1)
+
+    contours, _ = cv2.findContours(thresh, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return None
+
+    map_h, map_w = map_roi.shape
+    map_area = float(max(map_h * map_w, 1))
+    center_x, center_y = map_w / 2.0, map_h / 2.0
+
+    def touches_border(cnt):
+        x, y, cw, ch = cv2.boundingRect(cnt)
+        return x <= 2 or y <= 2 or (x + cw) >= (map_w - 2) or (y + ch) >= (map_h - 2)
+
+    best_contour = None
+    best_score = -1.0
+
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        if area < max(140.0, map_area * 0.001):
+            continue
+        if area > map_area * 0.85:
+            continue
+
+        perimeter = cv2.arcLength(contour, True)
+        if perimeter <= 0:
+            continue
+
+        moments = cv2.moments(contour)
+        if moments["m00"] <= 0:
+            continue
+
+        cx = moments["m10"] / moments["m00"]
+        cy = moments["m01"] / moments["m00"]
+        dist_norm = np.hypot(cx - center_x, cy - center_y) / np.hypot(center_x, center_y)
+
+        hull = cv2.convexHull(contour)
+        hull_area = cv2.contourArea(hull)
+        solidity = area / hull_area if hull_area > 0 else 0
+
+        border_penalty = 0.35 if touches_border(contour) else 0.0
+        score = area * (0.7 + 0.3 * solidity) * max(0.1, 1.0 - 0.45 * dist_norm) * (1.0 - border_penalty)
+
+        if score > best_score:
+            best_score = score
+            best_contour = contour
+
+    if best_contour is None:
+        best_contour = max(contours, key=cv2.contourArea)
+
+    epsilon = 0.0025 * cv2.arcLength(best_contour, True)
+    approx = cv2.approxPolyDP(best_contour, epsilon, True)
+    parcel_contour = approx if len(approx) >= 5 else best_contour
+
+    anchor_utm = [510071, 4778635]
+    gps_coords = []
+    for pt in parcel_contour:
+        px_x, px_y = pt[0]
+        # Convert local map ROI coordinates back to original verify ROI coordinates
+        roi_x = px_x + map_x0
+        roi_y = px_y + map_y0
+        utm_x = anchor_utm[0] + (roi_x * 0.5)
+        utm_y = anchor_utm[1] - (roi_y * 0.5)
+        lon, lat = transformer.transform(utm_x, utm_y)
+        gps_coords.append((lon, lat))
+
+    if len(gps_coords) < 4:
+        return None
+
+    try:
+        polygon = Polygon(gps_coords)
+        if polygon.is_empty:
+            return None
+        if not polygon.is_valid:
+            polygon = polygon.buffer(0)
+        return polygon.wkt if not polygon.is_empty else None
+    except Exception:
+        return None
+
 @router.post("/extract-pdf", response_model=dict)
 async def extract_pdf_and_store(
     file: UploadFile = File(...),
@@ -951,12 +1105,12 @@ async def verify_pdf(
     else:
         upi = None
     page_image = images[0]
-    detected_wkt = get_detected_polygon(page_image)
+    detected_wkt = get_detected_polygon_for_verify(page_image)
 
-    if not detected_wkt:
+    if not upi and not detected_wkt:
         raise HTTPException(
             status_code=422,
-            detail={"message": "This title is not valid. Parcel shape was not detected from the document."}
+            detail={"message": "This title is not valid. Parcel shape was not found."}
         )
 
     uploaded_by = None
@@ -1096,8 +1250,12 @@ async def verify_pdf(
         existing_mapping = existing_result.scalar_one_or_none()
 
         if existing_mapping:
+            preview_shape_wkt = existing_mapping.official_registry_polygon or detected_wkt
             return {
                 **mapping_to_dict(existing_mapping),
+                "document_detected_polygon": detected_wkt,
+                "detected_parcel_shape": preview_shape_wkt,
+                "raw_document_detected_polygon": detected_wkt,
                 "already_registered": True,
                 "property": property_summary,
             }
@@ -1113,8 +1271,15 @@ async def verify_pdf(
             detail={"message": "This title is not valid. Unable to build parcel preview."}
         )
 
+    preview_shape_wkt = (
+        (mapping_preview or {}).get("official_registry_polygon")
+        or detected_wkt
+    )
+
     return {
         **mapping_preview,
+        "detected_parcel_shape": preview_shape_wkt,
+        "raw_document_detected_polygon": detected_wkt,
         "already_registered": False,
         "property": property_summary,
         "status_details": status_details,

@@ -202,6 +202,19 @@ Add real screenshots below and replace placeholder captions/paths.
 7. AI ChatBot interaction for parcel explanation and user queries
 	- recommendation panel with factors: 
   ![alt text](image-8.png)
+8. User seller dashboard
+	- Summary of user parcels, risk status: 
+  ![alt text](image-9.png)
+	- Manage parcel Mapping: 
+  ![alt text](image-10.png)
+	- Manage Mappings: 
+  ![alt text](image-11.png)
+	- Add Property on parcel: 
+  ![alt text](image-12.png)
+	- Property details and risk status: 
+  ![alt text](image-13.png)
+	- View property of parcel : 
+  ![alt text](image-14.png)
 
 
 

@@ -22,8 +22,9 @@ from sqlalchemy.future import select
 from sqlalchemy import text, func
 from sqlalchemy.exc import SQLAlchemyError
 
-from data.models.mapping import Mapping
+from data.models.mapping import Mapping, UpiBackup
 from data.models.models import Property
+from api.routes.external_routes import get_title_data
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +96,18 @@ _PRICE_BETWEEN_RE = re.compile(
     r"(\d+(?:[.,]\d+)?)\s*(B|billion|M|million|K|k|thousand)?\s*(?:rwf|frw)?\s*"
     r"(?:to|and|-|–)\s*"
     r"(\d+(?:[.,]\d+)?)\s*(B|billion|M|million|K|k|thousand)?\s*(?:rwf|frw)?",
+    re.IGNORECASE,
+)
+_PRICE_MENTION_RE = re.compile(
+    r"(?:\bprice\b|\bcost\b|\bamount\b|\brwf\b|\bfrw\b|\b\d+(?:[.,]\d+)?\s*(?:k|m|b|thousand|million|billion)\b)",
+    re.IGNORECASE,
+)
+_STATUS_REQUEST_RE = re.compile(
+    r"\b(status|state|condition|this\s+land|this\s+parcel|parcel\s+status|land\s+status)\b",
+    re.IGNORECASE,
+)
+_GENERIC_REFUSAL_RE = re.compile(
+    r"(can't provide information about specific parcels|cannot provide information about specific parcels|privacy laws|without permission)",
     re.IGNORECASE,
 )
 
@@ -496,6 +509,71 @@ async def _fetch_property(upi: str, db: AsyncSession) -> Optional[Property]:
     return result.scalar_one_or_none()
 
 
+async def _fetch_upi_backup(upi: str, db: AsyncSession) -> Optional[dict]:
+    result = await db.execute(select(UpiBackup).where(UpiBackup.upi == upi))
+    row = result.scalar_one_or_none()
+    return row.upi_info if row and row.upi_info else None
+
+
+def _response_to_json_dict(resp: Any) -> Optional[dict]:
+    if isinstance(resp, dict):
+        return resp
+    if hasattr(resp, "body"):
+        try:
+            raw = resp.body
+            if isinstance(raw, bytes):
+                raw = raw.decode("utf-8", errors="ignore")
+            parsed = json.loads(raw)
+            return parsed if isinstance(parsed, dict) else None
+        except Exception:
+            return None
+    return None
+
+
+def _extract_nla_payload(raw: Optional[dict]) -> Optional[dict]:
+    if not raw:
+        return None
+
+    if raw.get("data") and isinstance(raw.get("data"), dict):
+        return raw
+
+    if raw.get("parcelDetails") or raw.get("upi"):
+        return {"success": True, "found": True, "data": raw}
+
+    return raw
+
+
+async def _fetch_title_data_with_backup(upi: str, db: AsyncSession) -> Optional[dict]:
+    try:
+        result = await get_title_data(upi=upi, language="english", db=db)
+    except Exception:
+        return None
+
+    raw = _response_to_json_dict(result)
+    return _extract_nla_payload(raw)
+
+
+def _has_external_title_data(payload: Optional[dict]) -> bool:
+    if not payload or not isinstance(payload, dict):
+        return False
+
+    if payload.get("success") is False:
+        return False
+    if payload.get("found") is False:
+        return False
+
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+    if not isinstance(data, dict):
+        return False
+
+    if data.get("parcelDetails"):
+        return True
+    if data.get("upi"):
+        return True
+
+    return False
+
+
 async def _fetch_all_clean_mappings(db: AsyncSession) -> list[dict]:
     """Return for-sale mappings that have no legal issues."""
     result = await db.execute(
@@ -700,6 +778,114 @@ def _property_to_context(p: Property) -> dict:
     }
 
 
+def _has_value(v: Any) -> bool:
+    return v is not None and v != ""
+
+
+def _has_trusted_price_data(
+    parcel_ctx: Optional[dict],
+    property_ctx: Optional[dict],
+    pdf_context: Optional[dict],
+    filter_parcels: Optional[list],
+    area_parcels: Optional[list],
+    clean_parcels: Optional[list],
+    focused_parcel: Optional[dict],
+) -> bool:
+    if parcel_ctx and isinstance(parcel_ctx, dict):
+        market = parcel_ctx.get("market") if isinstance(parcel_ctx.get("market"), dict) else {}
+        if _has_value(market.get("price_rwf")):
+            return True
+
+    if property_ctx and isinstance(property_ctx, dict):
+        if _has_value(property_ctx.get("estimated_amount_rwf")):
+            return True
+
+    if pdf_context and isinstance(pdf_context, dict):
+        if _has_value(pdf_context.get("price")):
+            return True
+
+    if focused_parcel and isinstance(focused_parcel, dict):
+        if _has_value(focused_parcel.get("price")):
+            return True
+
+    for collection in (filter_parcels, area_parcels, clean_parcels):
+        if not collection:
+            continue
+        for item in collection:
+            if isinstance(item, dict) and _has_value(item.get("price")):
+                return True
+
+    return False
+
+
+def _is_status_request(text: str) -> bool:
+    return bool(_STATUS_REQUEST_RE.search(text or ""))
+
+
+def _build_parcel_status_reply(
+    upi: str,
+    parcel_ctx: Optional[dict],
+    property_ctx: Optional[dict],
+    user_message: Optional[str] = None,
+) -> str:
+    if not parcel_ctx or not isinstance(parcel_ctx, dict) or parcel_ctx.get("error"):
+        return UNAVAILABLE_DB_MSG
+
+    location = parcel_ctx.get("location") if isinstance(parcel_ctx.get("location"), dict) else {}
+    geospatial = parcel_ctx.get("geospatial") if isinstance(parcel_ctx.get("geospatial"), dict) else {}
+    land_use = parcel_ctx.get("land_use") if isinstance(parcel_ctx.get("land_use"), dict) else {}
+    legal = parcel_ctx.get("legal_tenure") if isinstance(parcel_ctx.get("legal_tenure"), dict) else {}
+    market = parcel_ctx.get("market") if isinstance(parcel_ctx.get("market"), dict) else {}
+    gis_flags = parcel_ctx.get("gis_flags") if isinstance(parcel_ctx.get("gis_flags"), dict) else {}
+
+    issues: list[str] = []
+    if legal.get("under_mortgage"):
+        issues.append("Under mortgage")
+    if legal.get("has_caveat"):
+        issues.append("Has caveat")
+    if legal.get("in_transaction"):
+        issues.append("In active transaction")
+    if gis_flags.get("overlaps_another_parcel"):
+        issues.append("Boundary overlap")
+
+    issue_text = ", ".join(issues) if issues else "No legal issues recorded"
+    sale_text = "Listed for sale" if market.get("for_sale") else "Not listed for sale"
+
+    # Only show price if user asks about price
+    show_price = False
+    if user_message:
+        if re.search(r"\b(price|cost|how much|amount|value|worth)\b", user_message, re.IGNORECASE):
+            show_price = True
+
+    price_text = None
+    if show_price:
+        if market.get("price_rwf") is not None:
+            price_text = f"Price: {market.get('price_rwf')} RWF"
+        elif property_ctx and property_ctx.get("estimated_amount_rwf") is not None:
+            price_text = f"Price: {property_ctx.get('estimated_amount_rwf')} RWF"
+        else:
+            price_text = "Price: not available in mapping/property records"
+
+    district = location.get("district") or "Unknown district"
+    sector = location.get("sector") or "Unknown sector"
+    area = geospatial.get("parcel_area_sqm")
+    area_text = f"{area} sqm" if area is not None else "Area not available"
+    use_text = land_use.get("land_use_type") or "Land use not available"
+
+    lines = [
+        "Parcel Status",
+        f"- Parcel UPI: {upi}",
+        f"- Location: {district}, {sector}",
+        f"- Area: {area_text}",
+        f"- Land use: {use_text}",
+        f"- Market status: {sale_text}",
+        f"- Legal status: {issue_text}",
+    ]
+    if price_text:
+        lines.append(f"- {price_text}")
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 # System Prompt builder
 # ---------------------------------------------------------------------------
@@ -881,13 +1067,27 @@ async def chat(
     filter_parcels: Optional[list] = None
     focused_parcel: Optional[dict] = None
     db_query_context: Optional[dict] = None
+    backup_title_ctx: Optional[dict] = None
+    nla_title_ctx: Optional[dict] = None
+    forced_reply: Optional[str] = None
 
     if upi:
         mapping_obj = await _fetch_mapping(upi, db)
         prop_obj    = await _fetch_property(upi, db)
+        backup_title_ctx = await _fetch_upi_backup(upi, db)
+        nla_title_ctx = await _fetch_title_data_with_backup(upi, db)
 
         parcel_ctx   = _mapping_to_context(mapping_obj) if mapping_obj else {"error": f"No GIS mapping found for UPI {upi}"}
         property_ctx = _property_to_context(prop_obj)   if prop_obj   else None
+
+        has_backup_data = bool(backup_title_ctx)
+        has_nla_data = _has_external_title_data(nla_title_ctx)
+
+        if mapping_obj is None and prop_obj is None and not has_backup_data and not has_nla_data:
+            forced_reply = (
+                f"This UPI ({upi}) is not found in our system, meaning the owner hasn't published it. "
+                "We can't provide any information at the moment."
+            )
 
         if mapping_obj is not None:
             # Check for-sale status for direct UPI queries
@@ -897,6 +1097,50 @@ async def chat(
                     "Do not provide purchase / pricing details."
                 )
             focused_parcel = _row_to_parcel_dict(mapping_obj)
+        elif has_nla_data and isinstance(nla_title_ctx, dict):
+            data_block = nla_title_ctx.get("data") if isinstance(nla_title_ctx.get("data"), dict) else nla_title_ctx
+            parcel_details = data_block.get("parcelDetails") if isinstance(data_block, dict) else None
+            address = (parcel_details or {}).get("address") or {}
+            if parcel_details:
+                parcel_ctx = {
+                    "upi": data_block.get("upi") or upi,
+                    "source": "NLA/UPI backup",
+                    "location": {
+                        "province": address.get("provinceName") or data_block.get("provinceName"),
+                        "district": address.get("districtName") or data_block.get("districtName"),
+                        "sector": address.get("sectorName") or data_block.get("sectorName"),
+                        "cell": address.get("cellName") or data_block.get("cellName"),
+                        "village": address.get("villageName") or data_block.get("villageName"),
+                        "full_address": address.get("string") or data_block.get("address", {}).get("string") if isinstance(data_block.get("address"), dict) else None,
+                    },
+                    "geospatial": {
+                        "latitude": (parcel_details.get("parcelCoordinates") or {}).get("lat"),
+                        "longitude": (parcel_details.get("parcelCoordinates") or {}).get("lon"),
+                        "parcel_area_sqm": parcel_details.get("area"),
+                    },
+                    "land_use": {
+                        "land_use_type": parcel_details.get("landUseTypeNameEnglish"),
+                        "planned_land_use": (parcel_details.get("plannedLandUses") or [{}])[0].get("landUseName") if parcel_details.get("plannedLandUses") else None,
+                    },
+                    "development": {
+                        "is_developed": parcel_details.get("isDeveloped"),
+                        "has_infrastructure": parcel_details.get("hasInfrastructure"),
+                        "has_building": parcel_details.get("hasBuilding"),
+                        "building_floors": parcel_details.get("numberOfBuildingFloors"),
+                    },
+                    "legal_tenure": {
+                        "tenure_type": parcel_details.get("rightTypeName"),
+                        "lease_term_years": parcel_details.get("leaseTerm"),
+                        "remaining_lease_term": parcel_details.get("remainingLeaseTerm"),
+                        "under_mortgage": parcel_details.get("underMortgage"),
+                        "has_caveat": parcel_details.get("hasCaveat"),
+                        "in_transaction": parcel_details.get("inTransaction"),
+                    },
+                    "market": {
+                        "for_sale": False,
+                        "price_rwf": None,
+                    },
+                }
         try:
             db.expunge(mapping_obj) if mapping_obj else None
             db.expunge(prop_obj)    if prop_obj    else None
@@ -986,6 +1230,28 @@ async def chat(
         db_query_context,
     )
 
+    if nla_title_ctx is not None:
+        system_msg += "\n\n--- NLA / UPI BACKUP TITLE DATA ---\n" + json.dumps(nla_title_ctx, indent=2, default=str)
+    if backup_title_ctx is not None:
+        system_msg += "\n\n--- LOCAL UPI BACKUP RECORD ---\n" + json.dumps(backup_title_ctx, indent=2, default=str)
+
+    has_trusted_price_data = _has_trusted_price_data(
+        parcel_ctx=parcel_ctx,
+        property_ctx=property_ctx,
+        pdf_context=pdf_context,
+        filter_parcels=filter_parcels,
+        area_parcels=area_parcels,
+        clean_parcels=clean_parcels,
+        focused_parcel=focused_parcel,
+    )
+    if not has_trusted_price_data:
+        system_msg += (
+            "\n\n--- PRICE SAFETY RULE (ENFORCED) ---\n"
+            "No trusted price value exists in mappings/property records for this request. "
+            "Do NOT output any numeric or estimated price. "
+            "If asked for price, say: 'Price information is not available in the mapping/property records at the moment.'"
+        )
+
     # --- 5. Build conversation messages ---
     messages: list[dict] = [{"role": "system", "content": system_msg}]
     messages.extend(history[-(HISTORY_WINDOW * 2):])
@@ -995,17 +1261,29 @@ async def chat(
     has_direct_parcel_data = bool(parcel_ctx and not parcel_ctx.get("error"))
     has_property_data = bool(property_ctx)
     has_pdf_data = bool(pdf_context)
+    has_nla_data = _has_external_title_data(nla_title_ctx)
+    has_backup_data = bool(backup_title_ctx)
     has_list_data = bool(
         (area_parcels and len(area_parcels) > 0)
         or (filter_parcels and len(filter_parcels) > 0)
         or (clean_parcels and len(clean_parcels) > 0)
     )
-    has_grounded_context = has_direct_parcel_data or has_property_data or has_pdf_data or has_list_data
+    has_grounded_context = has_direct_parcel_data or has_property_data or has_pdf_data or has_list_data or has_nla_data or has_backup_data
 
-    if db_query_context and db_query_context.get("requires_query") and not db_query_context.get("rows") and not has_grounded_context:
+    if forced_reply:
+        reply = forced_reply
+    elif upi and has_direct_parcel_data and _is_status_request(effective_user_message):
+        reply = _build_parcel_status_reply(upi, parcel_ctx, property_ctx, user_message=effective_user_message)
+    elif db_query_context and db_query_context.get("requires_query") and not db_query_context.get("rows") and not has_grounded_context:
         reply = UNAVAILABLE_DB_MSG
     else:
         reply = await call_ollama(messages)
+
+    if upi and has_direct_parcel_data and _GENERIC_REFUSAL_RE.search(reply or ""):
+        reply = _build_parcel_status_reply(upi, parcel_ctx, property_ctx, user_message=effective_user_message)
+
+    if not has_trusted_price_data and _PRICE_MENTION_RE.search(reply):
+        reply = "Price information is not available in the mapping/property records at the moment."
 
     # --- 7. Post-scan: find UPIs mentioned in reply that we don’t have data for yet ---
     all_mentioned_upis = extract_all_upis(effective_user_message) + extract_all_upis(reply)
@@ -1087,11 +1365,14 @@ async def chat(
 
     context_snapshot = {
         "resolved_upi":        upi,
+        "forced_reply":        forced_reply,
         "queried_area_sqm":    queried_area,
         "queried_area_range":  queried_area_range,
         "active_filters":      filters if filters else None,
         "parcel_ctx":          parcel_ctx,
         "property_ctx":        property_ctx,
+        "backup_title_ctx":    backup_title_ctx,
+        "nla_title_ctx":       nla_title_ctx,
         "area_matches":        len(area_parcels)    if area_parcels    is not None else None,
         "filter_matches":      len(filter_parcels)  if filter_parcels  is not None else None,
         "clean_parcels_count": len(clean_parcels)   if clean_parcels   is not None else None,

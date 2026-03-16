@@ -247,6 +247,7 @@ interface CombinedPropertyData {
 interface StepOneProps {
   onVerify: (file: File) => Promise<void>;
   onViewMap: () => void;
+  onContinueToMap: () => void;
   isVerifying: boolean;
   verificationResult: VerificationResult | null;
   onReset: () => void;
@@ -498,6 +499,30 @@ function toParcelFromMapping(mapping: any, verified = false): ParcelData | null 
   };
   parcel.color = getParcelColor(parcel, verified);
   return parcel;
+}
+
+function parsePolygonPositionsFromWkt(polygonWkt?: string): [number, number][] {
+  if (!polygonWkt) return [];
+
+  try {
+    const geometry = parse(polygonWkt);
+    if (!geometry) return [];
+
+    let coordinates: any[] = [];
+    if (geometry.type === 'Polygon' && 'coordinates' in geometry) {
+      coordinates = geometry.coordinates[0];
+    } else if (geometry.type === 'MultiPolygon' && 'coordinates' in geometry) {
+      coordinates = geometry.coordinates[0][0];
+    } else {
+      return [];
+    }
+
+    return coordinates
+      .filter((coord: any) => Array.isArray(coord) && coord.length >= 2)
+      .map((coord: [number, number]) => [coord[1], coord[0]]);
+  } catch {
+    return [];
+  }
 }
 
 function getCenter(coords: [number, number][]): [number, number] {
@@ -1557,10 +1582,26 @@ function ParcelPolygon({ parcel, isSelected, isCompared, onClick }: { parcel: Pa
 /* =========================
    STEP 1: UPLOAD PAGE
 ========================= */
-function StepOne({ onVerify, onViewMap, isVerifying, verificationResult }: StepOneProps) {
+function StepOne({ onVerify, onViewMap, onContinueToMap, isVerifying, verificationResult, onReset }: StepOneProps) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const detectedPolygonWkt = verificationResult?.data?.detected_parcel_shape
+    || verificationResult?.data?.document_detected_polygon
+    || verificationResult?.data?.status_details?.document_detected_polygon;
+
+  const previewPositions = useMemo(
+    () => parsePolygonPositionsFromWkt(detectedPolygonWkt),
+    [detectedPolygonWkt]
+  );
+  const hasPreviewShape = previewPositions.length >= 3;
+  const previewCenter = useMemo<[number, number]>(() => {
+    if (hasPreviewShape) {
+      return getCenter(previewPositions);
+    }
+    return [-1.9403, 29.8739];
+  }, [hasPreviewShape, previewPositions]);
 
   const handleFileSelect = (file: File) => {
     if (file.type !== 'application/pdf') {
@@ -1591,7 +1632,88 @@ function StepOne({ onVerify, onViewMap, isVerifying, verificationResult }: StepO
   };
 
   if (verificationResult?.success) {
-    return null;
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-background rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden border border-gray-200 dark:border-gray-800"
+        >
+          <div className="bg-primary p-8 text-white">
+            <h1 className="text-3xl font-bold mb-2">Verification Complete</h1>
+            <p className="text-blue-100">Preview detected parcel shape before opening map</p>
+          </div>
+
+          <div className="p-8 space-y-5">
+            <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4 flex items-start gap-3">
+              <CheckCircle2 size={20} className="text-green-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <h3 className="font-semibold text-green-800 dark:text-green-400 mb-1">Detected title data</h3>
+                <p className="text-sm text-green-700 dark:text-green-300">
+                  UPI: {verificationResult.upi || verificationResult?.data?.upi || 'Not available'}
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+              <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800/70 border-b border-gray-200 dark:border-gray-700 text-sm font-semibold text-gray-700 dark:text-gray-200">
+                Detected Parcel Shape Preview
+              </div>
+              <div className="h-72 bg-gray-100 dark:bg-gray-900/40">
+                {hasPreviewShape ? (
+                  <MapContainer
+                    center={previewCenter}
+                    zoom={17}
+                    style={{ height: '100%', width: '100%' }}
+                    scrollWheelZoom={false}
+                    zoomControl={false}
+                  >
+                    <TileLayer
+                      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                      maxZoom={22}
+                    />
+                    <Polygon
+                      positions={previewPositions}
+                      pathOptions={{
+                        color: '#395d91',
+                        fillColor: '#395d91',
+                        fillOpacity: 0.28,
+                        weight: 3,
+                      }}
+                    />
+                  </MapContainer>
+                ) : (
+                  <div className="h-full w-full flex items-center justify-center text-sm text-gray-500 dark:text-gray-400 px-4 text-center">
+                    No clear parcel shape preview was produced from this document.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedFile(null);
+                  onReset();
+                }}
+                className="py-3 px-4 rounded-lg border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-200 font-medium hover:bg-gray-50 dark:hover:bg-gray-800"
+              >
+                Verify Another File
+              </button>
+              <button
+                type="button"
+                onClick={onContinueToMap}
+                className="py-3 px-4 rounded-lg bg-primary hover:bg-primary/90 text-white font-medium flex items-center justify-center gap-2"
+              >
+                Continue to Map
+                <ArrowRight size={18} />
+              </button>
+            </div>
+          </div>
+        </motion.div>
+      </div>
+    );
   }
 
   return (
@@ -2330,6 +2452,18 @@ function StepTwo({
       if (response?.data?.found && mapping) {
         const parcel = toParcelFromMapping(mapping, mapping?.upi === verifiedUPI);
         if (parcel) {
+          const normalizeLocationValue = (value?: string) => {
+            const normalized = value?.trim().toLowerCase();
+            return normalized && normalized !== 'all' ? normalized : undefined;
+          };
+
+          const locationFilters: ParcelFetchFilters = {
+            province: normalizeLocationValue(mapping?.province || parcel.province),
+            district: normalizeLocationValue(mapping?.district || parcel.district),
+            sector: normalizeLocationValue(mapping?.sector || parcel.sector),
+          };
+
+          await onApplyServerFilters(locationFilters);
           onAddOrUpdateParcel(parcel);
           await handleParcelClick(parcel);
           return;
@@ -2341,7 +2475,7 @@ function StepTwo({
 
     setSelectedParcel(null);
     setEmptyAreaInfo(location);
-  }, [handleParcelClick, onAddOrUpdateParcel, verifiedUPI]);
+  }, [handleParcelClick, onAddOrUpdateParcel, onApplyServerFilters, verifiedUPI]);
 
   // When chatbot calls onParcelSelect, just zoom/highlight — do NOT open popup.
   // The popup is only opened when the user physically clicks the parcel polygon.
@@ -3551,6 +3685,42 @@ export default function ParcelVerificationFlow() {
     setHasMoreBatchedParcels(page.hasMore && page.items.length > 0);
   }, [fetchAllParcels]);
 
+  const fetchAllFilteredParcels = useCallback(async (filters: ParcelFetchFilters = {}) => {
+    const firstPage = await fetchAllParcels(filters, { batchPage: 0 });
+    const seenUpis = new Set(firstPage.items.map((parcel) => parcel.upi));
+    const merged: ParcelData[] = [...firstPage.items];
+
+    let hasMore = firstPage.hasMore;
+    let pageIndex = 0;
+    const maxPages = 50;
+
+    while (hasMore && pageIndex + 1 < maxPages) {
+      pageIndex += 1;
+      const nextPage = await fetchAllParcels(filters, { batchPage: pageIndex });
+      if (!nextPage.items.length) {
+        hasMore = false;
+        break;
+      }
+
+      nextPage.items.forEach((parcel) => {
+        if (!seenUpis.has(parcel.upi)) {
+          seenUpis.add(parcel.upi);
+          merged.push(parcel);
+        }
+      });
+
+      hasMore = nextPage.hasMore;
+    }
+
+    return {
+      items: merged,
+      total: firstPage.total || merged.length,
+      forSaleCount: firstPage.forSaleCount || merged.filter((p) => p.forSale === true).length,
+      overlapCount: firstPage.overlapCount || merged.filter((p) => p.hasOverlap).length,
+      hasMore,
+    };
+  }, [fetchAllParcels]);
+
   const applyServerFilters = useCallback(async (filters: ParcelFetchFilters) => {
     const normalizeValue = (value?: string) => {
       const normalized = value?.trim().toLowerCase();
@@ -3571,7 +3741,10 @@ export default function ParcelVerificationFlow() {
     setIsFiltering(true);
     setActiveServerFilters(normalized);
     try {
-      const page = await fetchAllParcels(normalized, { batchPage: 0 });
+      const shouldLoadFullLocation = Boolean(normalized.province || normalized.district || normalized.sector);
+      const page = shouldLoadFullLocation
+        ? await fetchAllFilteredParcels(normalized)
+        : await fetchAllParcels(normalized, { batchPage: 0 });
       if (requestId !== latestFilterRequestRef.current) return;
       setParcels(page.items);
       setLoadedFromDbCount(page.items.length);
@@ -3585,7 +3758,7 @@ export default function ParcelVerificationFlow() {
         setIsFiltering(false);
       }
     }
-  }, [activeServerFilters, fetchAllParcels]);
+  }, [activeServerFilters, fetchAllParcels, fetchAllFilteredParcels]);
 
   const handleLoadMoreParcels = useCallback(async () => {
     if (loadingMoreParcels || !hasMoreBatchedParcels) return;
@@ -3638,6 +3811,9 @@ export default function ParcelVerificationFlow() {
           tenure_type?: string;
           remaining_lease_term?: number;
           area?: number;
+          province?: string;
+          district?: string;
+          sector?: string;
         } = {};
 
         try {
@@ -3648,6 +3824,7 @@ export default function ParcelVerificationFlow() {
             const ext = externalResponse.data.data;
             externalPlannedUses = extractPlannedLandUses(ext);
             const parcelDetails = ext?.parcelDetails || {};
+            const address = ext?.address || parcelDetails?.address || {};
             externalStatuses = {
               under_mortgage: Boolean(parcelDetails.underMortgage ?? ext?.underMortgage),
               has_caveat: Boolean(parcelDetails.hasCaveat ?? ext?.hasCaveat),
@@ -3656,16 +3833,48 @@ export default function ParcelVerificationFlow() {
               tenure_type: parcelDetails.rightTypeName || ext?.rightTypeName,
               remaining_lease_term: Number(parcelDetails.remainingLeaseTerm ?? ext?.remainingLeaseTerm),
               area: Number(parcelDetails.area ?? ext?.area),
+              province: address?.provinceName || ext?.province,
+              district: address?.districtName || ext?.district,
+              sector: address?.sectorName || ext?.sector,
             };
           }
         } catch (err) {
           console.warn('External title_data enrichment failed:', err);
         }
 
-        // Always fetch full unfiltered dataset by default
-        const page = await fetchAllParcels({});
+        const normalizeLocationValue = (value?: string) => {
+          const normalized = value?.trim().toLowerCase();
+          return normalized && normalized !== 'all' ? normalized : undefined;
+        };
+
+        const locationFilters: ParcelFetchFilters = {
+          province: normalizeLocationValue(
+            result?.province
+            || result?.parcel_information?.province
+            || result?.address?.provinceName
+            || externalStatuses.province
+          ),
+          district: normalizeLocationValue(
+            result?.district
+            || result?.parcel_information?.district
+            || result?.address?.districtName
+            || externalStatuses.district
+          ),
+          sector: normalizeLocationValue(
+            result?.sector
+            || result?.parcel_information?.sector
+            || result?.address?.sectorName
+            || externalStatuses.sector
+          ),
+        };
+
+        // When a parcel is verified, load parcels from the same location as the uploaded parcel
+        const hasLocationFilter = Boolean(locationFilters.province || locationFilters.district || locationFilters.sector);
+        const page = hasLocationFilter
+          ? await fetchAllFilteredParcels(locationFilters)
+          : await fetchAllParcels(locationFilters);
         let allParcels: ParcelData[] = page.items;
-        setActiveServerFilters({});
+        setActiveServerFilters(locationFilters);
         setFilterAvailable(false);
         setLoadedFromDbCount(page.items.length);
         setTotalParcelsCount(page.total || page.items.length);
@@ -3762,7 +3971,6 @@ export default function ParcelVerificationFlow() {
           data: result,
         });
 
-        setStep('map');
       } else {
         setVerificationResult({
           success: false,
@@ -3805,6 +4013,10 @@ export default function ParcelVerificationFlow() {
     setStep('map');
   };
 
+  const handleContinueToVerifiedMap = () => {
+    setStep('map');
+  };
+
   const handleRefreshParcels = async () => {
     await fetchAllParcelsAndUpdate(activeServerFilters);
   };
@@ -3827,6 +4039,7 @@ export default function ParcelVerificationFlow() {
         <StepOne
           onVerify={handleVerify}
           onViewMap={handleViewMapWithoutUpload}
+          onContinueToMap={handleContinueToVerifiedMap}
           isVerifying={isVerifying}
           verificationResult={verificationResult}
           onReset={handleReset}

@@ -157,7 +157,7 @@ export const DashboardLayout = () => {
                     <div className="flex items-center gap-2 sm:gap-4">
 
                         {/* Search */}
-                        <div className="hidden md:flex items-center bg-gray-100 dark:bg-[#112240] rounded-lg px-3 py-2 w-64 border border-transparent focus-within:border-primary/50 transition-all">
+                        <div className="hidden items-center bg-gray-100 dark:bg-[#112240] rounded-lg px-3 py-2 w-64 border border-transparent focus-within:border-primary/50 transition-all">
                             <Search size={16} className="text-gray-400" />
                             <input type="text" placeholder="Search properties, users..." className="bg-transparent border-none focus:outline-none text-sm ml-2 w-full text-gray-700 dark:text-gray-200 placeholder-gray-400" />
                         </div>
@@ -165,7 +165,7 @@ export const DashboardLayout = () => {
                         <div className="h-6 w-px bg-gray-200 dark:bg-gray-700 mx-1 hidden sm:block"></div>
 
                         {/* Language */}
-                        <div className="relative" ref={langRef}>
+                        <div className="relative hidden" ref={langRef}>
                             <button onClick={() => setLangMenuOpen(!isLangMenuOpen)} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 text-gray-500 dark:text-gray-300 transition-colors">
                                 <Globe size={18} />
                             </button>
@@ -184,7 +184,7 @@ export const DashboardLayout = () => {
                         </button>
 
                         {/* Notifications */}
-                        <div className="relative" ref={notifRef}>
+                        <div className="relative hidden" ref={notifRef}>
                             <button onClick={() => setNotifOpen(!isNotifOpen)} className="relative p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 text-gray-500 dark:text-gray-300 transition-colors">
                                 <Bell size={18} />
                                 <span className="absolute top-1.5 right-2 w-2 h-2 bg-red-500 rounded-full ring-2 ring-white dark:ring-[#0a162e]" />

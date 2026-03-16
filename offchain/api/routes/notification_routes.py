@@ -231,14 +231,13 @@ async def send_otp_notification(
 async def send_password_reset_email_notification(
     request: PasswordResetEmailRequest,
     db: AsyncSession = Depends(get_db),
-    token_payload: dict = Depends(verify_token)
 ):
     """
     Send password reset email
     
     Sends a password reset email with a professional template.
     Creates a password reset token and stores it in the database.
-    Requires authentication.
+    Public endpoint - no authentication required.
     """
     try:
         if not validate_email(request.email):
