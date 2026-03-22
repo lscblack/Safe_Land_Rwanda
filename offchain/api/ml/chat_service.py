@@ -29,13 +29,14 @@ from api.routes.external_routes import get_title_data
 logger = logging.getLogger(__name__)
 
 OLLAMA_URL   = "http://localhost:11434/api/chat"
-OLLAMA_MODEL = "qwen2.5:1.5b"
+# OLLAMA_MODEL = "qwen2.5:1.5b"
 # OLLAMA_MODEL = "llama3"
+OLLAMA_MODEL = "sam860/LFM2:350m"
 
 UNAVAILABLE_DB_MSG = "The requested information is not available in the system database."
 
 # Number of previous turns fed back to the model for memory
-HISTORY_WINDOW = 10
+HISTORY_WINDOW = 20
 
 # Schema cache for dynamic SQL planning
 _SCHEMA_CACHE_TTL_SECONDS = 300
