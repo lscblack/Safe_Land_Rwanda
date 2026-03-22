@@ -415,7 +415,7 @@ async def get_citizen_information(
 @router.get("/nid/{nid}/phonenumbers", response_model=PhoneNumbersResponse)
 async def get_phone_numbers_by_nid(
     nid: str,
-    token_payload: dict = Depends(verify_token)
+    # token_payload: dict = Depends(verify_token)
 ):
     """
     Get phone numbers by NID using PHONE_NUMBERS_BY_NID_ENDPOINT (or PHONE_NUMBERS_BY_NID fallback).
@@ -547,7 +547,7 @@ async def get_parcel_information(
 @router.post("/upis", response_model=None)
 async def get_upis_by_owner_id(
     request: UPIsRequest,
-    token_payload: dict = Depends(verify_token)
+    # token_payload: dict = Depends(verify_token)
 ):
     """
     Get all UPIs by owner ID
@@ -582,7 +582,7 @@ async def get_upis_by_owner_id(
 @router.get("/tax-arrears", response_model=None)
 async def get_tax_arrears(
     upi: str = None,
-    token_payload: dict = Depends(verify_token)
+    # token_payload: dict = Depends(verify_token)
 ):
     """
     Get tax arrears by UPI
@@ -641,7 +641,7 @@ async def get_title_by_upi(
 @router.get("/gis-extract", response_model=None)
 async def get_gis_extract(
     upi: str = None,
-    token_payload: dict = Depends(verify_token)
+    # token_payload: dict = Depends(verify_token)
 ):
     """
     Get GIS plot shape data by UPI
