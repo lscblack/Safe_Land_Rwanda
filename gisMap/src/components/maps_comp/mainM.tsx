@@ -1642,7 +1642,7 @@ function StepOne({ onVerify, onViewMap, onContinueToMap, isVerifying, verificati
     const fraudScore = verificationResult?.data?.fraud_score;
     const fraudClass = verificationResult?.data?.fraud_class;
     const upi = verificationResult.upi || verificationResult?.data?.upi || 'Not available';
-    const detectedParcelShape = verificationResult?.data?.detected_parcel_shape;
+    // const detectedParcelShape = verificationResult?.data?.detected_parcel_shape;
 
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
