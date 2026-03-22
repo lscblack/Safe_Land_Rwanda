@@ -256,7 +256,9 @@ export const RegisterPage = () => {
                 n_id_number: idType === 'passport' ? passportNumber : nid,
             };
 
-            await api.post('/api/user/register', payload);
+            const data = await api.post('/api/user/register', payload);
+            console.log("Registration successful:", data);
+
             setRegisterSuccess("Registration successful. Redirecting to login...");
             setIsLoading(false);
             setTimeout(() => {

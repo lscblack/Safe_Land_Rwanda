@@ -381,18 +381,27 @@ async def extract_pdf_and_store(
     db: AsyncSession = Depends(get_db),
     request: Request = None
 ):
-    # Read PDF file bytes directly from UploadFile
-    pdf_bytes = await file.read()
-    # Convert PDF bytes to images in memory
+    # Read file bytes
+    file_bytes = await file.read()
     import io
     from pdf2image import convert_from_bytes
-    images = convert_from_bytes(pdf_bytes, dpi=300)
-    img = np.array(images[0])
+    from PIL import Image
+    # Detect file type
+    content_type = file.content_type or ''
+    if content_type == 'application/pdf' or file.filename.lower().endswith('.pdf'):
+        images = convert_from_bytes(file_bytes, dpi=300)
+        page_image = images[0]
+        img = np.array(page_image)
+    elif content_type in ('image/jpeg', 'image/png') or file.filename.lower().endswith(('.jpg', '.jpeg', '.png')):
+        pil_img = Image.open(io.BytesIO(file_bytes)).convert('RGB')
+        page_image = pil_img
+        img = np.array(pil_img)
+    else:
+        raise HTTPException(status_code=415, detail='Unsupported file type. Please upload a PDF or high-resolution JPEG/PNG image.')
     gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
     ocr_text = pytesseract.image_to_string(gray, lang='eng+kin')
     match = re.search(r'UPI:?\s*(\d+/\d+/\d+/\d+/\d+)', ocr_text)
     upi = match.group(1) if match else None
-    page_image = images[0]
     detected_wkt = get_detected_polygon(page_image)
     uploaded_by = None
     if request and hasattr(request, 'state') and hasattr(request.state, 'user'):
@@ -1091,21 +1100,71 @@ async def verify_pdf(
     Same extraction logic as /extract-pdf but does NOT persist anything to the database.
     Returns the same response shape so the frontend can preview before committing.
     """
+    import io
     from pdf2image import convert_from_bytes
-
-    pdf_bytes = await file.read()
-    images = convert_from_bytes(pdf_bytes, dpi=300)
-    img = np.array(images[0])
+    from PIL import Image
+    file_bytes = await file.read()
+    content_type = file.content_type or ''
+    if content_type == 'application/pdf' or file.filename.lower().endswith('.pdf'):
+        images = convert_from_bytes(file_bytes, dpi=300)
+        page_image = images[0]
+        img = np.array(page_image)
+    elif content_type in ('image/jpeg', 'image/png') or file.filename.lower().endswith(('.jpg', '.jpeg', '.png')):
+        pil_img = Image.open(io.BytesIO(file_bytes)).convert('RGB')
+        page_image = pil_img
+        img = np.array(pil_img)
+    else:
+        raise HTTPException(status_code=415, detail='Unsupported file type. Please upload a PDF or high-resolution JPEG/PNG image.')
     gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
     ocr_text = pytesseract.image_to_string(gray, lang='eng+kin')
-    # Strip all whitespace from OCR result to normalise the UPI string
+    # Extract UPI from OCR
     raw_match = re.search(r'UPI:?\s*([\d\s/]+)', ocr_text)
     if raw_match:
         upi = re.sub(r'\s+', '', raw_match.group(1)).strip('/')
     else:
         upi = None
-    page_image = images[0]
     detected_wkt = get_detected_polygon_for_verify(page_image)
+
+    # --- Extract owners from OCR ---
+
+    def extract_owners(text):
+        owners = []
+        # Try to extract all owner lines (numbered or not)
+        # Accepts lines like: 1. JOHN DOE 1234567890123456
+        lines = text.splitlines()
+        for line in lines:
+            match = re.match(r'\s*\d+\.\s+([A-Z\s]+?)\s+(\d{10,20})', line)
+            if match:
+                name, id_number = match.groups()
+                owners.append({
+                    "name": name.strip(),
+                    "id_number": id_number.strip()
+                })
+            else:
+                # Try to match lines without numbering
+                match2 = re.match(r'([A-Z\s]+?)\s+(\d{10,20})', line)
+                if match2:
+                    name, id_number = match2.groups()
+                    owners.append({
+                        "name": name.strip(),
+                        "id_number": id_number.strip()
+                    })
+        return owners
+
+    def normalize_name(name):
+        # Remove extra spaces, sort words for order-insensitive match
+        parts = name.upper().split()
+        parts = sorted(parts)
+        return " ".join(parts)
+
+    ocr_owners = extract_owners(ocr_text)
+    normalized_ocr_owners = [
+        {
+            "name": normalize_name(o["name"]),
+            "id_number": o["id_number"]
+        }
+        for o in ocr_owners
+    ]
 
     if not upi and not detected_wkt:
         raise HTTPException(
@@ -1164,13 +1223,15 @@ async def verify_pdf(
         try:
             result = await get_title_data(upi=upi, language="english", db=db)
             if hasattr(result, 'body'):
-                details = json.loads(result.body)["data"]["parcelDetails"]
+                result_dict = json.loads(result.body)
             else:
-                details = result["data"]["parcelDetails"]
+                result_dict = result
+            details = result_dict["data"]["parcelDetails"]
         except Exception as e:
             import logging
             logging.error(f"[verify-pdf] Error fetching parcel info for UPI {upi}: {e}")
             details = backup_details
+            result_dict = {}
 
         if details is backup_details:
             raise HTTPException(
@@ -1178,9 +1239,7 @@ async def verify_pdf(
                 detail={"message": "This title is not valid. Parcel details were not found in the registry."}
             )
 
-        # Canonical UPI: prefer what the external registry returns (same value extract-pdf stores)
         canonical_upi = (details.get("upi") or upi or "").strip()
-
         if not canonical_upi:
             raise HTTPException(
                 status_code=422,
@@ -1194,39 +1253,68 @@ async def verify_pdf(
                 detail={"message": "This title is not valid. Parcel boundary data is missing."}
             )
 
+
+        # --- Extract owners from NLA/registry robustly ---
+        # Try both root-level and parcelDetails-level for owners
+        nla_owners_raw = None
+        if "owners" in details and isinstance(details["owners"], list) and details["owners"]:
+            nla_owners_raw = details["owners"]
+        elif "owners" in result_dict and isinstance(result_dict["owners"], list) and result_dict["owners"]:
+            nla_owners_raw = result_dict["owners"]
+        elif "owners" in result_dict.get("data", {}) and isinstance(result_dict["data"]["owners"], list) and result_dict["data"]["owners"]:
+            nla_owners_raw = result_dict["data"]["owners"]
+        else:
+            nla_owners_raw = []
+
+        nla_owners = []
+        for owner in nla_owners_raw:
+            name = owner.get("fullName") or owner.get("name") or ""
+            id_number = owner.get("idNo") or owner.get("id_number") or ""
+            nla_owners.append({
+                "name": normalize_name(name),
+                "id_number": id_number.strip()
+            })
+
+
+        # --- Owner comparison scoring ---
+
+        # --- Fuzzy matching using rapidfuzz ---
+        from rapidfuzz import fuzz
+        matches = []
+        total = 0
+        matched = 0
+        for ocr_owner in normalized_ocr_owners:
+            best_score = 0
+            best_reg = None
+            for reg_owner in nla_owners:
+                # Compare both name and id_number
+                name_score = fuzz.ratio(ocr_owner["name"], reg_owner["name"])
+                id_match = (ocr_owner["id_number"] == reg_owner["id_number"])
+                if name_score > best_score and id_match:
+                    best_score = name_score
+                    best_reg = reg_owner
+            if best_score > 85:
+                matched += 1
+            total += 1
+            matches.append({
+                "ocr_owner": ocr_owner,
+                "best_score": best_score,
+                "matched": best_score > 85
+            })
+        fraud_score = int((matched / total) * 100) if total > 0 else 0
+        # Classification
+        if fraud_score == 100:
+            fraud_class = "SAFE"
+        elif fraud_score >= 60:
+            fraud_class = "SUSPICIOUS"
+        else:
+            fraud_class = "FRAUD"
+
         mapping_preview = dict(
             upi=canonical_upi,
-            official_registry_polygon=registry_polygon,
-            document_detected_polygon=detected_wkt,
-            latitude=details.get("parcelCoordinates", {}).get("lat"),
-            longitude=details.get("parcelCoordinates", {}).get("lon"),
-            parcel_area_sqm=details.get("area"),
-            province=details.get("provinceName"),
-            district=details.get("districtName"),
-            sector=details.get("sectorName"),
-            cell=details.get("cellName"),
-            village=details.get("villageName"),
-            full_address=details.get("address", {}).get("string"),
-            land_use_type=details.get("landUseTypeNameEnglish"),
-            planned_land_use=(
-                details.get("plannedLandUses", [{}])[0].get("landUseName")
-                if details.get("plannedLandUses") else None
-            ),
-            is_developed=details.get("isDeveloped"),
-            has_infrastructure=details.get("hasInfrastructure"),
-            has_building=details.get("hasBuilding"),
-            building_floors=details.get("numberOfBuildingFloors"),
-            tenure_type=details.get("rightTypeName"),
-            lease_term_years=details.get("leaseTerm"),
-            remaining_lease_term=details.get("remainingLeaseTerm"),
-            under_mortgage=details.get("underMortgage"),
-            has_caveat=details.get("hasCaveat"),
-            in_transaction=details.get("inTransaction"),
-            approval_date=details.get("approvalDate"),
-            year_of_record=datetime.now().year,
-            for_sale=False,
-            price=None,
-            uploaded_by=uploaded_by,
+            detected_parcel_shape=registry_polygon or detected_wkt,
+            fraud_score=fraud_score,
+            fraud_class=fraud_class,
         )
 
         prop_result = await db.execute(select(Property).where(Property.upi == canonical_upi))
@@ -1251,13 +1339,15 @@ async def verify_pdf(
 
         if existing_mapping:
             preview_shape_wkt = existing_mapping.official_registry_polygon or detected_wkt
+            # Always include fraud_score and fraud_class in the response
             return {
                 **mapping_to_dict(existing_mapping),
                 "document_detected_polygon": detected_wkt,
                 "detected_parcel_shape": preview_shape_wkt,
                 "raw_document_detected_polygon": detected_wkt,
                 "already_registered": True,
-                "property": property_summary,
+                "fraud_score": fraud_score,
+                "fraud_class": fraud_class,
             }
     else:
         raise HTTPException(
@@ -1278,11 +1368,6 @@ async def verify_pdf(
 
     return {
         **mapping_preview,
-        "detected_parcel_shape": preview_shape_wkt,
-        "raw_document_detected_polygon": detected_wkt,
-        "already_registered": False,
-        "property": property_summary,
-        "status_details": status_details,
         "note": "preview only — nothing was saved to the database",
     }
 

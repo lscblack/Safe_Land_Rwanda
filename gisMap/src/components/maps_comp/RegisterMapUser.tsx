@@ -1096,10 +1096,9 @@ function PdfUploader({ onUploadComplete, onVerificationComplete, onError }: PdfU
 
             // Step 2: Verify the extracted data
             const verifyFormData = new FormData();
-            verifyFormData.append('file', file.file);
 
+            verifyFormData.append('file', file.file);
             const verifyResponse = await api.post('/api/mappings/verify-pdf', verifyFormData, {
-                headers: { 'Content-Type': 'multipart/form-data' },
                 signal: abortControllerRef.current.signal,
             });
 

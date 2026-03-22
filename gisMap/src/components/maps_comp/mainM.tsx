@@ -1604,8 +1604,13 @@ function StepOne({ onVerify, onViewMap, onContinueToMap, isVerifying, verificati
   }, [hasPreviewShape, previewPositions]);
 
   const handleFileSelect = (file: File) => {
-    if (file.type !== 'application/pdf') {
-      alert('Please select a PDF file');
+    const allowedTypes = [
+      'application/pdf',
+      'image/jpeg',
+      'image/png',
+    ];
+    if (!allowedTypes.includes(file.type)) {
+      alert('Please select a PDF, JPEG, or PNG image file');
       return;
     }
     if (file.size > 10 * 1024 * 1024) {
@@ -1631,7 +1636,14 @@ function StepOne({ onVerify, onViewMap, onContinueToMap, isVerifying, verificati
     await onVerify(selectedFile);
   };
 
+
   if (verificationResult?.success) {
+    // Only show fraud score/class, UPI, and shape
+    const fraudScore = verificationResult?.data?.fraud_score;
+    const fraudClass = verificationResult?.data?.fraud_class;
+    const upi = verificationResult.upi || verificationResult?.data?.upi || 'Not available';
+    const detectedParcelShape = verificationResult?.data?.detected_parcel_shape;
+
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <motion.div
@@ -1650,8 +1662,25 @@ function StepOne({ onVerify, onViewMap, onContinueToMap, isVerifying, verificati
               <div>
                 <h3 className="font-semibold text-green-800 dark:text-green-400 mb-1">Detected title data</h3>
                 <p className="text-sm text-green-700 dark:text-green-300">
-                  UPI: {verificationResult.upi || verificationResult?.data?.upi || 'Not available'}
+                  UPI: {upi}
                 </p>
+              </div>
+            </div>
+
+            {/* Fraud Score Section */}
+            <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+              <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800/70 border-b border-gray-200 dark:border-gray-700 text-sm font-semibold text-gray-700 dark:text-gray-200">
+                Fraud Assessment
+              </div>
+              <div className="p-4 text-sm">
+                <div className="mb-2">
+                  <span className="font-semibold">Fraud Score:</span>
+                  <span className="ml-2 text-blue-700 font-bold">{fraudScore ?? 'Not available'}/100</span>
+                </div>
+                <div className="mb-2">
+                  <span className="font-semibold">Classification:</span>
+                  <span className={`ml-2 font-bold ${fraudClass === 'SAFE' ? 'text-green-700' : fraudClass === 'SUSPICIOUS' ? 'text-yellow-700' : 'text-red-700'}`}>{fraudClass || 'Not available'}</span>
+                </div>
               </div>
             </div>
 
@@ -1797,7 +1826,7 @@ function StepOne({ onVerify, onViewMap, onContinueToMap, isVerifying, verificati
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".pdf,application/pdf"
+                  accept=".pdf,application/pdf,.jpg,.jpeg,.png,image/jpeg,image/png"
                   className="hidden"
                   onChange={(e) => {
                     const file = e.target.files?.[0];
@@ -1828,7 +1857,7 @@ function StepOne({ onVerify, onViewMap, onContinueToMap, isVerifying, verificati
                     <p className="text-sm font-medium text-foreground mb-1">
                       {isDragging ? 'Drop your PDF here' : 'Drag & drop or click to browse'}
                     </p>
-                    <p className="text-xs text-gray-500">PDF files only, max 10MB</p>
+                    <p className="text-xs text-gray-500">PDF, JPEG, or PNG files only, max 10MB</p>
                   </>
                 )}
               </div>
@@ -2775,7 +2804,7 @@ function StepTwo({
               className="bg-white/90 dark:text-white dark:bg-black backdrop-blur rounded-lg px-3 py-2 flex items-center gap-2 hover:bg-white transition-colors shadow-lg text-foreground"
             >
               <ArrowLeft size={18} />
-              <span>Back</span>
+              <span className='hidden lg:block'>Back</span>
             </button>
             <button
               onClick={onVerifyAnother}
@@ -2783,7 +2812,7 @@ function StepTwo({
               style={{ color: 'var(--color-primary)' }}
             >
               <Upload size={18} />
-              <span className="font-medium">Verify Another Land</span>
+              <span className="font-medium hidden lg:block">Verify Another Land</span>
             </button>
             <button
               onClick={handleRefresh}
@@ -2791,13 +2820,13 @@ function StepTwo({
               className="bg-white/90 dark:bg-black backdrop-blur rounded-lg px-3 py-2 flex items-center gap-2 hover:bg-white transition-colors shadow-lg text-foreground"
             >
               <RefreshCw size={18} className={refreshing ? 'animate-spin' : ''} />
-              <span>Refresh</span>
+              <span className='hidden lg:block'>Refresh</span>
             </button>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 ">
             {/* View Mode Toggle */}
-            <div className="bg-white/90 dark:bg-black backdrop-blur rounded-lg flex p-1 shadow-lg">
+            <div className="bg-white/90 dark:bg-black backdrop-blur rounded-lg hidden lg:flex p-1 shadow-lg">
               <button
                 onClick={() => setViewMode('district')}
                 className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${viewMode === 'district'
@@ -2843,7 +2872,7 @@ function StepTwo({
               </button>
             )}
 
-            <div className="bg-white/90 dark:bg-black backdrop-blur rounded-lg px-4 py-2 flex gap-4 shadow-lg text-foreground">
+            <div className="bg-white/90 dark:bg-black backdrop-blur rounded-lg px-4 py-2 flex flex-col lg:flex-row gap-4 shadow-lg text-foreground">
               <div className="text-sm">
                 <span className="text-gray-600 dark:text-gray-400">Parcels:</span>
                 <span className="font-semibold ml-1">{loadedFromDbCount}</span>
@@ -2875,7 +2904,7 @@ function StepTwo({
             initial={{ x: -20, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: -20, opacity: 0 }}
-            className="absolute top-36 left-4 z-[1200] dark:text-gray-200 w-90 max-h-[70vh] overflow-y-auto bg-white/95 dark:bg-gray-900/95 backdrop-blur rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 p-4"
+            className="absolute top-36 left-4 z-[1200] dark:text-gray-200 w-100 max-h-[70vh] overflow-y-auto bg-white/95 dark:bg-gray-900/95 backdrop-blur rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 p-4"
           >
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold flex items-center gap-2">
@@ -3149,7 +3178,7 @@ function StepTwo({
       </AnimatePresence>
 
       {/* Map Controls */}
-      <div className="absolute top-24 right-4 z-[1000] flex flex-col gap-2 pointer-events-auto">
+      <div className="absolute top-34 lg:top-24 right-4 z-[1000] flex flex-col gap-2 pointer-events-auto">
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-1 flex flex-col">
           <button
             onClick={() => setMapStyle('streets')}
@@ -3793,11 +3822,9 @@ export default function ParcelVerificationFlow() {
 
     try {
       const formData = new FormData();
-      formData.append('file', file);
 
-      const response = await api.post('/api/mappings/verify-pdf', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
+      formData.append('file', file);
+      const response = await api.post('/api/mappings/verify-pdf', formData);
 
       if (response.data) {
         const result = response.data;

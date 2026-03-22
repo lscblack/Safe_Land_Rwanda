@@ -59,7 +59,7 @@ const SafeLandNavbar = () => {
                     className="flex items-center gap-2 cursor-pointer"
                     onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
                 >
-                    <img src="/logo_words.png" alt="SafeLand Logo" className="w-18 h-12 scale-200 object-contain" />
+                    <img src="/logo_words.png" alt="SafeLand Logo" className="w-18 h-12 scale-150 lg:scale-200 object-contain" />
                 </div>
 
                 {/* Desktop Navigation */}

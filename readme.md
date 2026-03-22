@@ -166,7 +166,7 @@ demo flow summary:
 ## 5) Deployed Version / Installable Package
 
 - Deployed app URL:
-  - https://safe-land-rwanda.vercel.app
+  - https://safeland.rw
 
 
 ---

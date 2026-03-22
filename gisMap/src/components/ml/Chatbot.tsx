@@ -335,8 +335,17 @@ export const SimpleAiChatbot: React.FC<SimpleAiChatbotProps> = ({
     const handlePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
-        if (file.type !== 'application/pdf') {
-            setSessionError('Please upload a PDF file.');
+        const allowedTypes = [
+            'application/pdf',
+            'image/jpeg',
+            'image/png',
+        ];
+        if (!allowedTypes.includes(file.type)) {
+            setSessionError('Please upload a PDF, JPEG, or PNG image file.');
+            return;
+        }
+        if (file.size > 10 * 1024 * 1024) {
+            setSessionError('File size must be less than 10MB.');
             return;
         }
 
@@ -853,13 +862,13 @@ export const SimpleAiChatbot: React.FC<SimpleAiChatbotProps> = ({
                             {/* PDF hint */}
                             <div className="flex items-center gap-1 text-[10px] text-gray-400 mb-1.5">
                                 <FileText size={10} />
-                                <span>Attach a land certificate PDF to ask questions about it</span>
+                                <span>Attach a land certificate PDF, JPEG, or PNG to ask questions about it</span>
                             </div>
                             {/* Hidden file input */}
                             <input
                                 ref={fileInputRef}
                                 type="file"
-                                accept="application/pdf"
+                                accept=".pdf,application/pdf,.jpg,.jpeg,.png,image/jpeg,image/png"
                                 className="hidden"
                                 onChange={handlePdfUpload}
                             />
