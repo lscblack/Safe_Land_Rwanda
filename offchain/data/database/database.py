@@ -5,6 +5,7 @@ Database connection and session management
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
 from typing import AsyncGenerator
+from contextlib import asynccontextmanager
 import logging
 
 from config.config import settings
@@ -86,6 +87,29 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
     Usage in FastAPI endpoints: db: AsyncSession = Depends(get_db)
     """
     async with AsyncSessionLocal() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await session.close()
+
+
+@asynccontextmanager
+async def get_read_db() -> AsyncGenerator[AsyncSession, None]:
+    """Dependency that uses read-replica if configured else primary DB."""
+    if lais_engine:
+        read_session_factory = async_sessionmaker(
+            lais_engine,
+            class_=AsyncSession,
+            expire_on_commit=False
+        )
+    else:
+        read_session_factory = AsyncSessionLocal
+
+    async with read_session_factory() as session:
         try:
             yield session
             await session.commit()

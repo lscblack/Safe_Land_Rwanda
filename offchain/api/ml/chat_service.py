@@ -14,16 +14,24 @@ import re
 import json
 import time
 import logging
+import asyncio
 from typing import Optional, Any
 
 import httpx
+try:
+    import aioredis
+except ImportError:
+    aioredis = None
+
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import text, func
 from sqlalchemy.exc import SQLAlchemyError
 
+from config.config import settings
 from data.models.mapping import Mapping, UpiBackup
 from data.models.models import Property
+from data.database.database import get_read_db
 from api.routes.external_routes import get_title_data
 
 logger = logging.getLogger(__name__)
@@ -31,7 +39,9 @@ logger = logging.getLogger(__name__)
 OLLAMA_URL   = "http://localhost:11434/api/chat"
 # OLLAMA_MODEL = "qwen2.5:1.5b"
 # OLLAMA_MODEL = "llama3"
-OLLAMA_MODEL = "sam860/LFM2:350m"
+# OLLAMA_MODEL = "sam860/LFM2:350m"
+# OLLAMA_MODEL = "deepseek-coder:1.3b"
+OLLAMA_MODEL = "phi3:mini"
 
 UNAVAILABLE_DB_MSG = "The requested information is not available in the system database."
 
@@ -45,6 +55,21 @@ _SCHEMA_CACHE: dict[str, Any] = {
     "catalog": [],
 }
 
+# Tiny in-memory caches exposed for high-traffic lookup speed (short TTL, no persistence)
+_FETCH_CACHE_TTL_SECONDS = 30
+_FETCH_MAPPING_CACHE: dict[str, tuple[float, Optional[Mapping]]] = {}
+_FETCH_PROPERTY_CACHE: dict[str, tuple[float, Optional[Property]]] = {}
+_FETCH_UPI_BACKUP_CACHE: dict[str, tuple[float, Optional[dict]]] = {}
+
+# Dynamic SQL and load selectors
+_CHAT_CONCURRENT_REQUESTS = 0
+_CHAT_CONCURRENCY_LIMIT_FOR_DYNAMIC_SQL = 8
+_LAST_QUERY_PLAN: dict[str, Any] = {}
+
+# Optional Redis client for shared caches
+_redis_client = None
+if aioredis and settings.REDIS_URL:
+    _redis_client = aioredis.from_url(settings.REDIS_URL, encoding="utf-8", decode_responses=True)
 
 # ---------------------------------------------------------------------------
 # Pattern helpers
@@ -312,6 +337,16 @@ async def _load_schema_catalog(db: AsyncSession) -> list[dict]:
     Returns [{"table": str, "columns": [{"name": str, "type": str}, ...]}].
     """
     now = time.time()
+
+    # Prefer Redis if available for cross-worker schema caching
+    if _redis_client:
+        redis_schema = await _redis_client.get("schema_catalog")
+        if redis_schema:
+            try:
+                return json.loads(redis_schema)
+            except Exception:
+                pass
+
     if _SCHEMA_CACHE["catalog"] and (now - _SCHEMA_CACHE["fetched_at"]) < _SCHEMA_CACHE_TTL_SECONDS:
         return _SCHEMA_CACHE["catalog"]
 
@@ -341,6 +376,13 @@ async def _load_schema_catalog(db: AsyncSession) -> list[dict]:
     catalog = [{"table": t, "columns": cols} for t, cols in table_map.items()]
     _SCHEMA_CACHE["catalog"] = catalog
     _SCHEMA_CACHE["fetched_at"] = now
+
+    if _redis_client:
+        try:
+            await _redis_client.set("schema_catalog", json.dumps(catalog), ex=_SCHEMA_CACHE_TTL_SECONDS)
+        except Exception:
+            logger.warning("Could not write schema_catalog to Redis")
+
     return catalog
 
 
@@ -501,19 +543,46 @@ Rules:
 # ---------------------------------------------------------------------------
 
 async def _fetch_mapping(upi: str, db: AsyncSession) -> Optional[Mapping]:
+    now = time.time()
+    entry = _FETCH_MAPPING_CACHE.get(upi)
+    if entry:
+        ts, cached = entry
+        if now - ts < _FETCH_CACHE_TTL_SECONDS:
+            return cached
+
     result = await db.execute(select(Mapping).where(Mapping.upi == upi))
-    return result.scalar_one_or_none()
+    mapping = result.scalar_one_or_none()
+    _FETCH_MAPPING_CACHE[upi] = (now, mapping)
+    return mapping
 
 
 async def _fetch_property(upi: str, db: AsyncSession) -> Optional[Property]:
+    now = time.time()
+    entry = _FETCH_PROPERTY_CACHE.get(upi)
+    if entry:
+        ts, cached = entry
+        if now - ts < _FETCH_CACHE_TTL_SECONDS:
+            return cached
+
     result = await db.execute(select(Property).where(Property.upi == upi))
-    return result.scalar_one_or_none()
+    prop = result.scalar_one_or_none()
+    _FETCH_PROPERTY_CACHE[upi] = (now, prop)
+    return prop
 
 
 async def _fetch_upi_backup(upi: str, db: AsyncSession) -> Optional[dict]:
+    now = time.time()
+    entry = _FETCH_UPI_BACKUP_CACHE.get(upi)
+    if entry:
+        ts, cached = entry
+        if now - ts < _FETCH_CACHE_TTL_SECONDS:
+            return cached
+
     result = await db.execute(select(UpiBackup).where(UpiBackup.upi == upi))
     row = result.scalar_one_or_none()
-    return row.upi_info if row and row.upi_info else None
+    data = row.upi_info if row and row.upi_info else None
+    _FETCH_UPI_BACKUP_CACHE[upi] = (now, data)
+    return data
 
 
 def _response_to_json_dict(resp: Any) -> Optional[dict]:
@@ -1001,7 +1070,7 @@ def build_system_prompt(
 
 async def call_ollama(messages: list[dict], json_mode: bool = False) -> str:
     """
-    POST to local Ollama /api/chat.
+    POST to local Ollama /api/chat with retry/backoff.
     messages: list of {"role": ..., "content": ...}
     Returns the assistant's reply text.
     """
@@ -1013,19 +1082,34 @@ async def call_ollama(messages: list[dict], json_mode: bool = False) -> str:
     }
     if json_mode:
         payload["format"] = "json"
-    try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            resp = await client.post(OLLAMA_URL, json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-            return data["message"]["content"]
-    except httpx.ConnectError:
-        raise RuntimeError(
-            "Cannot reach Ollama. Make sure it is running: `ollama serve`"
-        )
-    except Exception as exc:
-        logger.error(f"Ollama call failed: {exc}")
-        raise RuntimeError(f"Ollama error: {exc}")
+
+    max_attempts = 4
+    base_backoff = 0.2
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                resp = await client.post(OLLAMA_URL, json=payload)
+                resp.raise_for_status()
+                data = resp.json()
+                return data["message"]["content"]
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code if exc.response is not None else None
+            # Do not retry for client-side errors (bad request). retry for 502/503/504.
+            if status and 400 <= status < 500 and status not in (429,):
+                logger.error(f"Ollama HTTP status error (no retry): {status} {exc}")
+                raise RuntimeError(f"Ollama error: {status} {exc}")
+            logger.warning(f"Ollama HTTP error attempt {attempt}/{max_attempts}: {status} {exc}")
+        except (httpx.ConnectError, httpx.NetworkError, httpx.ReadTimeout) as exc:
+            logger.warning(f"Ollama network error attempt {attempt}/{max_attempts}: {exc}")
+        except Exception as exc:
+            logger.warning(f"Ollama other error attempt {attempt}/{max_attempts}: {exc}")
+
+        if attempt < max_attempts:
+            backoff = base_backoff * (2 ** (attempt - 1))
+            await asyncio.sleep(backoff)
+
+    raise RuntimeError("Ollama error: maximum retries exceeded")
 
 
 # ---------------------------------------------------------------------------
@@ -1033,6 +1117,21 @@ async def call_ollama(messages: list[dict], json_mode: bool = False) -> str:
 # ---------------------------------------------------------------------------
 
 async def chat(
+    user_message: str,
+    db: AsyncSession,
+    history: list[dict],
+    session_upi: Optional[str] = None,
+    pdf_context: Optional[dict] = None,
+) -> tuple[str, dict]:
+    global _CHAT_CONCURRENT_REQUESTS
+    _CHAT_CONCURRENT_REQUESTS += 1
+    try:
+        return await _chat_internal(user_message, db, history, session_upi, pdf_context)
+    finally:
+        _CHAT_CONCURRENT_REQUESTS = max(0, _CHAT_CONCURRENT_REQUESTS - 1)
+
+
+async def _chat_internal(
     user_message: str,
     db: AsyncSession,
     history: list[dict],
@@ -1060,6 +1159,8 @@ async def chat(
     queried_area_range = extract_area_range_query(effective_user_message)
     filters = extract_filters(effective_user_message)
 
+    start_time = time.time()
+
     # --- 3. Fetch all DB data BEFORE any async I/O other than DB ---
     parcel_ctx:     Optional[dict] = None
     property_ctx:   Optional[dict] = None
@@ -1073,10 +1174,13 @@ async def chat(
     forced_reply: Optional[str] = None
 
     if upi:
-        mapping_obj = await _fetch_mapping(upi, db)
-        prop_obj    = await _fetch_property(upi, db)
-        backup_title_ctx = await _fetch_upi_backup(upi, db)
-        nla_title_ctx = await _fetch_title_data_with_backup(upi, db)
+        # Parallelize independent DB lookups to reduce overall latency:
+        mapping_obj, prop_obj, backup_title_ctx, nla_title_ctx = await asyncio.gather(
+            _fetch_mapping(upi, db),
+            _fetch_property(upi, db),
+            _fetch_upi_backup(upi, db),
+            _fetch_title_data_with_backup(upi, db),
+        )
 
         parcel_ctx   = _mapping_to_context(mapping_obj) if mapping_obj else {"error": f"No GIS mapping found for UPI {upi}"}
         property_ctx = _property_to_context(prop_obj)   if prop_obj   else None
@@ -1148,18 +1252,33 @@ async def chat(
         except Exception:
             pass
 
-    if wants_clean_list:
-        clean_parcels = await _fetch_all_clean_mappings(db)
+    # Run non-conflicting lookup sets concurrently where possible.
+    clean_task = None
+    area_task = None
+    filter_task = None
 
-    if queried_area_range is not None:
-        min_sqm, max_sqm = queried_area_range
-        area_parcels = await _fetch_mappings_by_area_range(min_sqm, max_sqm, db)
-    elif queried_area is not None:
-        area_parcels = await _fetch_mappings_by_area(queried_area, db)
+    async with get_read_db() as read_db:
+        target_db = read_db
 
-    # Broad filter search — only for search-style queries (no specific UPI + no area already handled)
-    if filters and not upi and queried_area is None and queried_area_range is None:
-        filter_parcels = await _fetch_mappings_by_filters(filters, db)
+        if wants_clean_list:
+            clean_task = asyncio.create_task(_fetch_all_clean_mappings(target_db))
+
+        if queried_area_range is not None:
+            min_sqm, max_sqm = queried_area_range
+            area_task = asyncio.create_task(_fetch_mappings_by_area_range(min_sqm, max_sqm, target_db))
+        elif queried_area is not None:
+            area_task = asyncio.create_task(_fetch_mappings_by_area(queried_area, target_db))
+
+        # Broad filter search — only for search-style queries (no specific UPI + no area already handled)
+        if filters and not upi and queried_area is None and queried_area_range is None:
+            filter_task = asyncio.create_task(_fetch_mappings_by_filters(filters, target_db))
+
+        if clean_task is not None:
+            clean_parcels = await clean_task
+        if area_task is not None:
+            area_parcels = await area_task
+        if filter_task is not None:
+            filter_parcels = await filter_task
 
     # --- 3.1 Dynamic DB-wide SQL planning/execution (read-only, schema-aware) ---
     has_deterministic_data = bool(
@@ -1171,6 +1290,14 @@ async def chat(
         or (clean_parcels and len(clean_parcels) > 0)
     )
     should_try_dynamic_sql = _needs_dynamic_spatial_query(effective_user_message) or (not has_deterministic_data and not upi)
+
+    # If system is busy, prefer cached plan or skip expensive LLM planning
+    if _CHAT_CONCURRENT_REQUESTS >= _CHAT_CONCURRENCY_LIMIT_FOR_DYNAMIC_SQL:
+        if _LAST_QUERY_PLAN.get("db_query_context"):
+            db_query_context = _LAST_QUERY_PLAN["db_query_context"]
+            should_try_dynamic_sql = False
+        else:
+            should_try_dynamic_sql = False
 
     if should_try_dynamic_sql:
         try:
@@ -1210,6 +1337,9 @@ async def chat(
                 "rows": [],
                 "error": str(exc),
             }
+
+        # Cache this dynamic query context for high-load fallback.
+        _LAST_QUERY_PLAN["db_query_context"] = db_query_context
     else:
         db_query_context = {
             "intent": "deterministic",
@@ -1381,4 +1511,6 @@ async def chat(
         "parcels":             parcels,
     }
 
+    elapsed = time.time() - start_time
+    logger.debug(f"chat() total elapsed time {elapsed:.3f}s (upi={upi}, q={len(effective_user_message)})")
     return reply, context_snapshot

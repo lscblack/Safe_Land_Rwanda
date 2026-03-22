@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     
     # Email Configuration (optional)
     SMTP_HOST: Optional[str] = Field(default=None, env="SMTP_HOST")
+
+    # Redis for cross-worker caching (optional)
+    REDIS_URL: Optional[str] = Field(default=None, env="REDIS_URL")
     SMTP_PORT: Optional[int] = Field(default=587, env="SMTP_PORT")
     SMTP_USER: Optional[str] = Field(default=None, env="SMTP_USER")
     SMTP_PASSWORD: Optional[str] = Field(default=None, env="SMTP_PASSWORD")
