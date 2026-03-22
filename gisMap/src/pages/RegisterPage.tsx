@@ -10,6 +10,7 @@ import ReactFlagsSelect from "react-flags-select";
 import { useLanguage } from '../contexts/language-context';
 import { useTheme } from '../contexts/theme-context';
 import api from '../instance/mainAxios';
+import { stringify } from 'wellknown';
 
 
 type IdType = 'nid' | 'passport' | null;
@@ -178,7 +179,12 @@ export const RegisterPage = () => {
         } catch (err: any) {
             console.error("Verification failed:", err);
             if (verifyRequestIdRef.current === requestId) {
-                const msg = err.response?.data?.detail || err.message || "Verification failed.";
+                const msg =
+                    err.userMessage ||
+                    err.response?.data?.detail ||
+                    err.response?.data?.message ||
+                    err.message ||
+                    "Verification failed.";
                 setNidError(msg);
                 setIsVerified(false);
                 // Only hide form if verification failed
@@ -266,8 +272,14 @@ export const RegisterPage = () => {
             }, 1500);
         } catch (err: any) {
             console.error("Registration failed:", err);
-            const msg = err.response?.data?.detail || err.message || "Registration failed. Please try again.";
-            setRegisterError(msg);
+            const msg =
+                err.response?.data.detail[0]?.msg ||
+                err.userMessage ||
+                err.response?.data?.message ||
+                err.message ||
+                "Registration failed. Please try again.";
+            console.log("Error message to display:", msg);
+            setRegisterError(typeof msg === 'string' ? msg : JSON.stringify(msg));
             setIsLoading(false);
         }
     };
@@ -287,7 +299,12 @@ export const RegisterPage = () => {
             });
             setEmailOtpSent(true);
         } catch (err: any) {
-            const msg = err.response?.data?.detail || err.message || 'Failed to send OTP.';
+            const msg =
+                err.userMessage ||
+                err.response?.data?.detail ||
+                err.response?.data?.message ||
+                err.message ||
+                'Failed to send OTP.';
             setEmailOtpError(msg);
         } finally {
             setEmailOtpLoading(false);
@@ -309,7 +326,12 @@ export const RegisterPage = () => {
             });
             setEmailOtpVerified(true);
         } catch (err: any) {
-            const msg = err.response?.data?.detail || err.message || 'OTP verification failed.';
+            const msg =
+                err.userMessage ||
+                err.response?.data?.detail ||
+                err.response?.data?.message ||
+                err.message ||
+                'OTP verification failed.';
             setEmailOtpError(msg);
         } finally {
             setEmailOtpLoading(false);
@@ -719,7 +741,7 @@ export const RegisterPage = () => {
                                     )}
 
                                     {/* Submit Button */}
-                                    {(idType === 'passport' || (idType === 'nid' )) && (
+                                    {(idType === 'passport' || (idType === 'nid')) && (
                                         <motion.button
                                             variants={itemVariants}
                                             type="submit"

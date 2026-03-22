@@ -87,6 +87,18 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
 
+    // Handle API validation error details (422) in a friendly way for UI
+    if (status === 422) {
+      const payload = error.response?.data || {};
+      const message =
+        payload.detail ||
+        payload.message ||
+        (typeof payload === 'string' ? payload : null) ||
+        'Validation failed. Please check your data and try again.';
+      error.userMessage = message;
+      console.warn('422 validation error:', message, payload);
+    }
+
     return Promise.reject(error);
   }
 );
