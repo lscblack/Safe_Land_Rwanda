@@ -37,11 +37,11 @@ from api.routes.external_routes import get_title_data
 logger = logging.getLogger(__name__)
 
 OLLAMA_URL   = "http://localhost:11434/api/chat"
-# OLLAMA_MODEL = "qwen2.5:1.5b"
+OLLAMA_MODEL = "qwen2.5:1.5b"
 # OLLAMA_MODEL = "llama3"
 # OLLAMA_MODEL = "sam860/LFM2:350m"
 # OLLAMA_MODEL = "deepseek-coder:1.3b"
-OLLAMA_MODEL = "phi3:mini"
+# OLLAMA_MODEL = "phi3:mini"
 
 UNAVAILABLE_DB_MSG = "The requested information is not available in the system database."
 
