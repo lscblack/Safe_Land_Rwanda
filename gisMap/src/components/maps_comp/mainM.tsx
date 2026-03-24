@@ -1735,7 +1735,7 @@ function StepOne({ onVerify, onViewMap, onContinueToMap, isVerifying, verificati
               <div className="p-4 text-sm">
                 <div className={`${fraudScore < 60 ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800' : 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'} rounded p-3 mb-3`}>
                   <span className={`${fraudScore < 60 ? 'text-red-700' : 'text-green-700'} font-semibold`}>Fraud Score:</span>
-                  <span className={`${fraudScore < 60 ? 'text-red-700' : 'text-green-700'} font-bold`}>{fraudScore ?? 'Not available'}/100</span>
+                  <span className={`${fraudScore < 60 ? 'text-red-700' : 'text-green-700'} font-bold`}>{fraudScore ?? 'Not available'} %</span>
                 </div>
                 <div className="mb-2">
                   <span className="font-semibold">Classification:</span>
