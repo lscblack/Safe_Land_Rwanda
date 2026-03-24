@@ -21,9 +21,11 @@ const AboutPage = lazy(() => import("../pages/About").then(module => ({ default:
 const PartnersPage = lazy(() => import("../pages/OurAgents").then(module => ({ default: module.AgenciesPage })));
 const MarketTrendsPage = lazy(() => import("../pages/MarketTrendsAna").then(module => ({ default: module.MarketTrendsPage })));
 const RouteManager = () => {
-
-  useOnboardingCheck(); // Runs the 1-day reset check
-  return null; // Renders nothing visible
+  const test ="hui"
+  if (!test) {
+    useOnboardingCheck(); // Runs the 1-day reset check
+    return null; // Renders nothing visible
+  }
 };
 
 const AppRoutes = () => {

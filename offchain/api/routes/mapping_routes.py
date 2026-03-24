@@ -1090,6 +1090,7 @@ async def update_market_status(
     return mapping_to_dict(mapping)
 
 
+
 @router.post("/verify-pdf", response_model=dict)
 async def verify_pdf(
     file: UploadFile = File(...),
@@ -1103,8 +1104,10 @@ async def verify_pdf(
     import io
     from pdf2image import convert_from_bytes
     from PIL import Image
+    
     file_bytes = await file.read()
     content_type = file.content_type or ''
+    
     if content_type == 'application/pdf' or file.filename.lower().endswith('.pdf'):
         images = convert_from_bytes(file_bytes, dpi=300)
         page_image = images[0]
@@ -1115,8 +1118,10 @@ async def verify_pdf(
         img = np.array(pil_img)
     else:
         raise HTTPException(status_code=415, detail='Unsupported file type. Please upload a PDF or high-resolution JPEG/PNG image.')
+    
     gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
     ocr_text = pytesseract.image_to_string(gray, lang='eng+kin')
+    
     # Extract UPI from OCR
     raw_match = re.search(r'UPI:?\s*([\d\s/]+)', ocr_text)
     if raw_match:
@@ -1125,53 +1130,253 @@ async def verify_pdf(
         upi = None
     detected_wkt = get_detected_polygon_for_verify(page_image)
 
-    # --- Extract owners from OCR ---
-
-    def extract_owners(text):
+    # --- Robust owner extraction for table format from e-titles ---
+    
+    def extract_owners_robust(text):
+        """
+        Extract owners from e-title document format
+        Handles:
+        - Table format with headers: "Names of the lessee (s)", "Number of identification document", "Shares (%)"
+        - Numbered list format (1., 2., etc.)
+        - National ID (16 digits) and Passport numbers (alphanumeric)
+        - Multiple owners with percentages
+        """
         owners = []
-        # Try to extract all owner lines (numbered or not)
-        # Accepts lines like: 1. JOHN DOE 1234567890123456
-        lines = text.splitlines()
-        for line in lines:
-            match = re.match(r'\s*\d+\.\s+([A-Z\s]+?)\s+(\d{10,20})', line)
-            if match:
-                name, id_number = match.groups()
-                owners.append({
-                    "name": name.strip(),
-                    "id_number": id_number.strip()
-                })
-            else:
-                # Try to match lines without numbering
-                match2 = re.match(r'([A-Z\s]+?)\s+(\d{10,20})', line)
-                if match2:
-                    name, id_number = match2.groups()
+        
+        # Pattern 1: Extract from table format with headers
+        # Look for the table section
+        table_section = re.search(r'Names of the lessee\s*\(s\).*?Shares\s*\(%\).*?\n(.*?)(?=\n\n|\n[A-Z]|\Z)', text, re.DOTALL | re.IGNORECASE)
+        
+        if table_section:
+            table_content = table_section.group(1)
+            lines = table_content.split('\n')
+            
+            for line in lines:
+                line = line.strip()
+                if not line or line.startswith('Names of the lessee') or line.startswith('Number of identification'):
+                    continue
+                
+                # Pattern for table rows: "1. UWERA PEACE119787001717420650.00"
+                # Or: "1. UWERA PEACE 1197870017174206 50.00"
+                # Or: "2. KABAGEMA CELESTIN119768000090105250.00"
+                
+                # Try to extract number, name, ID, percentage
+                # Pattern: number dot, then name (letters and spaces), then ID (16 digits), then percentage
+                table_match = re.match(r'^(\d+)\.\s*([A-Z\s]+?)\s*(\d{16})\s*(\d+\.?\d*)', line)
+                if table_match:
+                    number, name, id_number, percentage = table_match.groups()
                     owners.append({
                         "name": name.strip(),
-                        "id_number": id_number.strip()
+                        "id_number": id_number,
+                        "id_type": "national_id",
+                        "percentage": percentage,
+                        "raw_line": line
                     })
-        return owners
-
+                    continue
+                
+                # Pattern without spaces between name and ID
+                table_match2 = re.match(r'^(\d+)\.\s*([A-Z\s]+?)(\d{16})(\d+\.?\d*)', line)
+                if table_match2:
+                    number, name, id_number, percentage = table_match2.groups()
+                    owners.append({
+                        "name": name.strip(),
+                        "id_number": id_number,
+                        "id_type": "national_id",
+                        "percentage": percentage,
+                        "raw_line": line
+                    })
+                    continue
+                
+                # Pattern with name, ID, percentage without numbering
+                table_match3 = re.match(r'^([A-Z\s]+?)\s*(\d{16})\s*(\d+\.?\d*)', line)
+                if table_match3:
+                    name, id_number, percentage = table_match3.groups()
+                    owners.append({
+                        "name": name.strip(),
+                        "id_number": id_number,
+                        "id_type": "national_id",
+                        "percentage": percentage,
+                        "raw_line": line
+                    })
+                    continue
+                
+                # Pattern with name and ID only (no percentage)
+                table_match4 = re.match(r'^(\d+)\.\s*([A-Z\s]+?)\s*(\d{16})', line)
+                if table_match4:
+                    number, name, id_number = table_match4.groups()
+                    owners.append({
+                        "name": name.strip(),
+                        "id_number": id_number,
+                        "id_type": "national_id",
+                        "raw_line": line
+                    })
+                    continue
+        
+        # Pattern 2: Extract numbered list format (from your sample)
+        lines = text.split('\n')
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Pattern for numbered owners: "1. UWERA PEACE 1197870017174206 50.00"
+            numbered_match = re.match(r'^(\d+)\.\s+([A-Z\s]+?)\s+(\d{16})\s+(\d+\.?\d*)', line)
+            if numbered_match:
+                number, name, id_number, percentage = numbered_match.groups()
+                # Check if already exists
+                if not any(o['id_number'] == id_number for o in owners):
+                    owners.append({
+                        "name": name.strip(),
+                        "id_number": id_number,
+                        "id_type": "national_id",
+                        "percentage": percentage,
+                        "raw_line": line
+                    })
+                continue
+            
+            # Pattern without percentage
+            numbered_match2 = re.match(r'^(\d+)\.\s+([A-Z\s]+?)\s+(\d{16})', line)
+            if numbered_match2:
+                number, name, id_number = numbered_match2.groups()
+                if not any(o['id_number'] == id_number for o in owners):
+                    owners.append({
+                        "name": name.strip(),
+                        "id_number": id_number,
+                        "id_type": "national_id",
+                        "raw_line": line
+                    })
+                continue
+        
+        # Pattern 3: Extract passport numbers (alphanumeric)
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Look for passport format (letters + numbers, 6-12 chars)
+            passport_match = re.search(r'\b([A-Z]{1,2}[0-9]{6,10})\b', line)
+            if passport_match:
+                passport_number = passport_match.group(1)
+                # Extract name before passport
+                name_match = re.search(r'^[\d\.\s]*([A-Z\s]+?)\s+' + re.escape(passport_number), line)
+                if name_match:
+                    name = name_match.group(1).strip()
+                    # Extract percentage if present
+                    percent_match = re.search(r'(\d+\.?\d*)\s*%', line)
+                    percentage = percent_match.group(1) if percent_match else None
+                    
+                    if not any(o['id_number'] == passport_number for o in owners):
+                        owners.append({
+                            "name": name,
+                            "id_number": passport_number,
+                            "id_type": "passport",
+                            "percentage": percentage,
+                            "raw_line": line
+                        })
+        
+        # Pattern 4: Extract from representative section
+        rep_match = re.search(r'representative\s*\(s\)\s*\n?\s*(\d+)\.\s*([A-Z\s]+?)\s*\((\d{16})\)', text, re.IGNORECASE)
+        if rep_match:
+            number, name, id_number = rep_match.groups()
+            if not any(o['id_number'] == id_number for o in owners):
+                owners.append({
+                    "name": name.strip(),
+                    "id_number": id_number,
+                    "id_type": "national_id",
+                    "is_representative": True,
+                    "raw_line": rep_match.group(0)
+                })
+        
+        # Pattern 5: Look for any 16-digit numbers that might be National IDs
+        for line in lines:
+            line = line.strip()
+            # Find all 16-digit numbers
+            id_matches = re.finditer(r'\b(\d{16})\b', line)
+            for id_match in id_matches:
+                id_number = id_match.group(1)
+                # Skip if already captured
+                if any(o['id_number'] == id_number for o in owners):
+                    continue
+                
+                # Try to extract name before the ID
+                before_id = line[:id_match.start()].strip()
+                # Clean up the name part
+                name_parts = []
+                for part in before_id.split():
+                    # Remove numbering
+                    cleaned = re.sub(r'^\d+\.', '', part).strip()
+                    if cleaned and cleaned.isalpha() and cleaned.isupper():
+                        name_parts.append(cleaned)
+                
+                if name_parts:
+                    name = ' '.join(name_parts)
+                    # Check for percentage after ID
+                    after_id = line[id_match.end():].strip()
+                    percent_match = re.search(r'(\d+\.?\d*)', after_id)
+                    percentage = percent_match.group(1) if percent_match and after_id else None
+                    
+                    owners.append({
+                        "name": name,
+                        "id_number": id_number,
+                        "id_type": "national_id",
+                        "percentage": percentage,
+                        "raw_line": line
+                    })
+        
+        # Deduplicate by ID number (keep first occurrence)
+        seen_ids = set()
+        unique_owners = []
+        for owner in owners:
+            if owner['id_number'] not in seen_ids:
+                seen_ids.add(owner['id_number'])
+                unique_owners.append(owner)
+        
+        return unique_owners
+    
     def normalize_name(name):
-        # Remove extra spaces, sort words for order-insensitive match
+        """Normalize name for comparison - preserve order, just clean whitespace"""
+        if not name:
+            return ""
+        # Remove extra spaces and convert to uppercase
         parts = name.upper().split()
-        parts = sorted(parts)
+        # Keep original order, don't sort
         return " ".join(parts)
-
-    ocr_owners = extract_owners(ocr_text)
+    
+    # Extract owners using robust method
+    ocr_owners = extract_owners_robust(ocr_text)
+    
+    # Prepare normalized list for comparison
     normalized_ocr_owners = [
         {
             "name": normalize_name(o["name"]),
-            "id_number": o["id_number"]
+            "id_number": o["id_number"],
+            "id_type": o.get("id_type", "national_id"),
+            "percentage": o.get("percentage"),
+            "is_representative": o.get("is_representative", False)
         }
         for o in ocr_owners
     ]
-
+    
+    # Debug logging
+    print("="*50)
+    print(f"EXTRACTED {len(normalized_ocr_owners)} OWNER(S):")
+    print("="*50)
+    for owner in normalized_ocr_owners:
+        print(f"Name: {owner['name']}")
+        print(f"ID Number: {owner['id_number']}")
+        print(f"ID Type: {owner['id_type']}")
+        if owner.get('percentage'):
+            print(f"Percentage: {owner['percentage']}%")
+        if owner.get('is_representative'):
+            print(f"Role: Representative")
+        print("-"*30)
+    
     if not upi and not detected_wkt:
         raise HTTPException(
             status_code=422,
             detail={"message": "This title is not valid. Parcel shape was not found."}
         )
-
+    
     uploaded_by = None
     if request and hasattr(request, 'state') and hasattr(request.state, 'user'):
         user = getattr(request.state, 'user', None)
@@ -1187,7 +1392,7 @@ async def verify_pdf(
                     uploaded_by = payload.get('id') or payload.get('person_id')
                 except Exception:
                     pass
-
+    
     backup_details = {
         "upi": upi,
         "parcelPolygon": {"polygon": None},
@@ -1214,11 +1419,11 @@ async def verify_pdf(
         "approvalDate": None,
         "owners": []
     }
-
+    
     status_details: dict = {}
     mapping_preview = None
     property_summary = None
-
+    
     if upi:
         try:
             result = await get_title_data(upi=upi, language="english", db=db)
@@ -1232,30 +1437,28 @@ async def verify_pdf(
             logging.error(f"[verify-pdf] Error fetching parcel info for UPI {upi}: {e}")
             details = backup_details
             result_dict = {}
-
+        
         if details is backup_details:
             raise HTTPException(
                 status_code=422,
                 detail={"message": "This title is not valid. Parcel details were not found in the registry."}
             )
-
+        
         canonical_upi = (details.get("upi") or upi or "").strip()
         if not canonical_upi:
             raise HTTPException(
                 status_code=422,
                 detail={"message": "This title is not valid. UPI is missing from registry data."}
             )
-
+        
         registry_polygon = details.get("parcelPolygon", {}).get("polygon")
         if not registry_polygon:
             raise HTTPException(
                 status_code=422,
                 detail={"message": "This title is not valid. Parcel boundary data is missing."}
             )
-
-
-        # --- Extract owners from NLA/registry robustly ---
-        # Try both root-level and parcelDetails-level for owners
+        
+        # Extract owners from NLA/registry robustly
         nla_owners_raw = None
         if "owners" in details and isinstance(details["owners"], list) and details["owners"]:
             nla_owners_raw = details["owners"]
@@ -1265,58 +1468,159 @@ async def verify_pdf(
             nla_owners_raw = result_dict["data"]["owners"]
         else:
             nla_owners_raw = []
-
+        
         nla_owners = []
         for owner in nla_owners_raw:
             name = owner.get("fullName") or owner.get("name") or ""
             id_number = owner.get("idNo") or owner.get("id_number") or ""
+            id_type = 'national_id' if id_number and len(id_number) == 16 and id_number.isdigit() else 'passport' if id_number and any(c.isalpha() for c in id_number) else 'unknown'
             nla_owners.append({
                 "name": normalize_name(name),
-                "id_number": id_number.strip()
+                "id_number": id_number.strip(),
+                "id_type": id_type,
+                "percentage": owner.get("percentage") or owner.get("share"),
+                "address": owner.get("address")
             })
-
-
-        # --- Owner comparison scoring ---
-
-        # --- Fuzzy matching using rapidfuzz ---
+        
+        # Prepare extracted_info and registry_info (excluding polygons)
+        def filter_info(info):
+            filtered = dict(info)
+            filtered.pop("parcelPolygon", None)
+            filtered.pop("polygon", None)
+            filtered.pop("detected_parcel_shape", None)
+            filtered.pop("document_detected_polygon", None)
+            return filtered
+        
+        extracted_info = {
+            "upi": upi,
+            "owners": normalized_ocr_owners,
+            "ocr_text": ocr_text[:500],
+        }
+        registry_info = filter_info(details)
+        
+        # Owner comparison scoring with robust ID matching
         from rapidfuzz import fuzz
+        
+        def compare_owners(ocr_owner, reg_owner):
+            """Compare owners handling both National ID and Passport"""
+            # Exact ID match (primary key)
+            id_match = (ocr_owner["id_number"] == reg_owner["id_number"])
+            
+            # If IDs match, it's definitely a match
+            if id_match:
+                return True, 100, "exact_id_match"
+            
+            # Fuzzy name comparison
+            name_score = fuzz.ratio(ocr_owner["name"], reg_owner["name"])
+            
+            # Check if IDs are similar (maybe OCR misread)
+            # For National IDs, check if they differ by 1-2 digits
+            if len(ocr_owner["id_number"]) == 16 and len(reg_owner["id_number"]) == 16:
+                # Count digit differences
+                diff_count = sum(1 for a, b in zip(ocr_owner["id_number"], reg_owner["id_number"]) if a != b)
+                if diff_count <= 2 and name_score > 85:
+                    return True, name_score, "fuzzy_match_high_confidence"
+            
+            # For passports, check if they're alphanumerically similar
+            if name_score > 85:
+                return True, name_score, "fuzzy_match_name"
+            
+            return False, name_score, "no_match"
+        
         matches = []
-        total = 0
+        total = len(normalized_ocr_owners)
         matched = 0
+        detailed_matches = []
+        
+        # Try to match each OCR owner with registry owners
+        used_reg_indices = set()
+        
         for ocr_owner in normalized_ocr_owners:
             best_score = 0
-            best_reg = None
-            for reg_owner in nla_owners:
-                # Compare both name and id_number
-                name_score = fuzz.ratio(ocr_owner["name"], reg_owner["name"])
-                id_match = (ocr_owner["id_number"] == reg_owner["id_number"])
-                if name_score > best_score and id_match:
-                    best_score = name_score
-                    best_reg = reg_owner
-            if best_score > 85:
+            best_reg_index = -1
+            best_match_type = "no_match"
+            is_match = False
+            
+            for idx, reg_owner in enumerate(nla_owners):
+                if idx in used_reg_indices:
+                    continue
+                
+                match_result, score, match_type = compare_owners(ocr_owner, reg_owner)
+                if score > best_score:
+                    best_score = score
+                    best_reg_index = idx
+                    best_match_type = match_type
+                    is_match = match_result
+            
+            if is_match and best_reg_index >= 0:
                 matched += 1
-            total += 1
-            matches.append({
-                "ocr_owner": ocr_owner,
-                "best_score": best_score,
-                "matched": best_score > 85
-            })
+                used_reg_indices.add(best_reg_index)
+                detailed_matches.append({
+                    "ocr_owner": ocr_owner,
+                    "registry_owner": nla_owners[best_reg_index],
+                    "match_score": best_score,
+                    "match_type": best_match_type,
+                    "matched": True
+                })
+            else:
+                detailed_matches.append({
+                    "ocr_owner": ocr_owner,
+                    "registry_owner": None,
+                    "match_score": best_score,
+                    "match_type": best_match_type,
+                    "matched": False
+                })
+        
+        # Check for extra owners in registry that weren't matched
+        extra_reg_owners = []
+        for idx, reg_owner in enumerate(nla_owners):
+            if idx not in used_reg_indices:
+                extra_reg_owners.append(reg_owner)
+        
         fraud_score = int((matched / total) * 100) if total > 0 else 0
-        # Classification
-        if fraud_score == 100:
+        if fraud_score == 100 and len(extra_reg_owners) == 0:
             fraud_class = "SAFE"
         elif fraud_score >= 60:
             fraud_class = "SUSPICIOUS"
         else:
             fraud_class = "FRAUD"
-
+        
+        # Compute fraud reasons
+        fraud_reasons = []
+        
+        # Compare UPI
+        if upi and (details.get("upi") or "").strip() != upi:
+            fraud_reasons.append("UPI mismatch between document and registry")
+        
+        # Compare number of owners
+        if len(normalized_ocr_owners) != len(nla_owners):
+            fraud_reasons.append(f"Owner count mismatch: document has {len(normalized_ocr_owners)}, registry has {len(nla_owners)}")
+        
+        # Compare each matched owner
+        for match_detail in detailed_matches:
+            if not match_detail["matched"]:
+                ocr_owner = match_detail["ocr_owner"]
+                fraud_reasons.append(f"Owner {ocr_owner['name']} (ID: {ocr_owner['id_number']}, Type: {ocr_owner['id_type']}) not found in registry")
+        
+        # Check for extra owners in registry
+        if extra_reg_owners:
+            for extra in extra_reg_owners:
+                fraud_reasons.append(f"Registry has additional owner {extra['name']} (ID: {extra['id_number']}) not found in document")
+        
+        fraud_reason = ", ".join(fraud_reasons) if fraud_reasons else None
+        
         mapping_preview = dict(
             upi=canonical_upi,
             detected_parcel_shape=registry_polygon or detected_wkt,
             fraud_score=fraud_score,
             fraud_class=fraud_class,
+            fraud_reason=fraud_reason,
+            extracted_info=extracted_info,
+            registry_info=registry_info,
+            owner_matches=detailed_matches,
+            extra_registry_owners=extra_reg_owners,
         )
-
+        
         prop_result = await db.execute(select(Property).where(Property.upi == canonical_upi))
         prop = prop_result.scalar_one_or_none()
         if prop:
@@ -1329,17 +1633,16 @@ async def verify_pdf(
             }
         else:
             property_summary = "not found"
-
+        
         status_details = details.copy()
         status_details["document_detected_polygon"] = detected_wkt
-
-        # Check if this UPI already exists in mappings using the canonical value
+        
+        # Check if this UPI already exists in mappings
         existing_result = await db.execute(select(Mapping).where(Mapping.upi == canonical_upi))
         existing_mapping = existing_result.scalar_one_or_none()
-
+        
         if existing_mapping:
             preview_shape_wkt = existing_mapping.official_registry_polygon or detected_wkt
-            # Always include fraud_score and fraud_class in the response
             return {
                 **mapping_to_dict(existing_mapping),
                 "document_detected_polygon": detected_wkt,
@@ -1348,24 +1651,29 @@ async def verify_pdf(
                 "already_registered": True,
                 "fraud_score": fraud_score,
                 "fraud_class": fraud_class,
+                "fraud_reason": fraud_reason,
+                "extracted_info": extracted_info,
+                "registry_info": registry_info,
+                "owner_matches": detailed_matches,
+                "extra_registry_owners": extra_reg_owners,
             }
     else:
         raise HTTPException(
             status_code=422,
             detail={"message": "This title is not valid. No UPI was detected in the document."}
         )
-
+    
     if mapping_preview is None:
         raise HTTPException(
             status_code=422,
             detail={"message": "This title is not valid. Unable to build parcel preview."}
         )
-
+    
     preview_shape_wkt = (
         (mapping_preview or {}).get("official_registry_polygon")
         or detected_wkt
     )
-
+    
     return {
         **mapping_preview,
         "note": "preview only — nothing was saved to the database",

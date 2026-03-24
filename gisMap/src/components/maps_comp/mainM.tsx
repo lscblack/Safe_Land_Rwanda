@@ -1637,12 +1637,72 @@ function StepOne({ onVerify, onViewMap, onContinueToMap, isVerifying, verificati
   };
 
 
+
   if (verificationResult?.success) {
-    // Only show fraud score/class, UPI, and shape
+    // Only show fraud score/class, UPI, shape, and fraud reason if present
     const fraudScore = verificationResult?.data?.fraud_score;
     const fraudClass = verificationResult?.data?.fraud_class;
     const upi = verificationResult.upi || verificationResult?.data?.upi || 'Not available';
-    // const detectedParcelShape = verificationResult?.data?.detected_parcel_shape;
+    const fraudReason = verificationResult?.data?.fraud_reason;
+    const extractedInfo = verificationResult?.data?.extracted_info;
+    const registryInfo = verificationResult?.data?.registry_info;
+
+    // Helper to render smart fraud reasons
+    function renderFraudReasons() {
+      if (!fraudReason) return null;
+      // If backend returns a string, just show it
+      if (typeof fraudReason === 'string') {
+        return <div className="text-red-700 dark:text-red-300 text-sm">{fraudReason}</div>;
+      }
+
+      // If backend returns an array, try to parse for owner/field mismatches
+      // Use extractedInfo and registryInfo for more context
+      const ocrOwners = extractedInfo?.owners || [];
+      const regOwners = registryInfo?.owners || [];
+      const ocrOwnerIds = new Set(ocrOwners.map((o: any) => o.id_number));
+      const regOwnerIds = new Set(regOwners.map((o: any) => o.id_number));
+
+      // Owner count mismatch
+      let ownerCountMsg = null;
+      if (ocrOwners.length !== regOwners.length) {
+        ownerCountMsg = (
+          <li>
+            Owner count mismatch: document has <b>{ocrOwners.length}</b>, registry has <b>{regOwners.length}</b>
+          </li>
+        );
+      }
+
+      // Owners in document but not in registry
+      const missingInRegistry = ocrOwners.filter((o: any) => !regOwnerIds.has(o.id_number));
+      // Owners in registry but not in document
+      const missingInDoc = regOwners.filter((o: any) => !ocrOwnerIds.has(o.id_number));
+
+      return (
+        <ul className="list-disc pl-5 text-red-700 dark:text-red-300 text-sm space-y-1">
+          {ownerCountMsg}
+          {missingInRegistry.map((o: any, idx: number) => (
+            <li key={`missing-registry-${idx}`}>
+              Owner <b>{o.name}</b> (ID: {o.id_number}{o.type ? `, Type: ${o.type}` : ''}) not found in registry
+            </li>
+          ))}
+          {missingInDoc.map((o: any, idx: number) => (
+            <li key={`missing-doc-${idx}`}>
+              Registry has additional owner <b>{o.name}</b> (ID: {o.id_number}{o.type ? `, Type: ${o.type}` : ''}) not found in document
+            </li>
+          ))}
+          {/* Render any other fraud reasons from backend */}
+          {Array.isArray(fraudReason) && fraudReason.map((reason: string, idx: number) => {
+            // Skip owner count/owner not found if already rendered
+            if (
+              reason.toLowerCase().includes('owner count') ||
+              reason.toLowerCase().includes('not found in registry') ||
+              reason.toLowerCase().includes('not found in document')
+            ) return null;
+            return <li key={`reason-${idx}`}>{reason}</li>;
+          })}
+        </ul>
+      );
+    }
 
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
@@ -1681,6 +1741,16 @@ function StepOne({ onVerify, onViewMap, onContinueToMap, isVerifying, verificati
                   <span className="font-semibold">Classification:</span>
                   <span className={`ml-2 font-bold ${fraudClass === 'SAFE' ? 'text-green-700' : fraudClass === 'SUSPICIOUS' ? 'text-yellow-700' : 'text-red-700'}`}>{fraudClass || 'Not available'}</span>
                 </div>
+                {/* Show fraud reason if present and not SAFE */}
+                {fraudClass && fraudClass !== 'SAFE' && fraudReason && (
+                  <div className="mt-3 rounded bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <AlertCircle size={16} className="text-red-600" />
+                      <span className="font-semibold text-red-700 dark:text-red-400">Why flagged as fraud:</span>
+                    </div>
+                    {renderFraudReasons()}
+                  </div>
+                )}
               </div>
             </div>
 

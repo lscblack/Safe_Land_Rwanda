@@ -13,9 +13,7 @@ const REFRESH_TOKEN_KEY = 'fe_refresh_token';
 
 const api = axios.create({
   baseURL: API_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  // Do not set Content-Type by default; let axios/browser set it automatically
 });
 
 // Helper to get tokens. Prefer logged-in user tokens if present, otherwise use frontend tokens.
