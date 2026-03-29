@@ -39,6 +39,14 @@ export const LoginPage = () => {
     const [otpCode, setOtpCode] = useState('');
     const [otpDigits, setOtpDigits] = useState<string[]>(Array(6).fill(''));
     const [otpPhone, setOtpPhone] = useState('');
+    const [allowedPhoneNumbers, setAllowedPhoneNumbers] = useState<string[]>([]);
+    // Mask phone number for display
+    const maskPhone = (phone: string) => {
+        if (!phone) return '';
+        const clean = phone.replace(/\D/g, '');
+        if (clean.length < 7) return phone;
+        return clean.slice(0, 3) + '****' + clean.slice(-3);
+    };
     const [otpEmail, setOtpEmail] = useState('');
     const [loginError, setLoginError] = useState<string | null>(null);
     const [loginSuccess, setLoginSuccess] = useState<string | null>(null);
@@ -98,18 +106,22 @@ export const LoginPage = () => {
 
         setIsLoading(true);
         try {
+            let userNid = null;
+            let id_type = null;
             if (useLiip) {
                 const validateResponse = await api.post('/api/liip/validate-login', {
                     id_or_email: identifier,
                     password,
                 });
-                const { valid, message, id_type } = validateResponse.data || {};
+                const { valid, message, id_type: idTypeResp, nid } = validateResponse.data || {};
                 if (!valid) {
                     setLoginError(message || 'Invalid credentials.');
                     return;
                 }
-                setLoginIdType(id_type || null);
-                if (id_type === 'PASSPORT' && otpMethod === 'sms') {
+                setLoginIdType(idTypeResp || null);
+                id_type = idTypeResp;
+                userNid = nid;
+                if (idTypeResp === 'PASSPORT' && otpMethod === 'sms') {
                     setOtpMethod('email');
                 }
             } else {
@@ -117,15 +129,30 @@ export const LoginPage = () => {
                     identifier,
                     password,
                 });
-                const { valid, message, id_type } = validateResponse.data || {};
+                const { valid, message, id_type: idTypeResp, user } = validateResponse.data || {};
                 if (!valid) {
                     setLoginError(message || 'Invalid credentials.');
                     return;
                 }
-                setLoginIdType(id_type || null);
-                if (id_type === 'PASSPORT' && otpMethod === 'sms') {
+                setLoginIdType(idTypeResp || null);
+                id_type = idTypeResp;
+                userNid = user?.n_id_number;
+                if (idTypeResp === 'PASSPORT' && otpMethod === 'sms') {
                     setOtpMethod('email');
                 }
+            }
+
+            // Fetch allowed phone numbers for this user (by NID)
+            if (id_type !== 'PASSPORT' && userNid) {
+                try {
+                    const phoneRes = await api.get(`/api/external/nid/${userNid}/phonenumbers`);
+                    const phoneList = Array.isArray(phoneRes.data) ? phoneRes.data : [];
+                    setAllowedPhoneNumbers(phoneList.map((p: any) => p.msidn || p));
+                } catch (e) {
+                    setAllowedPhoneNumbers([]);
+                }
+            } else {
+                setAllowedPhoneNumbers([]);
             }
 
             setLoginStep('otp-method');
@@ -218,7 +245,7 @@ export const LoginPage = () => {
         }
     };
 
-    
+
 
     return (
         <div className="min-h-screen w-full flex bg-gray-50 dark:bg-[#0a162e] text-slate-900 dark:text-white transition-colors duration-300 font-sans overflow-hidden">
@@ -560,14 +587,17 @@ export const LoginPage = () => {
                                         <label className="text-sm font-semibold text-gray-700 dark:text-gray-300 ml-1">Phone</label>
                                         <div className="relative group">
                                             <div className="absolute left-0 top-0 bottom-0 w-12 flex items-center justify-center text-gray-400"><Phone size={20} /></div>
-                                            <input
-                                                type="tel"
+                                            <select
                                                 value={otpPhone}
                                                 onChange={(e) => setOtpPhone(e.target.value)}
-                                                placeholder="07..."
                                                 className="w-full bg-white dark:bg-[#112240] border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white pl-12 pr-4 py-5 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
                                                 required
-                                            />
+                                            >
+                                                <option value="">Select phone number</option>
+                                                {allowedPhoneNumbers.map((phone, idx) => (
+                                                    <option key={idx} value={phone}>{maskPhone(phone)}</option>
+                                                ))}
+                                            </select>
                                         </div>
                                     </div>
                                 )}
@@ -726,7 +756,7 @@ export const LoginPage = () => {
                             </button>
                         )}
 
-                        
+
                     </form>
 
                     {/* Footer Register Link */}

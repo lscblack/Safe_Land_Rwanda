@@ -170,6 +170,7 @@ class ValidateLoginResponse(BaseModel):
     valid: bool
     message: Optional[str] = None
     id_type: Optional[str] = None
+    user: Optional[dict] = None
 
 
 class RefreshRequest(BaseModel):
@@ -515,7 +516,17 @@ async def validate_login(
         if user.is_deleted:
             return ValidateLoginResponse(valid=False, message="Account has been deleted", id_type=user.id_type)
 
-        return ValidateLoginResponse(valid=True, message="Valid credentials", id_type=user.id_type)
+        # Return user info for frontend to fetch all phone numbers
+        user_info = {
+            "id": user.id,
+            "n_id_number": user.n_id_number,
+            "phone": user.phone,
+            "email": user.email,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "id_type": user.id_type,
+        }
+        return ValidateLoginResponse(valid=True, message="Valid credentials", id_type=user.id_type, user=user_info)
 
     except Exception as e:
         logger.error(f"Validate login error: {e}")
