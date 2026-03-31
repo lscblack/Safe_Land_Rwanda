@@ -3603,6 +3603,9 @@ export default function ParcelVerificationFlow() {
     promise: Promise<{ items: ParcelData[]; total: number; forSaleCount: number; overlapCount: number; hasMore: boolean }>;
   } | null>(null);
 
+  // Loader for map fetch
+  const [isMapLoading, setIsMapLoading] = useState(false);
+
   const upsertParcel = useCallback((parcel: ParcelData) => {
     setParcels((prev) => {
       const exists = prev.some((p) => p.upi === parcel.upi);
@@ -3630,6 +3633,10 @@ export default function ParcelVerificationFlow() {
             setViewMode(parsed.viewMode);
             setFilterAvailable(parsed.filterAvailable);
             setActiveServerFilters({});
+            // If restoring to map view, show loader until user triggers fetch
+            if (parsed.step === 'map') {
+              setIsMapLoading(true);
+            }
             // Do NOT load parcels here
           } else {
             setActiveServerFilters({});
@@ -3989,32 +3996,37 @@ export default function ParcelVerificationFlow() {
   };
 
   const handleViewMapWithoutUpload = () => {
+    setIsMapLoading(true);
     setVerificationResult(null);
     setActiveServerFilters({});
     setViewMode('all');
-    fetchAllParcelsAndUpdate({});
+    fetchAllParcelsAndUpdate({}).finally(() => setIsMapLoading(false));
     setStep('map');
   };
 
   const handleContinueToVerifiedMap = async () => {
-    // Fetch parcels using the stored filters when user clicks Continue to Map
-    if (pendingLocationFilters) {
-      const hasLocationFilter = Boolean(pendingLocationFilters.province || pendingLocationFilters.district || pendingLocationFilters.sector);
-      const page = hasLocationFilter
-        ? await fetchAllFilteredParcels(pendingLocationFilters)
-        : await fetchAllParcels(pendingLocationFilters);
-      setActiveServerFilters(pendingLocationFilters);
-      setFilterAvailable(false);
-      setLoadedFromDbCount(page.items.length);
-      setTotalParcelsCount(page.total || page.items.length);
-      setDbForSaleCount(page.forSaleCount || page.items.filter((p) => p.forSale === true).length);
-      setDbOverlapCount(page.overlapCount || page.items.filter((p) => p.hasOverlap).length);
-      setBatchPage(0);
-      setHasMoreBatchedParcels(page.hasMore && page.items.length > 0);
-
-      setParcels(page.items);
+    setIsMapLoading(true);
+    try {
+      // Fetch parcels using the stored filters when user clicks Continue to Map
+      if (pendingLocationFilters) {
+        const hasLocationFilter = Boolean(pendingLocationFilters.province || pendingLocationFilters.district || pendingLocationFilters.sector);
+        const page = hasLocationFilter
+          ? await fetchAllFilteredParcels(pendingLocationFilters)
+          : await fetchAllParcels(pendingLocationFilters);
+        setActiveServerFilters(pendingLocationFilters);
+        setFilterAvailable(false);
+        setLoadedFromDbCount(page.items.length);
+        setTotalParcelsCount(page.total || page.items.length);
+        setDbForSaleCount(page.forSaleCount || page.items.filter((p) => p.forSale === true).length);
+        setDbOverlapCount(page.overlapCount || page.items.filter((p) => p.hasOverlap).length);
+        setBatchPage(0);
+        setHasMoreBatchedParcels(page.hasMore && page.items.length > 0);
+        setParcels(page.items);
+      }
+      setStep('map');
+    } finally {
+      setIsMapLoading(false);
     }
-    setStep('map');
   };
 
   const handleRefreshParcels = async () => {
@@ -4022,6 +4034,18 @@ export default function ParcelVerificationFlow() {
   };
 
   if (initialLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 size={48} className="animate-spin text-primary mx-auto mb-4" />
+          <p className="text-foreground">Loading parcels...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show loader if map is loading
+  if (step === 'map' && isMapLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
