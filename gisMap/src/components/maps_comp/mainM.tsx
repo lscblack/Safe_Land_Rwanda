@@ -286,6 +286,7 @@ interface VerificationResult {
   data?: any;
   error?: string;
   upi?: string;
+  plannedLandUses?: Array<{ landUseName: string; area: number }>;
 }
 
 interface StoredVerification {
@@ -3586,6 +3587,7 @@ export default function ParcelVerificationFlow() {
   /** UPI set when user clicks a parcel chip — consumed by StepTwo to open the DetailPopup */
   const [chatDetailUPI, setChatDetailUPI] = useState<string | null>(null);
   const [initialLoading, setInitialLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState(false);
   const [activeServerFilters, setActiveServerFilters] = useState<ParcelFetchFilters>({});
   const [loadedFromDbCount, setLoadedFromDbCount] = useState(0);
   const [totalParcelsCount, setTotalParcelsCount] = useState(0);
@@ -3595,7 +3597,7 @@ export default function ParcelVerificationFlow() {
   const [batchPage, setBatchPage] = useState(0);
   const [hasMoreBatchedParcels, setHasMoreBatchedParcels] = useState(false);
   const [loadingMoreParcels, setLoadingMoreParcels] = useState(false);
-  const didInitRef = useRef(false);
+  // const didInitRef = useRef(false);
   const latestFilterRequestRef = useRef(0);
   const inFlightParcelsFetchRef = useRef<{
     key: string;
@@ -3612,47 +3614,9 @@ export default function ParcelVerificationFlow() {
     });
   }, []);
 
-  // Load saved state from session storage on mount
+  // Do not fetch parcels on mount. Only set initial loading to false.
   useEffect(() => {
-    if (didInitRef.current) return;
-    didInitRef.current = true;
-
-    const loadSavedState = async () => {
-      try {
-        const savedState = sessionStorage.getItem('parcelVerificationState');
-        if (savedState) {
-          const parsed = JSON.parse(savedState) as AppState;
-
-          // Only restore if not expired (24 hours)
-          if (Date.now() - parsed.lastUpdated < 24 * 60 * 60 * 1000) {
-            setStep(parsed.step);
-            setVerifiedUPI(parsed.verifiedUPI);
-            setViewMode(parsed.viewMode);
-            setFilterAvailable(parsed.filterAvailable);
-
-            // Always fetch first balanced backend batch (max 500) to avoid restoring huge cached datasets
-            setActiveServerFilters({});
-            await fetchAllParcelsAndUpdate({});
-          } else {
-            // Expired, fetch fresh data
-            setActiveServerFilters({});
-            await fetchAllParcelsAndUpdate({});
-          }
-        } else {
-          // No saved state, fetch fresh data
-          setActiveServerFilters({});
-          await fetchAllParcelsAndUpdate({});
-        }
-      } catch (error) {
-        console.error('Failed to load saved state:', error);
-        setActiveServerFilters({});
-        await fetchAllParcelsAndUpdate({});
-      } finally {
-        setInitialLoading(false);
-      }
-    };
-
-    loadSavedState();
+    setInitialLoading(false);
   }, []);
 
   // Save state to session storage whenever it changes
@@ -3892,182 +3856,32 @@ export default function ParcelVerificationFlow() {
 
     try {
       const formData = new FormData();
-
       formData.append('file', file);
       const response = await api.post('/api/mappings/verify-pdf', formData);
 
+      let plannedLandUses: Array<{ landUseName: string; area: number }> = [];
       if (response.data) {
         const result = response.data;
         const verifiedUpi = result.upi;
-        let externalPlannedUses: Array<{ landUseName: string; area: number }> = [];
-        let externalStatuses: {
-          under_mortgage?: boolean;
-          has_caveat?: boolean;
-          in_transaction?: boolean;
-          land_use_type?: string;
-          tenure_type?: string;
-          remaining_lease_term?: number;
-          area?: number;
-          province?: string;
-          district?: string;
-          sector?: string;
-        } = {};
 
+        // Try to fetch external planned land uses
         try {
           const externalResponse = await api.get('/api/external/title_data', {
             params: { upi: verifiedUpi, language: 'english' },
           });
           if (externalResponse.data?.success && externalResponse.data?.found) {
-            const ext = externalResponse.data.data;
-            externalPlannedUses = extractPlannedLandUses(ext);
-            const parcelDetails = ext?.parcelDetails || {};
-            const address = ext?.address || parcelDetails?.address || {};
-            externalStatuses = {
-              under_mortgage: Boolean(parcelDetails.underMortgage ?? ext?.underMortgage),
-              has_caveat: Boolean(parcelDetails.hasCaveat ?? ext?.hasCaveat),
-              in_transaction: Boolean(parcelDetails.inTransaction ?? ext?.inTransaction),
-              land_use_type: parcelDetails.landUseTypeNameEnglish || ext?.landUse?.landUseTypeNameEnglish,
-              tenure_type: parcelDetails.rightTypeName || ext?.rightTypeName,
-              remaining_lease_term: Number(parcelDetails.remainingLeaseTerm ?? ext?.remainingLeaseTerm),
-              area: Number(parcelDetails.area ?? ext?.area),
-              province: address?.provinceName || ext?.province,
-              district: address?.districtName || ext?.district,
-              sector: address?.sectorName || ext?.sector,
-            };
+            plannedLandUses = extractPlannedLandUses(externalResponse.data.data);
           }
-        } catch (err) {
-          console.warn('External title_data enrichment failed:', err);
-        }
+        } catch { }
 
-        const normalizeLocationValue = (value?: string) => {
-          const normalized = value?.trim().toLowerCase();
-          return normalized && normalized !== 'all' ? normalized : undefined;
-        };
-
-        const locationFilters: ParcelFetchFilters = {
-          province: normalizeLocationValue(
-            result?.province
-            || result?.parcel_information?.province
-            || result?.address?.provinceName
-            || externalStatuses.province
-          ),
-          district: normalizeLocationValue(
-            result?.district
-            || result?.parcel_information?.district
-            || result?.address?.districtName
-            || externalStatuses.district
-          ),
-          sector: normalizeLocationValue(
-            result?.sector
-            || result?.parcel_information?.sector
-            || result?.address?.sectorName
-            || externalStatuses.sector
-          ),
-        };
-
-        // When a parcel is verified, load parcels from the same location as the uploaded parcel
-        const hasLocationFilter = Boolean(locationFilters.province || locationFilters.district || locationFilters.sector);
-        const page = hasLocationFilter
-          ? await fetchAllFilteredParcels(locationFilters)
-          : await fetchAllParcels(locationFilters);
-        let allParcels: ParcelData[] = page.items;
-        setActiveServerFilters(locationFilters);
-        setFilterAvailable(false);
-        setLoadedFromDbCount(page.items.length);
-        setTotalParcelsCount(page.total || page.items.length);
-        setDbForSaleCount(page.forSaleCount || page.items.filter((p) => p.forSale === true).length);
-        setDbOverlapCount(page.overlapCount || page.items.filter((p) => p.hasOverlap).length);
-        setBatchPage(0);
-        setHasMoreBatchedParcels(page.hasMore && page.items.length > 0);
-
-        // Mark the verified parcel in the fetched list
-        const updatedParcels: ParcelData[] = allParcels.map((p: ParcelData) => {
-          if (p.upi === verifiedUpi) {
-            return {
-              ...p,
-              color: '#395d91', // Primary blue
-              isVerified: true,
-              forSale: result.for_sale || false,
-              price: result.price || null,
-              area: result.parcel_area_sqm || externalStatuses.area || p.area,
-              land_use_type: result.land_use_type || externalStatuses.land_use_type || p.land_use_type,
-              tenure_type: result.tenure_type || externalStatuses.tenure_type || p.tenure_type,
-              remaining_lease_term: result.remaining_lease_term || externalStatuses.remaining_lease_term || p.remaining_lease_term,
-              under_mortgage: result.under_mortgage ?? externalStatuses.under_mortgage ?? p.under_mortgage,
-              has_caveat: result.has_caveat ?? externalStatuses.has_caveat ?? p.has_caveat,
-              in_transaction: result.in_transaction ?? externalStatuses.in_transaction ?? p.in_transaction,
-              planned_land_uses: externalPlannedUses.length > 0 ? externalPlannedUses : p.planned_land_uses,
-            };
-          }
-
-          let color = '#F97316';
-          if (p.hasOverlap) {
-            color = '#EF4444';
-          } else if (p.forSale === true) {
-            color = '#10B981';
-          } else if (p.forSale === false) {
-            color = '#991B1B';
-          }
-
-          return {
-            ...p,
-            color,
-            isVerified: false,
-          };
-        });
-
-        // If the verified parcel was NOT found in the DB list (mapping not yet stored,
-        // or the DB is completely empty), build a ParcelData entry from the
-        // official_registry_polygon the verify-pdf endpoint already returned.
-        const verifiedAlreadyInList = updatedParcels.some((p) => p.upi === verifiedUpi);
-        if (!verifiedAlreadyInList && result.official_registry_polygon) {
-          try {
-            const parcel = toParcelFromMapping(result, true);
-            if (parcel) {
-              updatedParcels.push({
-                ...parcel,
-                isVerified: true,
-                color: getParcelColor(parcel, true),
-                under_mortgage: result.under_mortgage ?? externalStatuses.under_mortgage ?? parcel.under_mortgage,
-                has_caveat: result.has_caveat ?? externalStatuses.has_caveat ?? parcel.has_caveat,
-                in_transaction: result.in_transaction ?? externalStatuses.in_transaction ?? parcel.in_transaction,
-                planned_land_uses: externalPlannedUses.length > 0 ? externalPlannedUses : parcel.planned_land_uses,
-                land_use_type: result.land_use_type || externalStatuses.land_use_type || parcel.land_use_type,
-                tenure_type: result.tenure_type || externalStatuses.tenure_type || parcel.tenure_type,
-                remaining_lease_term: result.remaining_lease_term || externalStatuses.remaining_lease_term || parcel.remaining_lease_term,
-              });
-            }
-          } catch (e) {
-            console.warn('[handleVerify] Could not build parcel from result polygon:', e);
-          }
-        }
-
-        setDbForSaleCount(updatedParcels.filter((p) => p.forSale === true).length);
-        setDbOverlapCount(updatedParcels.filter((p) => p.hasOverlap).length);
-
-        const currentVerifiedParcel = updatedParcels.find((p) => p.upi === verifiedUpi);
-        if (currentVerifiedParcel) {
-          const records: StoredVerifiedParcel[] = JSON.parse(sessionStorage.getItem('verifiedParcelRecords') || '[]');
-          const nextRecord: StoredVerifiedParcel = {
-            upi: verifiedUpi,
-            parcel: { ...currentVerifiedParcel, isVerified: true, color: getParcelColor(currentVerifiedParcel, true) },
-            timestamp: Date.now(),
-          };
-          const filtered = records.filter((r) => r.upi !== verifiedUpi);
-          filtered.push(nextRecord);
-          sessionStorage.setItem('verifiedParcelRecords', JSON.stringify(filtered));
-        }
-
-        setParcels(updatedParcels);
         setVerifiedUPI(verifiedUpi);
         setViewMode('all');
-
         setVerificationResult({
           success: true,
           upi: verifiedUpi,
           data: result,
+          plannedLandUses,
         });
-
       } else {
         setVerificationResult({
           success: false,
@@ -4102,16 +3916,79 @@ export default function ParcelVerificationFlow() {
     setVerificationResult(null);
   };
 
-  const handleViewMapWithoutUpload = () => {
-    setVerificationResult(null);
-    setActiveServerFilters({});
-    setViewMode('all');
-    fetchAllParcelsAndUpdate({});
-    setStep('map');
+  // When user clicks "View Map", load 50 parcels in Kigali, show loading
+  const handleViewMapWithoutUpload = async () => {
+    setActionLoading(true);
+    try {
+      setVerificationResult(null);
+      setActiveServerFilters({ province: 'kigali city' });
+      setViewMode('all');
+      // Fetch only 50 parcels in Kigali
+      const page = await fetchAllParcels({ province: 'kigali city' }, { batchPage: 0 });
+      setParcels(page.items.slice(0, 50));
+      setLoadedFromDbCount(page.items.length);
+      setTotalParcelsCount(page.total || page.items.length);
+      setDbForSaleCount(page.forSaleCount || page.items.filter((p) => p.forSale === true).length);
+      setDbOverlapCount(page.overlapCount || page.items.filter((p) => p.hasOverlap).length);
+      setBatchPage(0);
+      setHasMoreBatchedParcels(page.hasMore && page.items.length > 0);
+      setStep('map');
+    } finally {
+      setActionLoading(false);
+    }
   };
 
-  const handleContinueToVerifiedMap = () => {
-    setStep('map');
+  // When user clicks "Continue to Map" after verify, load only the verified parcel and nearby parcels in its location, show loading
+  const handleContinueToVerifiedMap = async () => {
+    setActionLoading(true);
+    try {
+      if (!verificationResult?.success || !verificationResult.upi || !verificationResult.data) {
+        setStep('map');
+        return;
+      }
+
+      // Extract location filters from verification result
+      const result = verificationResult.data;
+      const normalizeLocationValue = (value?: string) => {
+        const normalized = value?.trim().toLowerCase();
+        return normalized && normalized !== 'all' ? normalized : undefined;
+      };
+      const province = normalizeLocationValue(result?.province || result?.parcel_information?.province || result?.address?.provinceName);
+      const district = normalizeLocationValue(result?.district || result?.parcel_information?.district || result?.address?.districtName);
+      const sector = normalizeLocationValue(result?.sector || result?.parcel_information?.sector || result?.address?.sectorName);
+      const locationFilters: ParcelFetchFilters = { province, district, sector };
+
+      setActiveServerFilters(locationFilters);
+      setViewMode('all');
+      // Fetch parcels in the same location as the verified parcel
+      const page = (province || district || sector)
+        ? await fetchAllFilteredParcels(locationFilters)
+        : await fetchAllParcels(locationFilters);
+      // Always include the verified parcel itself
+      let updatedParcels = page.items;
+      // If the verified parcel is not in the list, add it from the verification result
+      if (!updatedParcels.some((p) => p.upi === verificationResult.upi) && result.official_registry_polygon) {
+        try {
+          const parcel = toParcelFromMapping(result, true);
+          if (parcel) {
+            updatedParcels = [
+              { ...parcel, isVerified: true, color: getParcelColor(parcel, true) },
+              ...updatedParcels,
+            ];
+          }
+        } catch { }
+      }
+      setParcels(updatedParcels);
+      setLoadedFromDbCount(page.items.length);
+      setTotalParcelsCount(page.total || page.items.length);
+      setDbForSaleCount(page.forSaleCount || page.items.filter((p) => p.forSale === true).length);
+      setDbOverlapCount(page.overlapCount || page.items.filter((p) => p.hasOverlap).length);
+      setBatchPage(0);
+      setHasMoreBatchedParcels(page.hasMore && page.items.length > 0);
+      setStep('map');
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   const handleRefreshParcels = async () => {
@@ -4131,7 +4008,25 @@ export default function ParcelVerificationFlow() {
 
   return (
     <>
-
+      {actionLoading && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100vw',
+          height: '100vh',
+          background: 'rgba(255,255,255,0.7)',
+          zIndex: 99999,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: 28,
+          fontWeight: 600,
+          color: '#395d91',
+        }}>
+          Loading...
+        </div>
+      )}
       {step === 'upload' ? (
         <StepOne
           onVerify={handleVerify}
