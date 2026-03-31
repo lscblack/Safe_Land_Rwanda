@@ -941,9 +941,10 @@ function DetailPopup({ parcel, onClose, combinedData, loading, riskAssessment, l
     { label: 'Boundary Overlap', value: parcel.hasOverlap ? 'Yes' : 'No' },
   ];
 
-  const plannedLandUses = (externalData?.plannedLandUses && externalData.plannedLandUses.length > 0)
-    ? externalData.plannedLandUses
-    : (parcel.planned_land_uses || []);
+  // Always use extractPlannedLandUses for normalization
+  const plannedLandUses = externalData
+    ? extractPlannedLandUses(externalData)
+    : extractPlannedLandUses(parcel);
 
   if (loading) {
     return (
