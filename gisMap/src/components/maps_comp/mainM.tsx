@@ -3617,36 +3617,31 @@ export default function ParcelVerificationFlow() {
     if (didInitRef.current) return;
     didInitRef.current = true;
 
+    // Only restore UI state, do NOT load parcels on mount
     const loadSavedState = async () => {
       try {
         const savedState = sessionStorage.getItem('parcelVerificationState');
         if (savedState) {
           const parsed = JSON.parse(savedState) as AppState;
-
-          // Only restore if not expired (24 hours)
           if (Date.now() - parsed.lastUpdated < 24 * 60 * 60 * 1000) {
             setStep(parsed.step);
             setVerifiedUPI(parsed.verifiedUPI);
             setViewMode(parsed.viewMode);
             setFilterAvailable(parsed.filterAvailable);
-
-            // Always fetch first balanced backend batch (max 500) to avoid restoring huge cached datasets
             setActiveServerFilters({});
-            await fetchAllParcelsAndUpdate({});
+            // Do NOT load parcels here
           } else {
-            // Expired, fetch fresh data
             setActiveServerFilters({});
-            await fetchAllParcelsAndUpdate({});
+            // Do NOT load parcels here
           }
         } else {
-          // No saved state, fetch fresh data
           setActiveServerFilters({});
-          await fetchAllParcelsAndUpdate({});
+          // Do NOT load parcels here
         }
       } catch (error) {
         console.error('Failed to load saved state:', error);
         setActiveServerFilters({});
-        await fetchAllParcelsAndUpdate({});
+        // Do NOT load parcels here
       } finally {
         setInitialLoading(false);
       }
@@ -3886,28 +3881,21 @@ export default function ParcelVerificationFlow() {
   /* =========================
      HANDLE VERIFICATION
   ========================== */
+  // Refactored: Only verify and store location filters, do NOT fetch parcels here
+  const [pendingLocationFilters, setPendingLocationFilters] = useState<ParcelFetchFilters | null>(null);
   const handleVerify = async (file: File) => {
     setIsVerifying(true);
     setVerificationResult(null);
 
     try {
       const formData = new FormData();
-
       formData.append('file', file);
       const response = await api.post('/api/mappings/verify-pdf', formData);
 
       if (response.data) {
         const result = response.data;
         const verifiedUpi = result.upi;
-        let externalPlannedUses: Array<{ landUseName: string; area: number }> = [];
         let externalStatuses: {
-          under_mortgage?: boolean;
-          has_caveat?: boolean;
-          in_transaction?: boolean;
-          land_use_type?: string;
-          tenure_type?: string;
-          remaining_lease_term?: number;
-          area?: number;
           province?: string;
           district?: string;
           sector?: string;
@@ -3919,17 +3907,9 @@ export default function ParcelVerificationFlow() {
           });
           if (externalResponse.data?.success && externalResponse.data?.found) {
             const ext = externalResponse.data.data;
-            externalPlannedUses = extractPlannedLandUses(ext);
             const parcelDetails = ext?.parcelDetails || {};
             const address = ext?.address || parcelDetails?.address || {};
             externalStatuses = {
-              under_mortgage: Boolean(parcelDetails.underMortgage ?? ext?.underMortgage),
-              has_caveat: Boolean(parcelDetails.hasCaveat ?? ext?.hasCaveat),
-              in_transaction: Boolean(parcelDetails.inTransaction ?? ext?.inTransaction),
-              land_use_type: parcelDetails.landUseTypeNameEnglish || ext?.landUse?.landUseTypeNameEnglish,
-              tenure_type: parcelDetails.rightTypeName || ext?.rightTypeName,
-              remaining_lease_term: Number(parcelDetails.remainingLeaseTerm ?? ext?.remainingLeaseTerm),
-              area: Number(parcelDetails.area ?? ext?.area),
               province: address?.provinceName || ext?.province,
               district: address?.districtName || ext?.district,
               sector: address?.sectorName || ext?.sector,
@@ -3965,109 +3945,14 @@ export default function ParcelVerificationFlow() {
           ),
         };
 
-        // When a parcel is verified, load parcels from the same location as the uploaded parcel
-        const hasLocationFilter = Boolean(locationFilters.province || locationFilters.district || locationFilters.sector);
-        const page = hasLocationFilter
-          ? await fetchAllFilteredParcels(locationFilters)
-          : await fetchAllParcels(locationFilters);
-        let allParcels: ParcelData[] = page.items;
-        setActiveServerFilters(locationFilters);
-        setFilterAvailable(false);
-        setLoadedFromDbCount(page.items.length);
-        setTotalParcelsCount(page.total || page.items.length);
-        setDbForSaleCount(page.forSaleCount || page.items.filter((p) => p.forSale === true).length);
-        setDbOverlapCount(page.overlapCount || page.items.filter((p) => p.hasOverlap).length);
-        setBatchPage(0);
-        setHasMoreBatchedParcels(page.hasMore && page.items.length > 0);
-
-        // Mark the verified parcel in the fetched list
-        const updatedParcels: ParcelData[] = allParcels.map((p: ParcelData) => {
-          if (p.upi === verifiedUpi) {
-            return {
-              ...p,
-              color: '#395d91', // Primary blue
-              isVerified: true,
-              forSale: result.for_sale || false,
-              price: result.price || null,
-              area: result.parcel_area_sqm || externalStatuses.area || p.area,
-              land_use_type: result.land_use_type || externalStatuses.land_use_type || p.land_use_type,
-              tenure_type: result.tenure_type || externalStatuses.tenure_type || p.tenure_type,
-              remaining_lease_term: result.remaining_lease_term || externalStatuses.remaining_lease_term || p.remaining_lease_term,
-              under_mortgage: result.under_mortgage ?? externalStatuses.under_mortgage ?? p.under_mortgage,
-              has_caveat: result.has_caveat ?? externalStatuses.has_caveat ?? p.has_caveat,
-              in_transaction: result.in_transaction ?? externalStatuses.in_transaction ?? p.in_transaction,
-              planned_land_uses: externalPlannedUses.length > 0 ? externalPlannedUses : p.planned_land_uses,
-            };
-          }
-
-          let color = '#F97316';
-          if (p.hasOverlap) {
-            color = '#EF4444';
-          } else if (p.forSale === true) {
-            color = '#10B981';
-          } else if (p.forSale === false) {
-            color = '#991B1B';
-          }
-
-          return {
-            ...p,
-            color,
-            isVerified: false,
-          };
-        });
-
-        // If the verified parcel was NOT found in the DB list (mapping not yet stored,
-        // or the DB is completely empty), build a ParcelData entry from the
-        // official_registry_polygon the verify-pdf endpoint already returned.
-        const verifiedAlreadyInList = updatedParcels.some((p) => p.upi === verifiedUpi);
-        if (!verifiedAlreadyInList && result.official_registry_polygon) {
-          try {
-            const parcel = toParcelFromMapping(result, true);
-            if (parcel) {
-              updatedParcels.push({
-                ...parcel,
-                isVerified: true,
-                color: getParcelColor(parcel, true),
-                under_mortgage: result.under_mortgage ?? externalStatuses.under_mortgage ?? parcel.under_mortgage,
-                has_caveat: result.has_caveat ?? externalStatuses.has_caveat ?? parcel.has_caveat,
-                in_transaction: result.in_transaction ?? externalStatuses.in_transaction ?? parcel.in_transaction,
-                planned_land_uses: externalPlannedUses.length > 0 ? externalPlannedUses : parcel.planned_land_uses,
-                land_use_type: result.land_use_type || externalStatuses.land_use_type || parcel.land_use_type,
-                tenure_type: result.tenure_type || externalStatuses.tenure_type || parcel.tenure_type,
-                remaining_lease_term: result.remaining_lease_term || externalStatuses.remaining_lease_term || parcel.remaining_lease_term,
-              });
-            }
-          } catch (e) {
-            console.warn('[handleVerify] Could not build parcel from result polygon:', e);
-          }
-        }
-
-        setDbForSaleCount(updatedParcels.filter((p) => p.forSale === true).length);
-        setDbOverlapCount(updatedParcels.filter((p) => p.hasOverlap).length);
-
-        const currentVerifiedParcel = updatedParcels.find((p) => p.upi === verifiedUpi);
-        if (currentVerifiedParcel) {
-          const records: StoredVerifiedParcel[] = JSON.parse(sessionStorage.getItem('verifiedParcelRecords') || '[]');
-          const nextRecord: StoredVerifiedParcel = {
-            upi: verifiedUpi,
-            parcel: { ...currentVerifiedParcel, isVerified: true, color: getParcelColor(currentVerifiedParcel, true) },
-            timestamp: Date.now(),
-          };
-          const filtered = records.filter((r) => r.upi !== verifiedUpi);
-          filtered.push(nextRecord);
-          sessionStorage.setItem('verifiedParcelRecords', JSON.stringify(filtered));
-        }
-
-        setParcels(updatedParcels);
+        setPendingLocationFilters(locationFilters);
         setVerifiedUPI(verifiedUpi);
         setViewMode('all');
-
         setVerificationResult({
           success: true,
           upi: verifiedUpi,
           data: result,
         });
-
       } else {
         setVerificationResult({
           success: false,
@@ -4110,7 +3995,24 @@ export default function ParcelVerificationFlow() {
     setStep('map');
   };
 
-  const handleContinueToVerifiedMap = () => {
+  const handleContinueToVerifiedMap = async () => {
+    // Fetch parcels using the stored filters when user clicks Continue to Map
+    if (pendingLocationFilters) {
+      const hasLocationFilter = Boolean(pendingLocationFilters.province || pendingLocationFilters.district || pendingLocationFilters.sector);
+      const page = hasLocationFilter
+        ? await fetchAllFilteredParcels(pendingLocationFilters)
+        : await fetchAllParcels(pendingLocationFilters);
+      setActiveServerFilters(pendingLocationFilters);
+      setFilterAvailable(false);
+      setLoadedFromDbCount(page.items.length);
+      setTotalParcelsCount(page.total || page.items.length);
+      setDbForSaleCount(page.forSaleCount || page.items.filter((p) => p.forSale === true).length);
+      setDbOverlapCount(page.overlapCount || page.items.filter((p) => p.hasOverlap).length);
+      setBatchPage(0);
+      setHasMoreBatchedParcels(page.hasMore && page.items.length > 0);
+
+      setParcels(page.items);
+    }
     setStep('map');
   };
 
