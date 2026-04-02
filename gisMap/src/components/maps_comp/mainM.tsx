@@ -3964,15 +3964,36 @@ export default function ParcelVerificationFlow() {
       const page = (province || district || sector)
         ? await fetchAllFilteredParcels(locationFilters)
         : await fetchAllParcels(locationFilters);
+      const verifiedPlannedLandUses = verificationResult.plannedLandUses || [];
       // Always include the verified parcel itself
-      let updatedParcels = page.items;
+      let updatedParcels = page.items.map((parcel) => {
+        if (parcel.upi !== verificationResult.upi) {
+          return parcel;
+        }
+
+        return {
+          ...parcel,
+          isVerified: true,
+          planned_land_uses: verifiedPlannedLandUses.length > 0
+            ? verifiedPlannedLandUses
+            : parcel.planned_land_uses,
+          color: getParcelColor(parcel, true),
+        };
+      });
       // If the verified parcel is not in the list, add it from the verification result
       if (!updatedParcels.some((p) => p.upi === verificationResult.upi) && result.official_registry_polygon) {
         try {
           const parcel = toParcelFromMapping(result, true);
           if (parcel) {
             updatedParcels = [
-              { ...parcel, isVerified: true, color: getParcelColor(parcel, true) },
+              {
+                ...parcel,
+                isVerified: true,
+                planned_land_uses: verifiedPlannedLandUses.length > 0
+                  ? verifiedPlannedLandUses
+                  : parcel.planned_land_uses,
+                color: getParcelColor(parcel, true),
+              },
               ...updatedParcels,
             ];
           }
